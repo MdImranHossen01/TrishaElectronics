@@ -1,4 +1,4 @@
-name: Deploy RumasWorld to DigitalOcean
+name: Deploy TrishnaElectronics to DigitalOcean
 
 on:
   push:
@@ -7,8 +7,8 @@ on:
 
 env:
   DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
-  DOCKER_IMAGE_NAME: rumasworld-app
-  DOCKER_IMAGE_TAG: ${{ secrets.DOCKER_HUB_USERNAME }}/rumasworld-app:latest
+  DOCKER_IMAGE_NAME: trishnaelectronics-app
+  DOCKER_IMAGE_TAG: ${{ secrets.DOCKER_HUB_USERNAME }}/trishnaelectronics-app:latest
 
 jobs:
   build-and-push:
@@ -47,17 +47,17 @@ jobs:
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
           script: |
-            mkdir -p ~/rumasworld
-            cd ~/rumasworld
+            mkdir -p ~/trishnaelectronics
+            cd ~/trishnaelectronics
 
             cat << 'EOF' > docker-compose.yml
             services:
               web:
                 image: ${{ env.DOCKER_IMAGE_TAG }}
-                container_name: rumasworld-app
+                container_name: trishnaelectronics-app
                 restart: unless-stopped
                 ports:
-                  - "3003:3000"
+                  - "3000:3000"
                 env_file:
                   - .env.local
                 deploy:
