@@ -182,7 +182,7 @@ export default function NavbarV2() {
         ${isHomePage && !isScrolled ? 'lg:bg-transparent lg:border-none lg:shadow-none lg:py-4' : ''}
         ${isHomePage && isScrolled ? 'lg:bg-background/80 lg:backdrop-blur-md lg:shadow-md lg:py-2' : ''}
       `}>
-        <div className="container mx-auto px-4 md:px-8 flex items-center justify-between">
+        <div className="container mx-auto px-4 flex items-center justify-between">
 
           {/* Left: Logo & Mobile Menu */}
           <div className="flex items-center gap-2">

@@ -47,7 +47,7 @@ export default function HeroV2({ banners }: HeroSliderProps) {
 
   useEffect(() => {
     if (!emblaApi) return;
-    
+
     // Defer the initial selection update to avoid synchronous setState during render/effect phase
     const timeoutId = setTimeout(() => {
       onSelect();
@@ -125,7 +125,7 @@ export default function HeroV2({ banners }: HeroSliderProps) {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.8, delay: 0.3 }}
                   >
-                    <h1 className="text-[18px] sm:text-4xl md:text-5xl lg:text-6xl font-black text-white leading-tight tracking-tighter mb-6 sm:mb-8 drop-shadow-2xl uppercase">
+                    <h1 className="text-[18px] sm:text-3xl md:text-4xl lg:text-5xl font-black text-white leading-tight tracking-tighter mb-6 sm:mb-8 drop-shadow-2xl uppercase">
                       {banner.title}
                     </h1>
 
@@ -182,8 +182,8 @@ export default function HeroV2({ banners }: HeroSliderProps) {
           >
             <span
               className={`transition-all duration-300 rounded-full ${i === activeIndex
-                  ? "w-8 h-1 sm:w-8 sm:h-1.5 bg-primary shadow-[0_0_10px_rgba(255,0,0,0.5)]"
-                  : "w-1.5 h-1.5 sm:w-2 sm:h-2 bg-white/30"
+                ? "w-8 h-1 sm:w-8 sm:h-1.5 bg-primary shadow-[0_0_10px_rgba(255,0,0,0.5)]"
+                : "w-1.5 h-1.5 sm:w-2 sm:h-2 bg-white/30"
                 }`}
             />
           </button>
