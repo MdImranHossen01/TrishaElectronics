@@ -42,7 +42,7 @@ export function MobileMenu({ navItems, categories, session, triggerClassName }: 
         <div className="flex flex-col h-full bg-background font-jost">
           {/* Header */}
           <div className="p-6 border-b">
-            <Logo onClick={() => setOpen(false)} />
+            <Logo onClick={() => setOpen(false)} textClassName="text-sm whitespace-nowrap" />
           </div>
 
           {/* Navigation Items */}
@@ -92,16 +92,7 @@ export function MobileMenu({ navItems, categories, session, triggerClassName }: 
             </nav>
           </div>
 
-          {/* Footer Actions */}
-          {!session && (
-            <div className="p-6 border-t bg-muted/30">
-              <Link href="/login" onClick={() => setOpen(false)}>
-                <button className="w-full py-4 bg-primary text-white font-black uppercase tracking-[0.2em] rounded-xl text-xs shadow-xl shadow-primary/20">
-                  Access Account
-                </button>
-              </Link>
-            </div>
-          )}
+          {/* Footer Actions (Removed as per user request) */}
         </div>
       </SheetContent>
     </Sheet>

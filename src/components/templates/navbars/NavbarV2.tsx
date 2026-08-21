@@ -8,9 +8,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import {
   Search,
   ShoppingCart,
-  User,
-  Menu,
-  X,
+
   Heart,
   LogOut,
   LayoutDashboard,
