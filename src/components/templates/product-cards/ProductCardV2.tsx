@@ -195,13 +195,13 @@ export default function ProductCardV2({ product: initialProduct, isFlashSale }: 
   };
 
   const mainCategory = product.categories && product.categories.length > 0 ? product.categories[0] : null;
-  const categoryName = mainCategory?.name || 'TRISHNA ELECTRONICS';
+  const categoryName = mainCategory?.name || 'OMOR AUTO CORNER';
 
   return (
     <div className="group relative flex flex-col bg-background rounded-md border border-border/60 overflow-hidden transition-all duration-300 hover:shadow-[0_4px_20px_rgba(0,0,0,0.08)] h-full">
       {/* Image & Hover Action Buttons */}
       <div className="relative aspect-square w-full overflow-hidden bg-muted/10 flex items-center justify-center border-b border-border/30">
-        <Link href={`/product/${product.slug}`} className="relative block h-full w-full">
+        <Link prefetch={true} href={`/product/${product.slug}`} className="relative block h-full w-full">
           <Image
             src={product.images?.[0] || '/placeholder.png'}
             alt={product.name}
@@ -322,7 +322,7 @@ export default function ProductCardV2({ product: initialProduct, isFlashSale }: 
           </Link>
 
           {/* Product Title */}
-          <Link href={`/product/${product.slug}`} className="block group/title">
+          <Link prefetch={true} href={`/product/${product.slug}`} className="block group/title">
             <h4 className="text-[13px] font-bold leading-snug tracking-tight line-clamp-2 min-h-[36px] text-foreground hover:text-primary transition-colors">
               {product.name}
             </h4>

@@ -199,13 +199,13 @@ export default function ProductCardV3({ product: initialProduct, isFlashSale }: 
   };
 
   const mainCategory = product.categories && product.categories.length > 0 ? product.categories[0] : null;
-  const categoryName = mainCategory?.name || 'TRISHNA ELECTRONICS';
+  const categoryName = mainCategory?.name || 'OMOR AUTO CORNER';
 
   return (
     <div className="w-full bg-card border border-border/40 rounded-xl overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-lg group flex flex-col h-full relative">
       {/* Image Area */}
       <div className="relative w-full aspect-[4/5] bg-muted/10 overflow-hidden">
-        <Link href={`/product/${product.slug}`} className="relative block h-full w-full">
+        <Link prefetch={true} href={`/product/${product.slug}`} className="relative block h-full w-full">
           <Image
             src={product.images?.[0] || '/placeholder.png'}
             alt={product.name}
@@ -305,7 +305,7 @@ export default function ProductCardV3({ product: initialProduct, isFlashSale }: 
           <Link href={`/shop?category=${mainCategory?.slug || ''}`} className="text-[10px] font-extrabold uppercase tracking-widest text-muted-foreground hover:text-primary transition-colors block">
             {categoryName}
           </Link>
-          <Link href={`/product/${product.slug}`} className="block group/title">
+          <Link prefetch={true} href={`/product/${product.slug}`} className="block group/title">
             <h3 className="text-sm font-bold text-foreground line-clamp-2 min-h-[38px] group-hover/title:text-primary transition-colors leading-snug">
               {product.name}
             </h3>

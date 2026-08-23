@@ -166,7 +166,7 @@ export default function ProductCardV4({ product: initialProduct, isFlashSale }: 
     >
       {/* Boutique Image Container */}
       <div className="relative aspect-[3/4] rounded-none overflow-hidden transition-all duration-700 group-hover:shadow-[0_40px_80px_-20px_rgba(var(--primary-rgb),0.25)] group-hover:-translate-y-4">
-        <Link href={`/product/${product.slug}`} className="relative block h-full w-full">
+        <Link prefetch={true} href={`/product/${product.slug}`} className="relative block h-full w-full">
           {product.images?.length > 1 ? (
             <>
               <Image
@@ -275,7 +275,7 @@ export default function ProductCardV4({ product: initialProduct, isFlashSale }: 
           </div>
         )}
 
-        <Link href={`/product/${product.slug}`} className="block mb-2">
+        <Link prefetch={true} href={`/product/${product.slug}`} className="block mb-2">
           <h3 className="text-xl font-serif italic tracking-tight line-clamp-1 hover:text-primary transition-colors">
             {product.name}
           </h3>

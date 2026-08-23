@@ -169,7 +169,7 @@ export default function ProductCardV5({ product: initialProduct, isFlashSale }: 
     >
       {/* Ethereal Floating Image Container */}
       <div className="relative aspect-[3/4] rounded-none overflow-hidden transition-all duration-700 group-hover:shadow-[0_40px_80px_-20px_rgba(var(--primary-rgb),0.25)] group-hover:-translate-y-4">
-        <Link href={`/product/${product.slug}`} className="relative block h-full w-full">
+        <Link prefetch={true} href={`/product/${product.slug}`} className="relative block h-full w-full">
           <Image
             src={product.images?.[0] || '/placeholder.png'}
             alt={product.name}
@@ -268,11 +268,11 @@ export default function ProductCardV5({ product: initialProduct, isFlashSale }: 
                   {product.isNewArrival ? 'New Season' : 'Essential'}
                 </span>
              </div>
-             <Link href={`/product/${product.slug}`} className="text-muted-foreground hover:text-primary transition-colors">
+             <Link prefetch={true} href={`/product/${product.slug}`} className="text-muted-foreground hover:text-primary transition-colors">
                 <ArrowUpRight className="h-4 w-4" />
              </Link>
           </div>
-          <Link href={`/product/${product.slug}`} className="block">
+          <Link prefetch={true} href={`/product/${product.slug}`} className="block">
             <h3 className="text-2xl font-bold tracking-tighter leading-tight hover:text-primary transition-colors line-clamp-1">
               {product.name}
             </h3>

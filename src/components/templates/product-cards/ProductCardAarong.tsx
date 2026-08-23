@@ -90,7 +90,7 @@ export default function ProductCardAarong({ product: initialProduct, isFlashSale
 
       {/* Aspect 3/4 Image Container */}
       <div className="relative aspect-[3/4] overflow-hidden bg-muted w-full">
-        <Link href={`/product/${product.slug}`} className="relative block h-full w-full">
+        <Link prefetch={true} href={`/product/${product.slug}`} className="relative block h-full w-full">
           <Image
             src={product.images?.[0] || '/placeholder.png'}
             alt={product.name}
@@ -121,7 +121,7 @@ export default function ProductCardAarong({ product: initialProduct, isFlashSale
 
       {/* Product Text details - Left aligned */}
       <div className="mt-3 flex flex-col gap-1.5 text-left px-1">
-        <Link
+        <Link prefetch={true}
           href={`/product/${product.slug}`}
           className="text-xs sm:text-sm font-semibold text-foreground hover:text-primary transition-colors leading-snug line-clamp-2"
           title={product.name}
