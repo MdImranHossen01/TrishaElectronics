@@ -27,7 +27,7 @@ export function AdminDashboardSkeleton() {
 
       {/* 9/12 Metric Stat Cards Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-        {Array.from({ length: 8 }).map((_, i) => (
+        {Array.from({ length: 9 }).map((_, i) => (
           <div
             key={i}
             className="p-4 sm:p-5 rounded-2xl border border-border/50 bg-card shadow-sm flex flex-col items-center justify-center space-y-3 min-h-[130px]"
@@ -297,8 +297,46 @@ export function AdminLedgerSkeleton() {
 }
 
 /**
- * Skeleton for Form / Edit pages (New Product, Edit Product, New Blog, Edit Blog, etc.)
+ * Skeleton for Task Management Kanban / Board page
  */
+export function AdminTaskBoardSkeleton() {
+  return (
+    <div className="p-4 md:p-8 space-y-6 max-w-7xl mx-auto animate-pulse">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-52 rounded-lg" />
+          <Skeleton className="h-4 w-60 rounded" />
+        </div>
+        <Skeleton className="h-10 w-36 rounded-xl" />
+      </div>
+
+      {/* Columns */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {Array.from({ length: 3 }).map((_, colIndex) => (
+          <div key={colIndex} className="p-4 rounded-2xl border border-border/60 bg-card/60 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-border/40">
+              <Skeleton className="h-5 w-28 rounded" />
+              <Skeleton className="h-5 w-8 rounded-full" />
+            </div>
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, cardIndex) => (
+                <div key={cardIndex} className="p-4 rounded-xl border border-border/40 bg-card space-y-3 shadow-xs">
+                  <Skeleton className="h-5 w-3/4 rounded" />
+                  <Skeleton className="h-3 w-full rounded" />
+                  <div className="flex items-center justify-between pt-2">
+                    <Skeleton className="h-6 w-6 rounded-full" />
+                    <Skeleton className="h-4 w-20 rounded" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 export function AdminFormSkeleton({ titleWidth = 'w-48' }: { titleWidth?: string }) {
   return (
     <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto animate-pulse">

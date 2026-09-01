@@ -20,12 +20,14 @@ import {
 } from '@/components/ui/dropdown-menu';
 import Swal from 'sweetalert2';
 import { generateHtml } from '@/lib/server-html';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface ProductDetailsV3ClientProps {
   product: any;
 }
 
 export default function ProductDetailsV3Client({ product }: ProductDetailsV3ClientProps) {
+  const { t } = useLanguage();
   const router = useRouter();
   const { data: session } = useSession();
   const dispatch = useAppDispatch();
@@ -106,7 +108,7 @@ export default function ProductDetailsV3Client({ product }: ProductDetailsV3Clie
   const displayStock = hasVariants ? (currentVariant?.stock ?? 0) : (product.stock ?? 0);
 
   const handleAddToCart = () => {
-    if (displayStock <= 0) return toast.error('Selection Unavailable');
+    if (displayStock <= 0) return toast.error(t('store.product.out_of_stock') as string || 'Selection Unavailable');
     dispatch(addToCart({
       productId: product._id,
       name: product.name,
@@ -117,7 +119,7 @@ export default function ProductDetailsV3Client({ product }: ProductDetailsV3Clie
       color: currentColor || undefined,
       size: currentSize || undefined
     }));
-    toast.success(`${product.name} initialized in cart`);
+    toast.success(`${product.name} ${t('store.product.added_to_cart') || 'initialized in cart'}`);
   };
 
   const handleFavorite = async () => {
@@ -248,11 +250,11 @@ export default function ProductDetailsV3Client({ product }: ProductDetailsV3Clie
                 </div>
              </div>
 
-             <div className="space-y-12 mb-12">
-                {uniqueColors.length > 0 && (
-                   <div className="space-y-4">
-                      <span className="text-[10px] font-mono font-bold text-muted-foreground uppercase tracking-[0.3em]">C_ID / Aesthetic</span>
-                      <div className="flex gap-4">
+              <div className="space-y-12 mb-12">
+                 {uniqueColors.length > 0 && (
+                    <div className="space-y-4">
+                       <span className="text-[10px] font-mono font-bold text-muted-foreground uppercase tracking-[0.3em]">{t('store.product.color') || 'C_ID / Aesthetic'}</span>
+                       <div className="flex gap-4">
                          {uniqueColors.map((color: any) => (
                             <button 
                               key={color} 
@@ -266,10 +268,10 @@ export default function ProductDetailsV3Client({ product }: ProductDetailsV3Clie
                       </div>
                    </div>
                 )}
-                {uniqueSizes.length > 0 && (
-                   <div className="space-y-4">
-                      <span className="text-[10px] font-mono font-bold text-muted-foreground uppercase tracking-[0.3em]">S_ID / Size</span>
-                      <div className="flex flex-wrap gap-2">
+                 {uniqueSizes.length > 0 && (
+                    <div className="space-y-4">
+                       <span className="text-[10px] font-mono font-bold text-muted-foreground uppercase tracking-[0.3em]">{t('store.product.size') || 'S_ID / Size'}</span>
+                       <div className="flex flex-wrap gap-2">
                          {uniqueSizes.map((size: any) => (
                             <button 
                               key={size} 
@@ -311,13 +313,13 @@ export default function ProductDetailsV3Client({ product }: ProductDetailsV3Clie
                      disabled={displayStock <= 0}
                      className="h-14 flex-1 rounded-2xl bg-primary text-white font-mono font-black text-lg gap-3 uppercase tracking-widest shadow-xl shadow-primary/30 hover:scale-[1.02] active:scale-95 transition-all"
                    >
-                      <ShoppingCart className="h-5 w-5" /> {displayStock > 0 ? 'Initialize Purchase' : 'System Offline'}
+                      <ShoppingCart className="h-5 w-5" /> {displayStock > 0 ? t('store.product.add_to_cart') || 'Initialize Purchase' : t('store.product.sold_out') || 'System Offline'}
                    </Button>
                 </div>
                 
                 <div className="flex gap-4">
                    <Button variant="outline" className="flex-1 h-14 rounded-2xl border-2 font-mono font-black text-[10px] uppercase tracking-widest gap-2" onClick={handleFavorite}>
-                      <Heart className={`h-4 w-4 ${isInWishlist ? 'fill-primary text-primary' : ''}`} /> Save_Collection
+                      <Heart className={`h-4 w-4 ${isInWishlist ? 'fill-primary text-primary' : ''}`} /> {t('store.product.wishlist') || 'Save_Collection'}
                    </Button>
                    <Button variant="outline" className="h-14 w-14 rounded-2xl border-2" onClick={() => {
                       if (navigator.share) navigator.share({ title: product.name, url: window.location.href });

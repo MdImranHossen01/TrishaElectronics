@@ -4,7 +4,7 @@ export async function generateInvoicePDF(orderOrOrders: any | any[], settings: a
   const orders = Array.isArray(orderOrOrders) ? orderOrOrders : [orderOrOrders];
   if (orders.length === 0) return;
 
-  const brandName = settings?.brandName || "Trishna Electronics";
+  const brandName = settings?.brandName || process.env.NEXT_PUBLIC_STORE_NAME || "Store";
   const brandEmail = settings?.contact?.email || "";
   const brandPhone = settings?.contact?.phone || "";
   const brandAddress = settings?.contact?.address || "";
@@ -324,26 +324,30 @@ export async function generateInvoicePDF(orderOrOrders: any | any[], settings: a
 
   const printWindow = window.open('', '_blank');
   if (printWindow) {
-    printWindow.document.open();
     printWindow.document.write(htmlContent);
     printWindow.document.close();
-
+    
+    let hasPrinted = false;
     const triggerPrint = () => {
-      try {
-        printWindow.focus();
-        printWindow.print();
-      } catch (err) {
-        console.error('Print failed:', err);
+      if (hasPrinted) return;
+      hasPrinted = true;
+      printWindow.focus();
+      if (mode === 'print') {
+        printWindow.onafterprint = () => {
+          try {
+            printWindow.close();
+          } catch (e) {}
+        };
       }
+      printWindow.print();
     };
 
-    if (printWindow.document.readyState === 'complete') {
-      setTimeout(triggerPrint, 300);
-    } else {
-      printWindow.onload = () => {
-        setTimeout(triggerPrint, 300);
-      };
-    }
+    printWindow.onload = triggerPrint;
+    
+    setTimeout(() => {
+      if (!hasPrinted) {
+        triggerPrint();
+      }
+    }, 500);
   }
 }
-

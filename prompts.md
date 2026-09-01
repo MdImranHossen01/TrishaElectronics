@@ -1,105 +1,84 @@
-# Product Image Generation Prompts (20 Products, 4 Categories)
+# CDI Door Ind — Showroom Image Prompts (10 Showrooms)
 
-Use these prompts in Midjourney, DALL-E 3, or other AI image generators to create high-quality, professional product thumbnail images.
-
-### Rules for Generation:
-- **Aspect Ratio:** Always generate/crop images in **1:1 square ratio** (e.g., `--ar 1:1` in Midjourney).
-- **Style:** Clean, minimalist studio setup, soft shadows, sharp details, commercial e-commerce product shot style.
-- **Save Format:** Export/convert the final images to `.webp` format.
-- **Save Path:** Place them in: `/public/assets/images/products/`
+This document contains **10 highly unique image generation prompts** for CDI Door Ind showrooms across Bangladesh, each showcasing a completely different architectural style, color palette, and atmospheric mood.
+Generate these images (16:9 landscape aspect ratio), save them as **`.webp`**, and place them in `public/assets/images/showrooms/`. 
 
 ---
 
-## 1. IP Camera (Smart Home Security)
-
-### Product 1: Xiaomi Smart Camera C400
-* **Filename:** `xiaomi-c400.webp`
-* **Prompt:** A sleek white circular spherical smart IP camera with a black lens circle in the middle. Clean studio background, warm aesthetic lighting, commercial tech product shot. Square 1:1.
-
-### Product 2: TP-Link Tapo C210
-* **Filename:** `tapo-c210.webp`
-* **Prompt:** A compact white dome-style home security camera with a black rotational lens head. Minimalist desk setup, soft lighting, sharp product photo. Square 1:1.
-
-### Product 3: Imou Ranger 2
-* **Filename:** `imou-ranger2.webp`
-* **Prompt:** A pear-shaped smart IP camera, glossy black spherical lens head inside a sleek white body casing. Professional studio lighting, clean light-grey background. Square 1:1.
-
-### Product 4: Eufy Security Solo OutdoorCam C22
-* **Filename:** `eufy-c22.webp`
-* **Prompt:** A small white square-shaped outdoor IP camera with a prominent black lens, sitting on a miniature wooden stand. Studio setup, clean commercial shot. Square 1:1.
-
-### Product 5: Srihome SH025 Auto Tracking Camera
-* **Filename:** `srihome-sh025.webp`
-* **Prompt:** An indoor pan-tilt IP camera, robot-like shape, white plastic body with two antennas at the back. Sharp focus, clean solid background. Square 1:1.
+## 1. Dhaka Central Showroom (Premium Palace Luxury)
+* **Style:** High-End Palace Luxury (White Marble, Glass, Gold Accents)
+* **Filename:** `dhaka-central-showroom.webp`
+* **Prompt:**
+  A wide cinematic interior photograph of a grand luxury door showroom in Dhaka. Double-height ceilings with large gold crystal chandeliers, polished white Italian marble floors reflecting glowing spotlights, and premium solid teak double-doors standing tall on gold-rimmed display frames. Sleek glass walls overlook a soft bokeh of a modern city at twilight. The color palette is white, gold, and deep brown wood. Ultra-detailed, luxury architectural photography, 16:9.
 
 ---
 
-## 2. LED TV (Smart Entertainment)
-
-### Product 6: Sony BRAVIA 55 Inch TV
-* **Filename:** `sony-bravia-55x80l.webp`
-* **Prompt:** Premium thin-bezel 55-inch smart LED TV standing on two sleek metal feet, displaying a colorful vibrant landscape scene. Studio background, soft reflection. Square 1:1.
-
-### Product 7: Samsung 43 Inch 4K TV
-* **Filename:** `samsung-43du7700.webp`
-* **Prompt:** A sleek 43-inch Samsung smart TV, displaying a beautiful cinematic graphic on screen, modern minimalist stand, clean product studio backdrop. Square 1:1.
-
-### Product 8: Xiaomi TV A Pro 55 Inch
-* **Filename:** `xiaomi-apro-55.webp`
-* **Prompt:** An elegant borderless 55-inch metallic frame LED TV, displaying a vivid nature video, professional e-commerce product shot. Square 1:1.
-
-### Product 9: LG 50 Inch 4K TV
-* **Filename:** `lg-50ur7500.webp`
-* **Prompt:** A modern LG 50-inch smart TV standing on a minimalist shelf, screen displaying sharp colorful graphics, cozy warm light studio background. Square 1:1.
-
-### Product 10: Singer 32 Inch LED TV
-* **Filename:** `singer-32-led.webp`
-* **Prompt:** A compact 32-inch frameless LED TV, modern stylish feet, clean display active, studio commercial product photography. Square 1:1.
+## 2. Chittagong Port City Showroom (Industrial Loft & Raw Timber)
+* **Style:** Modern Industrial Loft (Exposed Brick, Concrete, Steel, Matte Black)
+* **Filename:** `chittagong-showroom.webp`
+* **Prompt:**
+  A wide cinematic interior photograph of a modern industrial loft door showroom in Chittagong. Features raw exposed red brick walls, polished gray concrete floors, black steel support beams, and hanging industrial pendant Edison bulbs. Rustic solid oak and raw timber doors are displayed on black iron racks. The space feels open, edgy, and contemporary. Warm amber light contrasting with cool gray concrete. Professional architectural photography, 16:9.
 
 ---
 
-## 3. Projector (Home Cinema)
-
-### Product 11: Wanbo T2 Max New Projector
-* **Filename:** `wanbo-t2-max.webp`
-* **Prompt:** A minimalist vertical rectangular white portable smart projector with a large central glass lens and grill at the bottom. Studio product shot, clean background. Square 1:1.
-
-### Product 12: Epson EB-E01 Projector
-* **Filename:** `epson-eb-e01.webp`
-* **Prompt:** A professional white corporate desktop projector, detailed lens, menu buttons on top. Studio lighting, clean light-grey background. Square 1:1.
-
-### Product 13: XGIMI MoGo 2 Pro
-* **Filename:** `xgimi-mogo2-pro.webp`
-* **Prompt:** A cylindrical metallic gray portable projector with fine mesh grill patterns, sleek and futuristic. Elegant lighting, professional product photo. Square 1:1.
-
-### Product 14: ViewSonic M1 Mini Plus
-* **Filename:** `viewsonic-m1-mini.webp`
-* **Prompt:** A pocket-sized flat square projector with a colorful top accent and a built-in swiveling smart stand. Creative product photography, clean backdrop. Square 1:1.
-
-### Product 15: BenQ TH585P Gaming Projector
-* **Filename:** `benq-th585p.webp`
-* **Prompt:** A high-performance white home entertainment projector, prominent manual zoom lens rings, vents on the side. Crisp studio lighting, commercial shot. Square 1:1.
+## 3. Sylhet Royal Showroom (Classical Victorian Heritage)
+* **Style:** Classical Victorian (Ornate Plaster Moldings, Crystal, Mahogany)
+* **Filename:** `sylhet-showroom.webp`
+* **Prompt:**
+  A wide cinematic interior photograph of a classical Victorian-style door showroom in Sylhet. Rich mahogany and walnut carved doors displayed under detailed white plaster ceiling medallions and ornate wall crown moldings. A large vintage crystal chandelier casts warm flickering candlelight. The floor is covered in dark patterned heritage tiles, and deep crimson velvet curtains hang by the windows. Warm, royal, and historic mood. 16:9.
 
 ---
 
-## 4. CC Camera (Professional Security)
+## 4. Khulna Eco Showroom (Biophilic Greenhouse & Bamboo)
+* **Style:** Biophilic Eco-Friendly (Plants, Skylights, Light Bamboo, Natural Light)
+* **Filename:** `khulna-showroom.webp`
+* **Prompt:**
+  A wide cinematic interior photograph of a biophilic, eco-friendly door showroom in Khulna. Sunlight streams down from a large glass ceiling skylight onto light-colored bamboo wood floors. Numerous green leafy plants, hanging ivy vines, and vertical garden walls surround the displays of natural wood doors (teak, garjan). Clean, fresh, organic, and airy atmosphere with natural green and beige tones. 16:9.
 
-### Product 16: Hikvision Dome Camera
-* **Filename:** `hikvision-dome-2ce76d0t.webp`
-* **Prompt:** A professional dome CC security camera, white plastic housing, dark glass cover dome, showing the lens assembly inside. Clean studio setup. Square 1:1.
+---
 
-### Product 17: Dahua Bullet Camera
-* **Filename:** `dahua-bullet-hfw1200rp.webp`
-* **Prompt:** A classic white outdoor bullet CC camera, detailed visor hood, adjustable mounting arm. Solid grey studio background, sharp focus. Square 1:1.
+## 5. Rajshahi Silk City Showroom (Scandinavian Minimalist)
+* **Style:** Scandinavian Minimalist (High-Gloss White, Light Oak, Crisp Lines)
+* **Filename:** `rajshahi-showroom.webp`
+* **Prompt:**
+  A wide cinematic interior photograph of a Scandinavian minimalist door showroom in Rajshahi. Sleek high-gloss white laminated doors and light oak veneer flush doors stand along crisp white gallery walls. The floor is light oak herringbone wood, lit by recessed soft white LED strip lighting along the ceiling. Minimalist design with a single pale gray wool armchair and a black steel side table. Clean, quiet, and contemporary. 16:9.
 
-### Product 18: Jovision Dome IP Camera
-* **Filename:** `jovision-dome-n933.webp`
-* **Prompt:** An indoor dome security camera, white casing with metal accents, dark tinted dome glass. Clean e-commerce product presentation, 8k. Square 1:1.
+---
 
-### Product 19: Hikvision IP Dome Camera
-* **Filename:** `hikvision-ip-dome-2cd2143.webp`
-* **Prompt:** A rugged outdoor vandal-proof metal dome IP camera with IR LEDs visible around the lens. Premium industrial product shot, clean background. Square 1:1.
+## 6. Barisal Riverfront Showroom (Cozy Warm Cabin)
+* **Style:** Rustic Cozy Cabin (Hardwood, Stone Fireplace, Soft Yellow Lamps)
+* **Filename:** `barisal-showroom.webp`
+* **Prompt:**
+  A wide cinematic interior photograph of a cozy rustic cabin-style door showroom in Barisal. The space has dark hand-scraped hardwood floors, rustic heavy log ceiling beams, and a large stone fireplace glowing warmly in the background. Panelled pine and cedar doors are displayed on cozy wooden partition walls. Soft yellow desk lamps and candle lanterns create a warm, comfortable, and inviting cottage atmosphere. 16:9.
 
-### Product 20: Uniview Bullet Camera
-* **Filename:** `uniview-bullet-t112.webp`
-* **Prompt:** A modern white bullet security camera with integrated black faceplate, compact design. Commercial photography, clean light-grey studio setting. Square 1:1.
+---
+
+## 7. Rangpur Heritage Showroom (Artistic Dark Slate Gallery)
+* **Style:** Moody Chiaroscuro Gallery (Dark Slate, Spotlights, Deep Shadows)
+* **Filename:** `rangpur-showroom.webp`
+* **Prompt:**
+  A wide cinematic interior photograph of an artistic gallery-style door showroom in Rangpur. Intricately hand-carved designer doors stand alone like statues, illuminated by sharp dramatic overhead spotlights against dark slate-gray stone walls. The floor is dark polished stone. Deep shadows and high contrast highlight every carved groove and relief details. Moody, dramatic, and artistic museum-like atmosphere. 16:9.
+
+---
+
+## 8. Comilla Highway Showroom (Futuristic Cyberpunk Commercial)
+* **Style:** High-Tech Cyberpunk (Epoxy Floor, Blue Neon, Digital Displays)
+* **Filename:** `comilla-showroom.webp`
+* **Prompt:**
+  A wide cinematic interior photograph of a high-tech door showroom in Comilla. Glossy white epoxy floor with glowing blue neon LED strip lighting running underneath. Displayed doors feature smart handles, fingerprint scanners, and glass inserts. Large interactive digital catalog screens line the walls. High-tech, futuristic, and commercial look. Color palette is white, silver, and neon blue. 16:9.
+
+---
+
+## 9. Mymensingh Green Showroom (Terracotta Traditional Bengali)
+* **Style:** Bengali Traditional (Red Clay Terracotta, Curved Arches, Brass)
+* **Filename:** `mymensingh-showroom.webp`
+* **Prompt:**
+  A wide cinematic interior photograph of a traditional Bengali-style door showroom in Mymensingh. Polished red clay terracotta tile flooring, curved brick archways separating display zones, and large brass vases filled with marigolds. Sunlight streams through wooden louvered shutters, casting warm light patterns. Traditional panelled teak doors stand proudly in this warm, nostalgic, and culturally rich setting. 16:9.
+
+---
+
+## 10. Cox's Bazar Coastal Showroom (Bright Beachfront Breeze)
+* **Style:** Oceanfront Coastal (Limestone, Beach View, Driftwood, Sun-Drenched)
+* **Filename:** `coxsbazar-showroom.webp`
+* **Prompt:**
+  A wide cinematic interior photograph of a beachfront coastal door showroom in Cox's Bazar. Bright tropical sunlight floods the white-washed room through a massive glass wall overlooking a sandy beach and turquoise ocean. The floor is light sand-colored limestone, and displays are supported by natural driftwood logs. White-washed wood doors and sea-glass colored door models are highlighted. Airy, refreshing, and sun-drenched. 16:9.

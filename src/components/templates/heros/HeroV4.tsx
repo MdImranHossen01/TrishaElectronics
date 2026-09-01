@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, ChevronRight, ArrowRight } from 'lucide-react';
 import useEmblaCarousel from 'embla-carousel-react';
 import Autoplay from 'embla-carousel-autoplay';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface Banner {
   _id?: string;
@@ -27,6 +28,7 @@ interface HeroV4Props {
 const AUTOPLAY_DELAY = 5000;
 
 export default function HeroV4({ banners }: HeroV4Props) {
+  const { t } = useLanguage();
   const [activeIndex, setActiveIndex] = useState(0);
 
   // ── Desktop: main left slider ──────────────────────────────────────
@@ -122,7 +124,7 @@ export default function HeroV4({ banners }: HeroV4Props) {
           <div className="flex h-full w-full">
             {slides.map((banner, index) => {
               const primaryHref = banner.primaryBtnLink || banner.link || '/shop';
-              const primaryText = banner.primaryBtnText || 'Shop Now';
+              const primaryText = banner.primaryBtnText || (t('store.hero.shop_now') as string) || 'Shop Now';
               const secondaryHref = banner.secondaryBtnLink || '/categories';
               const secondaryText = banner.secondaryBtnText;
               const isActive = index === mobileActiveIndex;

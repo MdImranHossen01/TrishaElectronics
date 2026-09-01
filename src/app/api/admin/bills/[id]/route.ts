@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import connectToDatabase from '@/lib/db';
 import Bill from '@/models/Bill';
+import { normalizePhoneNumber } from '@/lib/utils';
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -49,16 +50,26 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       clientName,
       clientPhone,
       clientAddress,
+      clientEmail,
+      clientDivision,
+      clientDistrict,
+      clientThana,
+      clientArea,
       items,
       subtotal,
       deliveryCharge,
+      serviceFee,
       discountType,
       discountValue,
       discount,
+      couponCode,
+      couponDiscount,
+      walletAmountUsed,
       total,
       prevDue,
       gTotal,
       cashIn,
+      changeReturn,
       currentBillDue,
       status,
       expectedReceivableDate,
@@ -67,18 +78,28 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     } = body;
 
     if (clientName !== undefined) bill.clientName = clientName;
-    if (clientPhone !== undefined) bill.clientPhone = clientPhone;
+    if (clientPhone !== undefined) bill.clientPhone = normalizePhoneNumber(clientPhone);
     if (clientAddress !== undefined) bill.clientAddress = clientAddress;
+    if (clientEmail !== undefined) bill.clientEmail = clientEmail;
+    if (clientDivision !== undefined) bill.clientDivision = clientDivision;
+    if (clientDistrict !== undefined) bill.clientDistrict = clientDistrict;
+    if (clientThana !== undefined) bill.clientThana = clientThana;
+    if (clientArea !== undefined) bill.clientArea = clientArea;
     if (items !== undefined) bill.items = items;
     if (subtotal !== undefined) bill.subtotal = subtotal;
     if (deliveryCharge !== undefined) bill.deliveryCharge = deliveryCharge;
+    if (serviceFee !== undefined) bill.serviceFee = serviceFee;
     if (discountType !== undefined) bill.discountType = discountType;
     if (discountValue !== undefined) bill.discountValue = discountValue;
     if (discount !== undefined) bill.discount = discount;
+    if (couponCode !== undefined) bill.couponCode = couponCode ? couponCode.toUpperCase() : undefined;
+    if (couponDiscount !== undefined) bill.couponDiscount = couponDiscount;
+    if (walletAmountUsed !== undefined) bill.walletAmountUsed = walletAmountUsed;
     if (total !== undefined) bill.total = total;
     if (prevDue !== undefined) bill.prevDue = prevDue;
     if (gTotal !== undefined) bill.gTotal = gTotal;
     if (cashIn !== undefined) bill.cashIn = cashIn;
+    if (changeReturn !== undefined) bill.changeReturn = changeReturn;
     if (currentBillDue !== undefined) bill.currentBillDue = currentBillDue;
     if (status !== undefined) bill.status = status;
     if (documentType !== undefined) bill.documentType = documentType;
@@ -93,6 +114,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     }
 
     await bill.save();
+
+    // Upsert customer info to User database
+    try {
+      const { upsertCustomer } = await import('@/lib/customerHelper');
+      await upsertCustomer(bill.clientName, bill.clientPhone, bill.clientAddress);
+    } catch (custErr) {
+      console.error('Error upserting customer during update:', custErr);
+    }
 
     // Log payment updates to ledger
     const paymentReceived = (bill.cashIn || 0) - prevCashInValue;

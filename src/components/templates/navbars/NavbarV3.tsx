@@ -22,8 +22,10 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { MobileMenu } from '@/components/layout/MobileMenu';
 import { MobileNavbar } from '@/components/layout/MobileNavbar';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 export default function NavbarV3() {
+  const { t } = useLanguage();
   const router = useRouter();
   const { data: session } = useSession();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -128,9 +130,9 @@ export default function NavbarV3() {
 
 
   const NAV_LINKS = [
-    { label: 'Shop', href: '/shop' },
-    { label: 'Curated', href: '/categories' },
-    { label: 'Journal', href: '/blog' }
+    { label: t('store.nav.shop'), href: '/shop' },
+    { label: t('store.nav.categories'), href: '/categories' },
+    { label: t('store.nav.blogs'), href: '/blog' }
   ];
 
   return (
@@ -170,7 +172,7 @@ export default function NavbarV3() {
             {/* Center: Logo */}
             <div className="absolute left-1/2 -translate-x-1/2">
               <Link href="/" className="text-4xl font-serif tracking-widest italic hover:opacity-60 transition-opacity">
-                Trishna Electronics
+                Omor Auto Corner
               </Link>
             </div>
 
@@ -183,7 +185,7 @@ export default function NavbarV3() {
                     <input
                       ref={searchInputRef}
                       type="text"
-                      placeholder="Search products..."
+                      placeholder={t('store.nav.search_placeholder') as string}
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                       autoComplete="off"
@@ -207,7 +209,7 @@ export default function NavbarV3() {
                   <div className="absolute top-full left-0 mt-3 w-72 bg-background border border-border rounded-2xl shadow-xl z-50 overflow-hidden">
                     {isSearching ? (
                       <div className="flex items-center justify-center py-6 gap-2 text-muted-foreground text-xs">
-                        <div className="h-3 w-3 rounded-full border-2 border-primary border-t-transparent animate-spin" /> Searching...
+                        <div className="h-3 w-3 rounded-full border-2 border-primary border-t-transparent animate-spin" /> {t('store.nav.searching')}
                       </div>
                     ) : liveResults.length > 0 ? (
                       <>
@@ -238,13 +240,13 @@ export default function NavbarV3() {
                         </ul>
                         <div className="border-t border-border/50 px-4 py-2.5">
                           <Link href={`/shop?search=${encodeURIComponent(searchTerm.trim())}`} onClick={handleResultClick} className="flex items-center justify-center gap-1.5 text-xs font-semibold text-primary hover:underline">
-                            <Search className="h-3 w-3" /> See all results for &ldquo;{searchTerm}&rdquo;
+                            <Search className="h-3 w-3" /> {t('store.nav.see_all_results')} &ldquo;{searchTerm}&rdquo;
                           </Link>
                         </div>
                       </>
                     ) : (
                       <div className="flex flex-col items-center py-6 text-muted-foreground text-xs gap-1">
-                        <Search className="h-5 w-5 mb-1 opacity-40" /> No results found for &ldquo;{searchTerm}&rdquo;
+                        <Search className="h-5 w-5 mb-1 opacity-40" /> {t('store.nav.no_results')} &ldquo;{searchTerm}&rdquo;
                       </div>
                     )}
                   </div>
@@ -297,7 +299,7 @@ export default function NavbarV3() {
                           {profile && (
                             <div className="mt-1.5 flex items-center gap-1.5 bg-primary/10 px-2 py-0.5 rounded-full w-fit border border-primary/20">
                               <Package className="h-3 w-3 text-primary" />
-                              <span className="text-[10px] font-bold text-primary">৳{profile.walletBalance || 0} Tokens</span>
+                              <span className="text-[10px] font-bold text-primary">৳{profile.walletBalance || 0} {t('store.nav.tokens')}</span>
                             </div>
                           )}
                         </div>
@@ -309,12 +311,12 @@ export default function NavbarV3() {
                         <>
                           <DropdownMenuItem asChild>
                             <Link href="/admin/dashboard" className="cursor-pointer">
-                              <LayoutDashboard className="mr-2 h-4 w-4" /> Admin Dashboard
+                              <LayoutDashboard className="mr-2 h-4 w-4" /> {t('store.nav.admin_dashboard')}
                             </Link>
                           </DropdownMenuItem>
                           <DropdownMenuItem asChild>
                             <Link href="/admin/system-design" className="cursor-pointer">
-                              <Settings className="mr-2 h-4 w-4" /> Infrastructure & Marketing
+                              <Settings className="mr-2 h-4 w-4" /> {t('store.nav.infrastructure')}
                             </Link>
                           </DropdownMenuItem>
                         </>
@@ -324,12 +326,12 @@ export default function NavbarV3() {
                         <>
                           <DropdownMenuItem asChild>
                             <Link href="/admin/dashboard" className="cursor-pointer">
-                              <LayoutDashboard className="mr-2 h-4 w-4" /> Admin Dashboard
+                              <LayoutDashboard className="mr-2 h-4 w-4" /> {t('store.nav.admin_dashboard')}
                             </Link>
                           </DropdownMenuItem>
                           <DropdownMenuItem asChild>
                             <Link href="/admin/orders" className="cursor-pointer">
-                              <Truck className="mr-2 h-4 w-4" /> Manage Orders
+                              <Truck className="mr-2 h-4 w-4" /> {t('store.nav.manage_orders')}
                             </Link>
                           </DropdownMenuItem>
                         </>
@@ -339,12 +341,12 @@ export default function NavbarV3() {
                         <>
                           <DropdownMenuItem asChild>
                             <Link href="/dashboard" className="cursor-pointer">
-                              <LayoutDashboard className="mr-2 h-4 w-4" /> Dashboard
+                              <LayoutDashboard className="mr-2 h-4 w-4" /> {t('store.nav.dashboard')}
                             </Link>
                           </DropdownMenuItem>
                           <DropdownMenuItem asChild>
                             <Link href="/track-order" className="cursor-pointer">
-                              <Truck className="mr-2 h-4 w-4" /> Track Order
+                              <Truck className="mr-2 h-4 w-4" /> {t('store.nav.track_order')}
                             </Link>
                           </DropdownMenuItem>
                         </>
@@ -352,7 +354,7 @@ export default function NavbarV3() {
                     </DropdownMenuGroup>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => signOut({ callbackUrl: window.location.origin })} className="text-destructive cursor-pointer">
-                      <LogOut className="mr-2 h-4 w-4" /> Sign Out
+                      <LogOut className="mr-2 h-4 w-4" /> {t('store.nav.sign_out')}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>

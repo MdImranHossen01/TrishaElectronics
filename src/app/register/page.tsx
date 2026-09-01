@@ -1,5 +1,6 @@
 'use client';
 
+import { useLanguage } from '@/contexts/LanguageContext';
 import { useState } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
@@ -53,7 +54,8 @@ const registerSchema = z.object({
   path: ["confirmPassword"],
 });
 
-export default function RegisterPage() {
+export default function RegisterPage() {  const { t } = useLanguage();
+
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
@@ -84,10 +86,15 @@ export default function RegisterPage() {
   async function onSubmit(values: z.infer<typeof registerSchema>) {
     setIsLoading(true);
     try {
+      const { normalizePhoneNumber } = await import('@/lib/utils');
+      const payload = {
+        ...values,
+        phone: normalizePhoneNumber(values.phone),
+      };
       const response = await fetch('/api/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(values),
+        body: JSON.stringify(payload),
       });
 
       let data;
@@ -101,6 +108,9 @@ export default function RegisterPage() {
 
       if (!response.ok) {
         toast.error(data.message || 'Registration failed');
+      } else if (data.upgraded) {
+        toast.success('Account upgraded! Your previous orders are preserved. Please log in.');
+        router.push('/login');
       } else {
         toast.success('Registered successfully! Please log in.');
         router.push('/login');
@@ -125,38 +135,9 @@ export default function RegisterPage() {
 
   return (
     <div className="relative min-h-screen">
-      {/* Left Side: Image Banner */}
-      <motion.div
-        initial={{ opacity: 0, x: -50 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ duration: 0.8, ease: "easeOut" }}
-        className="fixed inset-y-0 left-0 hidden w-1/2 bg-muted lg:block"
-      >
-        <Image
-          src="/assets/register_banner_v2.webp"
-          alt="Register Banner"
-          fill
-          priority
-          className="absolute inset-0 h-full w-full object-cover brightness-[0.8] contrast-[1.1]"
-          sizes="50vw"
-        />
-        <div className="absolute inset-0 bg-linear-to-t from-black/60 to-transparent flex flex-col justify-end p-12">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4, duration: 0.6 }}
-          >
-            <h2 className="text-4xl font-bold text-white mb-4 font-serif">Join Our Community</h2>
-            <p className="text-lg text-white/80 max-w-md">
-              Create an account today to enjoy a personalized shopping experience and exclusive member benefits.
-            </p>
-          </motion.div>
-        </div>
-      </motion.div>
-
-      {/* Right Side: Register Form */}
-      <div className="flex flex-col p-6 md:p-10 bg-background lg:ml-[50%] min-h-screen">
-        <div className="flex justify-center gap-2 md:justify-start mb-8">
+      {/* Register Form centered */}
+      <div className="flex flex-col p-6 md:p-10 bg-background min-h-screen items-center justify-center w-full">
+        <div className="flex justify-center mb-8">
           <Logo />
         </div>
 
@@ -168,7 +149,7 @@ export default function RegisterPage() {
         >
           <div className="w-full max-w-lg space-y-8 py-8">
             <div className="space-y-2 text-center">
-              <h1 className="text-3xl font-bold tracking-tight">Create an account</h1>
+              <h1 className="text-3xl font-bold tracking-tight">{t('auth.register.title') || 'Create an account'}</h1>
               <p className="text-sm text-muted-foreground">
                 Join us today and start your shopping journey
               </p>
@@ -218,7 +199,7 @@ export default function RegisterPage() {
                       name="name"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Full Name</FormLabel>
+                          <FormLabel>{t('auth.register.full_name') || 'Full Name'}</FormLabel>
                           <FormControl>
                             <Input placeholder="John Doe" {...field} disabled={isLoading} className="h-11 focus-visible:ring-primary/20" />
                           </FormControl>
@@ -231,7 +212,7 @@ export default function RegisterPage() {
                       name="phone"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Mobile Number</FormLabel>
+                          <FormLabel>{t('auth.register.mobile') || 'Mobile Number'}</FormLabel>
                           <FormControl>
                             <Input placeholder="017XXXXXXXX" {...field} disabled={isLoading} className="h-11 focus-visible:ring-primary/20" />
                           </FormControl>
@@ -246,7 +227,7 @@ export default function RegisterPage() {
                     name="email"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Email Address</FormLabel>
+                        <FormLabel>{t('auth.register.email') || 'Email Address'}</FormLabel>
                         <FormControl>
                           <Input placeholder="john@example.com" type="email" {...field} disabled={isLoading} className="h-11 focus-visible:ring-primary/20" />
                         </FormControl>
@@ -260,7 +241,7 @@ export default function RegisterPage() {
                     name="address"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Address Line</FormLabel>
+                        <FormLabel>{t('auth.register.address') || 'Address Line'}</FormLabel>
                         <FormControl>
                           <Input placeholder="House #, Road #, Area" {...field} disabled={isLoading} className="h-11 focus-visible:ring-primary/20" />
                         </FormControl>
@@ -275,7 +256,7 @@ export default function RegisterPage() {
                       name="division"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Division</FormLabel>
+                          <FormLabel>{t('auth.register.division') || 'Division'}</FormLabel>
                           <Select
                             onValueChange={(value) => {
                               field.onChange(value);
@@ -307,7 +288,7 @@ export default function RegisterPage() {
                       name="district"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>District</FormLabel>
+                          <FormLabel>{t('auth.register.district') || 'District'}</FormLabel>
                           <Select
                             onValueChange={(value) => {
                               field.onChange(value);
@@ -338,7 +319,7 @@ export default function RegisterPage() {
                       name="thana"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Thana</FormLabel>
+                          <FormLabel>{t('auth.register.thana') || 'Thana'}</FormLabel>
                           <Select
                             onValueChange={field.onChange}
                             value={field.value}
@@ -368,11 +349,11 @@ export default function RegisterPage() {
                     name="password"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Password</FormLabel>
+                        <FormLabel>{t('auth.login.password') || 'Password'}</FormLabel>
                         <FormControl>
                           <div className="relative">
                             <Input
-                              placeholder="••••••••"
+                              placeholder="Enter your password"
                               type={showPassword ? "text" : "password"}
                               {...field}
                               disabled={isLoading}
@@ -407,11 +388,11 @@ export default function RegisterPage() {
                     name="confirmPassword"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Confirm Password</FormLabel>
+                        <FormLabel>{t('auth.register.confirm_password') || 'Confirm Password'}</FormLabel>
                         <FormControl>
                           <div className="relative">
                             <Input
-                              placeholder="••••••••"
+                              placeholder="Confirm your password"
                               type={showConfirmPassword ? "text" : "password"}
                               {...field}
                               disabled={isLoading}
@@ -450,7 +431,7 @@ export default function RegisterPage() {
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
                       <span className="flex items-center justify-center">
-                        Create Account <ArrowRight className="ml-2 h-4 w-4" />
+                        {t('auth.register.create_account') || 'Create Account'} <ArrowRight className="ml-2 h-4 w-4" />
                       </span>
                     )}
                   </Button>
@@ -459,7 +440,7 @@ export default function RegisterPage() {
             </div>
 
             <div className="text-center text-sm text-muted-foreground">
-              Already have an account?{' '}
+              {t('auth.register.already_have') || 'Already have an account?'}{' '}
               <Link href="/login" className="font-semibold text-primary hover:underline underline-offset-4">
                 Log in instead
               </Link>

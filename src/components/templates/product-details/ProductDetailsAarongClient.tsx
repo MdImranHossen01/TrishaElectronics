@@ -17,12 +17,14 @@ import { generateHtml } from '@/lib/server-html';
 import ShareDialog from '@/components/storefront/ShareDialog';
 import { fbEvent } from '@/lib/fpixel';
 import { ttEvent } from '@/lib/tiktok';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface ProductDetailsAarongClientProps {
   product: any;
 }
 
 export default function ProductDetailsAarongClient({ product }: ProductDetailsAarongClientProps) {
+  const { t } = useLanguage();
   const dispatch = useAppDispatch();
   const { data: session, status } = useSession();
   const wishlist = useAppSelector((state) => state.wishlist.items);
@@ -144,7 +146,7 @@ export default function ProductDetailsAarongClient({ product }: ProductDetailsAa
 
   const handleAddToCart = () => {
     if (displayStock <= 0) {
-      toast.error('Product is out of stock');
+      toast.error(t('store.product.out_of_stock') as string || 'Product is out of stock');
       return;
     }
 
@@ -177,7 +179,7 @@ export default function ProductDetailsAarongClient({ product }: ProductDetailsAa
     fbEvent('AddToCart', trackingPayload, trackingUser);
     ttEvent('AddToCart', trackingPayload, trackingUser);
 
-    toast.success(`${quantity} ${quantity > 1 ? 'items' : 'item'} added to bag`);
+    toast.success(`${quantity} ${quantity > 1 ? 'items' : 'item'} ${t('store.product.added_to_cart') || 'added to bag'}`);
   };
 
   const handleWishlist = () => {
@@ -241,7 +243,7 @@ export default function ProductDetailsAarongClient({ product }: ProductDetailsAa
               </>
             ) : (
               <div className="flex h-full w-full items-center justify-center text-muted-foreground italic">
-                No images available
+                {t('store.product.no_images') || 'No images available'}
               </div>
             )}
           </div>
@@ -314,7 +316,7 @@ export default function ProductDetailsAarongClient({ product }: ProductDetailsAa
           <div className="space-y-4">
             {uniqueColors.length > 0 && (
               <div className="space-y-2">
-                <span className="text-xs font-black uppercase tracking-wider text-muted-foreground">Color: {selectedColor}</span>
+                <span className="text-xs font-black uppercase tracking-wider text-muted-foreground">{t('store.product.color') || 'Color'}: {selectedColor}</span>
                 <div className="flex gap-2.5">
                   {uniqueColors.map((c) => (
                     <button
@@ -335,13 +337,13 @@ export default function ProductDetailsAarongClient({ product }: ProductDetailsAa
 
             {uniqueSizes.length > 0 && (
               <div className="space-y-2">
-                <span className="text-xs font-black uppercase tracking-wider text-muted-foreground">Size</span>
+                <span className="text-xs font-black uppercase tracking-wider text-muted-foreground">{t('store.product.size') || 'Size'}</span>
                 <select
                   value={selectedSize || ''}
                   onChange={(e) => setSelectedSize(e.target.value || null)}
                   className="w-full h-11 px-3 bg-background border border-border focus:border-primary outline-none text-xs font-semibold uppercase tracking-wider"
                 >
-                  <option value="" disabled>Choose an Option...</option>
+                  <option value="" disabled>{t('store.product.select_size') || 'Choose an Option...'}</option>
                   {uniqueSizes.map((s) => (
                     <option key={s} value={s} disabled={!availableSizes.includes(s)}>
                       {s} {!availableSizes.includes(s) && '(Out of stock)'}
@@ -355,7 +357,7 @@ export default function ProductDetailsAarongClient({ product }: ProductDetailsAa
 
         {/* Quantity & Stock Alert */}
         <div className="space-y-3">
-          <span className="text-xs font-black uppercase tracking-wider text-muted-foreground block">Quantity</span>
+          <span className="text-xs font-black uppercase tracking-wider text-muted-foreground block">{t('store.product.quantity') || 'Quantity'}</span>
           <div className="flex items-center gap-3">
             <div className="flex items-center border border-border h-11">
               <button
@@ -376,7 +378,7 @@ export default function ProductDetailsAarongClient({ product }: ProductDetailsAa
             </div>
             
             {displayStock <= 0 ? (
-              <span className="text-xs font-black uppercase text-destructive tracking-widest animate-pulse ml-2">OUT OF STOCK</span>
+              <span className="text-xs font-black uppercase text-destructive tracking-widest animate-pulse ml-2">{t('store.product.out_of_stock') || 'OUT OF STOCK'}</span>
             ) : displayStock <= 5 ? (
               <span className="text-xs font-bold text-orange-600 tracking-wider ml-2">Only {displayStock} left in stock!</span>
             ) : null}
@@ -390,7 +392,7 @@ export default function ProductDetailsAarongClient({ product }: ProductDetailsAa
             disabled={displayStock <= 0}
             className="flex-1 h-12 bg-black hover:bg-neutral-900 text-white rounded-none font-black text-xs uppercase tracking-[0.25em] shadow-lg transition duration-300 disabled:bg-neutral-400"
           >
-            ADD TO BAG
+            {t('store.product.add_to_cart') || 'ADD TO BAG'}
           </Button>
           
           <button
@@ -425,7 +427,7 @@ export default function ProductDetailsAarongClient({ product }: ProductDetailsAa
 
           {/* Size Guide activator */}
           <div className="py-3.5 flex items-center justify-between text-foreground hover:text-primary transition-colors cursor-pointer" onClick={() => setActiveTabOpen(activeTabOpen === 'size-guide' ? null : 'size-guide')}>
-            <span className="font-bold uppercase tracking-wider flex items-center gap-1.5"><HelpCircle className="h-4 w-4" /> Size Guide</span>
+            <span className="font-bold uppercase tracking-wider flex items-center gap-1.5"><HelpCircle className="h-4 w-4" /> {t('store.product.size_guide') || 'Size Guide'}</span>
             <Plus className={`h-4 w-4 transition-transform duration-300 ${activeTabOpen === 'size-guide' ? 'rotate-45' : ''}`} />
           </div>
           {activeTabOpen === 'size-guide' && (
@@ -456,13 +458,13 @@ export default function ProductDetailsAarongClient({ product }: ProductDetailsAa
             onClick={() => setDescriptionDrawerOpen(true)} 
             className="py-3.5 flex items-center justify-between text-foreground hover:text-primary transition-colors cursor-pointer"
           >
-            <span className="font-bold uppercase tracking-wider flex items-center gap-1.5"><BookOpen className="h-4 w-4" /> Product Description</span>
+            <span className="font-bold uppercase tracking-wider flex items-center gap-1.5"><BookOpen className="h-4 w-4" /> {t('store.product.description') || 'Product Description'}</span>
             <Plus className="h-4 w-4" />
           </div>
 
           {/* Reviews tab */}
           <div className="py-3.5 flex items-center justify-between text-foreground hover:text-primary transition-colors cursor-pointer" onClick={() => setActiveTabOpen(activeTabOpen === 'reviews' ? null : 'reviews')}>
-            <span className="font-bold uppercase tracking-wider flex items-center gap-1.5"><Star className="h-4 w-4" /> Customer Reviews ({product?.numReviews || 0})</span>
+            <span className="font-bold uppercase tracking-wider flex items-center gap-1.5"><Star className="h-4 w-4" /> {t('store.product.reviews') || 'Customer Reviews'} ({product?.numReviews || 0})</span>
             <Plus className={`h-4 w-4 transition-transform duration-300 ${activeTabOpen === 'reviews' ? 'rotate-45' : ''}`} />
           </div>
           {activeTabOpen === 'reviews' && (

@@ -8,11 +8,11 @@ import LedgerTransaction from '@/models/LedgerTransaction';
 export async function seedLedgerAccounts() {
   await connectToDatabase();
 
-  const accounts: { name: string; code: 'CASH' | 'BANK' | 'AR' | 'AP'; type: 'asset' | 'liability' }[] = [
+  const accounts: { name: string; code: 'CASH' | 'AR' | 'AP' | 'INTEREST_EXP'; type: 'asset' | 'liability' | 'expense' | 'equity' | 'revenue' }[] = [
     { name: 'Cash', code: 'CASH', type: 'asset' },
-    { name: 'Bank', code: 'BANK', type: 'asset' },
     { name: 'Accounts Receivable', code: 'AR', type: 'asset' },
     { name: 'Accounts Payable', code: 'AP', type: 'liability' },
+    { name: 'Interest Expense', code: 'INTEREST_EXP', type: 'expense' },
   ];
 
   for (const acc of accounts) {
@@ -27,9 +27,6 @@ export async function seedLedgerAccounts() {
       });
     }
   }
-
-  // Ensure confirmed/delivered credit orders are synced into Accounts Receivable (AR)
-  await syncCreditOrdersToLedgerAR();
 }
 
 /**
@@ -69,7 +66,7 @@ export async function syncCreditOrdersToLedgerAR() {
 }
 
 export async function logLedgerTransaction(
-  accountCode: 'CASH' | 'BANK' | 'AR' | 'AP',
+  accountCode: string,
   type: 'debit' | 'credit',
   amount: number,
   description: string,
@@ -122,7 +119,7 @@ export async function logLedgerTransaction(
 
   // Recalculate to keep chronological order correct in the DB running balances only if inserted in the past
   if (needsRecalc) {
-    await recalculateLedgerBalance(accountCode, session);
+    await recalculateLedgerBalance(accountCode as any, session);
   }
 
   return transaction;
@@ -131,7 +128,7 @@ export async function logLedgerTransaction(
 /**
  * Recalculate ledger balance for an account
  */
-export async function recalculateLedgerBalance(accountCode: 'CASH' | 'BANK' | 'AR' | 'AP', session?: any) {
+export async function recalculateLedgerBalance(accountCode: string, session?: any) {
   await connectToDatabase();
   const account = await LedgerAccount.findOne({ code: accountCode }).session(session);
   if (!account) return;
@@ -160,9 +157,8 @@ export async function logOrderPaymentToLedger(order: any) {
   try {
     await connectToDatabase();
     
-    // Determine account code based on paymentMethod
-    // Online -> BANK, others (COD, Manual) -> CASH
-    const accountCode = order.paymentMethod === 'Online' ? 'BANK' : 'CASH';
+    // All order payments go to CASH regardless of payment method
+    const accountCode = 'CASH';
     
     const amount = order.totalAmount || 0;
     const orderIdStr = order._id.toString();

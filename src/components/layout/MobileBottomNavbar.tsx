@@ -17,13 +17,21 @@ import {
   Settings,
   Truck,
   LogOut,
-  Package
+  Package,
+  Plus
 } from 'lucide-react';
 import { useAppSelector } from '@/store/hooks';
 import { CartDrawer } from '@/components/layout/CartDrawer';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSession, signOut } from 'next-auth/react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { TransactionForm } from '@/components/admin/TransactionForm';
 
 export function MobileBottomNavbar() {
   const pathname = usePathname();
@@ -34,6 +42,7 @@ export function MobileBottomNavbar() {
   const [isAccountOpen, setIsAccountOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [profile, setProfile] = useState<any>(null);
+  const [isTransactionDialogOpen, setIsTransactionDialogOpen] = useState(false);
 
   const navItems = [
     { href: '/', label: 'Home', icon: Home },
@@ -50,37 +59,13 @@ export function MobileBottomNavbar() {
   };
 
   useEffect(() => {
-    let isMounted = true;
-    const controller = new AbortController();
-
     if (session) {
-      if (!profile) {
-        fetch('/api/user/profile', { signal: controller.signal })
-          .then(res => {
-            if (!res.ok) return null;
-            return res.json();
-          })
-          .then(data => {
-            if (isMounted && data) setProfile(data);
-          })
-          .catch(err => {
-            if (err.name !== 'AbortError') {
-              console.error('Failed to fetch profile', err);
-            }
-          });
-      }
-    } else {
-      if (profile !== null) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setProfile(null);
-      }
+      fetch('/api/user/profile')
+        .then(res => res.json())
+        .then(data => setProfile(data))
+        .catch(err => console.error('Failed to fetch profile', err));
     }
-
-    return () => {
-      isMounted = false;
-      controller.abort();
-    };
-  }, [session, profile]);
+  }, [session]);
 
   const accountHref = session ? '/dashboard' : '/login';
 
@@ -111,23 +96,40 @@ export function MobileBottomNavbar() {
             );
           })}
 
-          {/* Cart Item */}
-          <CartDrawer>
-            <div 
-              aria-label="Open cart drawer"
-              role="button"
-              className="flex flex-col items-center justify-center gap-1 min-w-[64px] text-muted-foreground relative cursor-pointer active:scale-95 transition-transform"
-            >
-              <div className="relative">
-                <ShoppingCart className="h-5 w-5 stroke-[1.5]" />
-                {cartCount > 0 && (
-                  <span className="absolute -top-1.5 -right-1.5 h-4 w-4 bg-primary text-white text-[9px] font-bold rounded-full flex items-center justify-center border-2 border-background">
-                    {cartCount}
-                  </span>
-                )}
+          {/* Cart / Add Transaction Item */}
+          {session && ['admin', 'super_admin', 'showroom_manager'].includes((session.user as any)?.role) ? (
+            <>
+              {/* Spacer to keep flex layout intact */}
+              <div className="min-w-[64px]" />
+              {/* Floating Center Button */}
+              <div className="absolute left-1/2 bottom-2 -translate-x-1/2 flex flex-col items-center z-50">
+                <button
+                  onClick={() => setIsTransactionDialogOpen(true)}
+                  className="flex h-12 w-12 items-center justify-center rounded-full bg-primary text-white shadow-lg hover:bg-primary/95 transition-transform active:scale-90 border-4 border-background outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                  aria-label="Add Transaction"
+                >
+                  <Plus className="h-6 w-6 stroke-[3]" />
+                </button>
               </div>
-            </div>
-          </CartDrawer>
+            </>
+          ) : (
+            <CartDrawer>
+              <button 
+                type="button"
+                aria-label="Open cart drawer"
+                className="flex flex-col items-center justify-center gap-1 min-w-[64px] text-muted-foreground relative cursor-pointer active:scale-95 transition-transform border-none bg-transparent"
+              >
+                <div className="relative">
+                  <ShoppingCart className="h-5 w-5 stroke-[1.5]" />
+                  {cartCount > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 h-4 w-4 bg-primary text-white text-[9px] font-bold rounded-full flex items-center justify-center border-2 border-background">
+                      {cartCount}
+                    </span>
+                  )}
+                </div>
+              </button>
+            </CartDrawer>
+          )}
 
           {/* Search Item */}
           <button
@@ -224,6 +226,42 @@ export function MobileBottomNavbar() {
                       </>
                     )}
 
+                    {(session.user as any)?.role === 'showroom_manager' && (
+                      <>
+                        <Link
+                          href="/showroom/dashboard"
+                          onClick={() => setIsAccountOpen(false)}
+                          className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted text-sm font-medium transition-colors"
+                        >
+                          <LayoutDashboard className="h-5 w-5 text-primary" /> Showroom Dashboard
+                        </Link>
+                      </>
+                    )}
+
+                    {(session.user as any)?.role === 'wholesaler' && (
+                      <>
+                        <Link
+                          href="/wholesaler/dashboard"
+                          onClick={() => setIsAccountOpen(false)}
+                          className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted text-sm font-medium transition-colors"
+                        >
+                          <LayoutDashboard className="h-5 w-5 text-primary" /> Wholesaler Dashboard
+                        </Link>
+                      </>
+                    )}
+
+                    {(session.user as any)?.role === 'employee' && (
+                      <>
+                        <Link
+                          href="/employee/dashboard"
+                          onClick={() => setIsAccountOpen(false)}
+                          className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted text-sm font-medium transition-colors"
+                        >
+                          <LayoutDashboard className="h-5 w-5 text-primary" /> Employee Dashboard
+                        </Link>
+                      </>
+                    )}
+
                     {(session.user as any)?.role === 'user' && (
                       <>
                         <Link
@@ -242,6 +280,18 @@ export function MobileBottomNavbar() {
                           <Truck className="h-5 w-5 text-primary" /> Track Order
                         </Link>
                       </>
+                    )}
+
+                    {['admin', 'super_admin', 'showroom_manager'].includes((session.user as any)?.role) && (
+                      <button
+                        onClick={() => {
+                          setIsAccountOpen(false);
+                          setIsTransactionDialogOpen(true);
+                        }}
+                        className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-emerald-500/10 text-sm font-bold text-emerald-700 dark:text-emerald-500 transition-colors border border-emerald-500/20"
+                      >
+                        <Plus className="h-5 w-5 text-emerald-600 dark:text-emerald-400" /> Add Transaction
+                      </button>
                     )}
                   </div>
 
@@ -297,6 +347,20 @@ export function MobileBottomNavbar() {
           </form>
         </SheetContent>
       </Sheet>
+      <Dialog open={isTransactionDialogOpen} onOpenChange={setIsTransactionDialogOpen}>
+        <DialogContent className="sm:max-w-md bg-background border shadow-lg rounded-xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold">Add Transaction</DialogTitle>
+          </DialogHeader>
+          <TransactionForm onSuccess={() => {
+            setIsTransactionDialogOpen(false);
+            router.refresh();
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new Event('refresh-dashboard'));
+            }
+          }} />
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

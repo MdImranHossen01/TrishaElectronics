@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { Plus } from 'lucide-react';
 import useEmblaCarousel from 'embla-carousel-react';
 import Autoplay from 'embla-carousel-autoplay';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface Category {
   _id: string;
@@ -47,6 +48,7 @@ function CategoryItem({ category }: { category: Category }) {
 }
 
 export default function CategoryV1({ categories }: CategoryShowcaseProps) {
+  const { t } = useLanguage();
   // ── Mobile carousel state ──────────────────────────────────────────
   const [mobileIndex, setMobileIndex] = useState(0);
   const [mobileSnaps, setMobileSnaps] = useState<number[]>([]);
@@ -114,7 +116,7 @@ export default function CategoryV1({ categories }: CategoryShowcaseProps) {
       <div className="container px-4 mx-auto">
         <div className="flex flex-col items-center justify-center text-center space-y-2 mb-5 md:space-y-4 md:mb-10">
           <h2 className="text-2xl font-bold tracking-tighter md:text-4xl text-foreground">
-            Browse by Category
+            {t('store.categories.browse_by_category') || 'Browse by Category'}
           </h2>
         </div>
 

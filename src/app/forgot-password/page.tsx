@@ -1,16 +1,16 @@
 'use client';
 
+import { useLanguage } from '@/contexts/LanguageContext';
 import { useState } from 'react';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { Loader2, GalleryVerticalEnd, ArrowLeft, Send } from 'lucide-react';
+import { Loader2, ArrowLeft, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 
 import { Button } from '@/components/ui/button';
-import Image from 'next/image';
 import {
   Form,
   FormControl,
@@ -26,7 +26,8 @@ const forgotPasswordSchema = z.object({
   email: z.string().email({ message: 'Invalid email address' }),
 });
 
-export default function ForgotPasswordPage() {
+export default function ForgotPasswordPage() {  const { t } = useLanguage();
+
   const [isLoading, setIsLoading] = useState(false);
 
   const form = useForm<z.infer<typeof forgotPasswordSchema>>({
@@ -62,38 +63,9 @@ export default function ForgotPasswordPage() {
 
   return (
     <div className="relative min-h-screen">
-      {/* Left Side: Image Banner */}
-      <motion.div
-        initial={{ opacity: 0, x: -50 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ duration: 0.8, ease: "easeOut" }}
-        className="fixed inset-y-0 left-0 hidden w-1/2 bg-muted lg:block"
-      >
-        <Image
-          src="/assets/forgetpassrod.webp"
-          alt="Forgot Password Banner"
-          fill
-          priority
-          sizes="50vw"
-          className="absolute inset-0 h-full w-full object-cover brightness-[0.8] contrast-[1.1]"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex flex-col justify-end p-12">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4, duration: 0.6 }}
-          >
-            <h2 className="text-4xl font-bold text-white mb-4 font-serif">Secure Your Account</h2>
-            <p className="text-lg text-white/80 max-w-md">
-              Don't worry, it happens to the best of us. Let's get you back into your account.
-            </p>
-          </motion.div>
-        </div>
-      </motion.div>
-
-      {/* Right Side: Forgot Password Form */}
-      <div className="flex flex-col p-6 md:p-10 bg-background lg:ml-[50%] min-h-screen">
-        <div className="flex justify-center gap-2 md:justify-start mb-8">
+      {/* Forgot Password Form centered */}
+      <div className="flex flex-col p-6 md:p-10 bg-background min-h-screen items-center justify-center w-full">
+        <div className="flex justify-center mb-8">
           <Logo />
         </div>
 
@@ -105,9 +77,9 @@ export default function ForgotPasswordPage() {
         >
           <div className="w-full max-w-sm space-y-8">
             <div className="space-y-2 text-center">
-              <h1 className="text-3xl font-bold tracking-tight">Forgot password?</h1>
+              <h1 className="text-3xl font-bold tracking-tight">{t('auth.forgot.title') || 'Forgot password?'}</h1>
               <p className="text-sm text-muted-foreground text-balance">
-                Enter your email address and we'll send you a link to reset your password
+                Enter your email address and we&apos;ll send you a link to reset your password
               </p>
             </div>
 
@@ -118,7 +90,7 @@ export default function ForgotPasswordPage() {
                   name="email"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Email Address</FormLabel>
+                      <FormLabel>{t('auth.register.email') || 'Email Address'}</FormLabel>
                       <FormControl>
                         <Input
                           placeholder="m@example.com"

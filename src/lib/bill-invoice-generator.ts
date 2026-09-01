@@ -51,7 +51,7 @@ export function numberToWords(num: number): string {
 }
 
 export async function generateBillPDF(bill: any, settings: any, mode: 'download' | 'print' = 'download') {
-  const brandName = settings?.brandName || "Inflation Engineering";
+  const brandName = settings?.brandName || process.env.NEXT_PUBLIC_STORE_NAME || "Store";
   const brandEmail = settings?.contact?.email || "";
   const brandPhone = settings?.contact?.phone || "";
   const brandAddress = settings?.contact?.address || "";
@@ -89,7 +89,7 @@ export async function generateBillPDF(bill: any, settings: any, mode: 'download'
     return url;
   };
 
-  const docType = bill.documentType || (bill.billNo ? 'supplier-bill' : 'bill');
+  const docType = bill.documentType || 'bill';
 
   // Titles & Labels
   let title = "BILL INVOICE";
@@ -103,13 +103,9 @@ export async function generateBillPDF(bill: any, settings: any, mode: 'download'
     title = "DELIVERY CHALLAN";
     labelTo = "DELIVER TO:";
     labelNo = "CHALLAN NO #:";
-  } else if (docType === 'supplier-bill') {
-    title = "PURCHASE BILL";
-    labelTo = "SUPPLIER:";
-    labelNo = "BILL NO #:";
   }
 
-  const invoiceId = String(bill.invoiceNo || bill.billNo || bill._id || "").slice(-11).toUpperCase();
+  const invoiceId = String(bill.invoiceNo || bill._id || "").slice(-11).toUpperCase();
   const billDate = bill.date ? new Date(bill.date) : new Date();
   const formattedDate = billDate && isValid(billDate) ? format(billDate, "dd MMM yyyy") : "N/A";
 
@@ -123,16 +119,9 @@ export async function generateBillPDF(bill: any, settings: any, mode: 'download'
   } else if (docType === 'chalan') {
     footerThankYou = `Thank you for choosing ${brandName}!`;
     footerGenerated = `This is a computer generated delivery challan, no signature required.`;
-  } else if (docType === 'supplier-bill') {
-    footerThankYou = `Thank you for your business!`;
-    footerGenerated = `This is a computer generated purchase bill, no signature required.`;
   }
 
-  const clientName = bill.clientName || bill.supplier?.name || "N/A";
-  const clientAddress = bill.clientAddress || bill.supplier?.companyName || "";
-  const clientPhone = bill.clientPhone || bill.supplier?.phone || "";
-
-  const amountToConvert = docType === 'bill' || docType === 'supplier-bill' ? Math.round(bill.gTotal || bill.total || 0) : Math.round(bill.total || 0);
+  const amountToConvert = docType === 'bill' ? Math.round((bill.gTotal ?? bill.total) ?? 0) : Math.round(bill.total || 0);
 
   const htmlContent = `
     <!DOCTYPE html>
@@ -192,26 +181,22 @@ export async function generateBillPDF(bill: any, settings: any, mode: 'download'
             margin-bottom: 5px;
           }
           .brand-logo {
-            font-size: 14px;
+            font-size: 24px;
             font-weight: 700;
             color: var(--primary);
             text-transform: uppercase;
-            margin-bottom: 4px;
-            letter-spacing: 0.05em;
+            margin-bottom: 5px;
           }
           .brand-details {
             font-size: 12px;
             color: var(--muted-foreground);
-            line-height: 1.4;
           }
           .bill-title {
-            font-size: 32px;
-            font-weight: 800;
-            color: var(--foreground);
-            text-align: left;
-            margin: 0 0 8px 0;
-            letter-spacing: -0.025em;
-            text-transform: uppercase;
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--border);
+            text-align: right;
+            margin: 0;
           }
           .details-grid {
             display: flex;
@@ -260,12 +245,12 @@ export async function generateBillPDF(bill: any, settings: any, mode: 'download'
             background-color: var(--primary);
             color: var(--primary-foreground);
             text-align: left;
-            padding: 7px 10px;
+            padding: 10px;
             font-size: 12px;
             text-transform: uppercase;
           }
           td {
-            padding: 5px 10px;
+            padding: 12px 10px;
             border-bottom: 1px solid var(--border);
           }
           .text-right {
@@ -328,21 +313,23 @@ export async function generateBillPDF(bill: any, settings: any, mode: 'download'
         <div class="bill-container">
           <div class="header">
             <div class="brand-logo-container">
-              <h1 class="bill-title">${title}</h1>
               <div class="brand-logo">${brandName}</div>
               <div class="brand-details">
                 ${brandAddress ? `<div>${brandAddress}</div>` : ''}
                 <div>Email: ${brandEmail} | Phone: ${brandPhone}</div>
               </div>
             </div>
+            <div>
+              <h1 class="bill-title">${title}</h1>
+            </div>
           </div>
 
           <div class="details-grid">
             <div class="bill-to">
               <h3>${labelTo}</h3>
-              <p><strong>${clientName}</strong></p>
-              ${clientAddress ? `<p>Address: ${clientAddress}</p>` : ''}
-              ${clientPhone ? `<p>Phone: ${clientPhone}</p>` : ''}
+              <p><strong>${bill.clientName || "Client Name"}</strong></p>
+              ${bill.clientAddress ? `<p>Address: ${bill.clientAddress}</p>` : ''}
+              <p>Phone: ${bill.clientPhone || ""}</p>
             </div>
             <div class="bill-info">
               <h3>Document Info</h3>
@@ -365,12 +352,6 @@ export async function generateBillPDF(bill: any, settings: any, mode: 'download'
                     <span>${format(new Date(bill.expectedReceivableDate), "dd MMM yyyy")}</span>
                   </div>
                 ` : ''}
-              ` : ''}
-              ${docType === 'offer' && bill.expectedDeliveryDate ? `
-                <div class="info-row">
-                  <span class="info-label">Exp. Delivery</span>
-                  <span>${format(new Date(bill.expectedDeliveryDate), "dd MMM yyyy")}</span>
-                </div>
               ` : ''}
             </div>
           </div>
@@ -402,7 +383,7 @@ export async function generateBillPDF(bill: any, settings: any, mode: 'download'
             </tbody>
           </table>
 
-          ${docType !== 'chalan' ? `
+          ${(docType !== 'chalan' || (bill.serviceFee && bill.serviceFee > 0)) ? `
             <div class="totals-container">
               <div class="totals-box">
                 <div class="total-row">
@@ -427,6 +408,18 @@ export async function generateBillPDF(bill: any, settings: any, mode: 'download'
                     <span>- ৳${Math.round(bill.discount)}</span>
                   </div>
                 ` : ''}
+                ${bill.couponCode && (bill.couponDiscount || 0) > 0 ? `
+                  <div class="total-row" style="color: var(--primary);">
+                    <span>Coupon (${bill.couponCode}):</span>
+                    <span>- ৳${Math.round(bill.couponDiscount).toLocaleString()}</span>
+                  </div>
+                ` : ''}
+                ${(bill.walletAmountUsed || 0) > 0 ? `
+                  <div class="total-row" style="color: var(--primary);">
+                    <span>Tokens Redeemed:</span>
+                    <span>- ৳${Math.round(bill.walletAmountUsed).toLocaleString()}</span>
+                  </div>
+                ` : ''}
                 <div class="total-row highlight">
                   <span>Total:</span>
                   <span>৳${Math.round(bill.total || 0)}</span>
@@ -444,28 +437,25 @@ export async function generateBillPDF(bill: any, settings: any, mode: 'download'
                     <span>৳${Math.round(bill.gTotal || 0)}</span>
                   </div>
                   <div class="total-row">
-                    <span>Paid Amount:</span>
-                    <span>৳${Math.round(bill.cashIn || 0)}</span>
+                    <span>Cash Received:</span>
+                    <span>৳${Math.round(bill.cashIn || 0).toLocaleString()}</span>
                   </div>
+                  ${(bill.cashIn || 0) > (bill.gTotal || 0) ? `
+                    <div class="total-row" style="color: #059669; font-weight: 700;">
+                      <span>Change Return:</span>
+                      <span>৳${Math.round((bill.cashIn || 0) - (bill.gTotal || 0)).toLocaleString()}</span>
+                    </div>
+                  ` : ''}
                   <div class="total-row highlight" style="${bill.currentBillDue > 0 ? 'color: #ef4444;' : 'color: var(--primary);'}">
                     <span>Remaining Due:</span>
-                    <span>৳${Math.round(bill.currentBillDue || 0)}</span>
+                    <span>৳${Math.round(bill.currentBillDue || 0).toLocaleString()}</span>
                   </div>
                 ` : ''}
               </div>
             </div>
             
             <div style="margin-top: 15px; margin-bottom: 25px; font-size: 13px; border-top: 1px dashed var(--border); padding-top: 10px;">
-              <div>
-                <strong>Amount in Words:</strong> ${numberToWords(amountToConvert)} Taka Only ${bill.vatTaxIncluded !== undefined ? `(${bill.vatTaxIncluded ? 'VAT & Tax Included' : 'VAT & Tax Excluded'})` : ''}
-              </div>
-              
-              ${bill.termsAndConditions ? `
-                <div style="margin-top: 8px;">
-                  <strong>Terms & Conditions:</strong>
-                  <div style="white-space: pre-wrap; font-style: italic; color: #555; margin-top: 4px;">${bill.termsAndConditions}</div>
-                </div>
-              ` : ''}
+              <strong>Amount in Words:</strong> ${numberToWords(amountToConvert)} Taka Only
             </div>
           ` : ''}
 
@@ -488,15 +478,20 @@ export async function generateBillPDF(bill: any, settings: any, mode: 'download'
       if (hasPrinted) return;
       hasPrinted = true;
       printWindow.focus();
+      printWindow.onafterprint = () => {
+        try {
+          printWindow.close();
+        } catch (e) {}
+      };
       printWindow.print();
-      if (mode === 'print') {
-        printWindow.close();
-      }
     };
 
     printWindow.onload = triggerPrint;
     
-    setTimeout(triggerPrint, 800);
+    setTimeout(() => {
+      if (!hasPrinted) {
+        triggerPrint();
+      }
+    }, 500);
   }
 }
-

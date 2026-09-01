@@ -74,15 +74,27 @@ export async function PATCH(req: NextRequest) {
       }
 
       const Product = (await import('@/models/Product')).default;
-      const becomesValid = ['Confirmed', 'Paid', 'Delivered'].includes(status || '');
+      const becomesValid = ['Confirmed', 'Paid', 'Ready for Delivery', 'Released for Delivery', 'Delivered'].includes(status || '');
 
       for (const id of ids) {
         const updateObj: any = {};
         if (status) updateObj.status = status;
         if (paymentStatus) updateObj.paymentStatus = paymentStatus;
 
+        const existingOrder = await Order.findById(id).session(dbSession);
+        if (!existingOrder) continue;
+
+        if (status === 'Cancelled' && existingOrder.status !== 'Cancelled') {
+          const { restockOrderItems } = await import('@/lib/orderStockHelper');
+          await restockOrderItems(existingOrder, dbSession);
+          updateObj.isSalesCounted = false;
+        } else if (existingOrder.status === 'Cancelled' && status && status !== 'Cancelled') {
+          const { deductOrderItems } = await import('@/lib/orderStockHelper');
+          await deductOrderItems(existingOrder, dbSession);
+        }
+
         let order;
-        if (becomesValid) {
+        if (becomesValid && status !== 'Cancelled') {
           // Atomic check-then-set for isSalesCounted to prevent race conditions
           order = await Order.findOneAndUpdate(
             { _id: id, isSalesCounted: { $ne: true } },
@@ -130,6 +142,38 @@ export async function PATCH(req: NextRequest) {
           }
         } catch (ledgerErr) {
           console.error('[Ledger] Error logging payments in bulk update:', ledgerErr);
+        }
+      }
+
+      if (becomesValid) {
+        try {
+          // Fetch the fully updated orders to log AR
+          const updatedOrdersForAR = await Order.find({ _id: { $in: ids }, $or: [{ paymentMethod: 'Credit' }, { isCreditOrder: true }], paymentStatus: { $ne: 'Paid' } }).session(dbSession);
+          const { logLedgerTransaction } = await import('@/lib/ledgerHelper');
+          const LedgerTransaction = (await import('@/models/LedgerTransaction')).default;
+          
+          for (const order of updatedOrdersForAR) {
+            const amount = (order.totalAmount || 0) - (order.couponDiscountAmount || 0) - (order.walletAmountUsed || 0);
+            const shortId = order._id.toString().slice(-8).toUpperCase();
+            const arReference = `AR-ORDER-${shortId}`;
+            
+            const arExists = await LedgerTransaction.findOne({ reference: arReference }).session(dbSession);
+            if (!arExists) {
+              await logLedgerTransaction(
+                'AR',
+                'debit',
+                amount,
+                `Credit Order Confirmed #${shortId}`,
+                arReference,
+                new Date(),
+                undefined,
+                order.showroom ? order.showroom.toString() : undefined,
+                dbSession
+              );
+            }
+          }
+        } catch (err) {
+          console.error('[Ledger] Error logging AR in bulk update:', err);
         }
       }
 

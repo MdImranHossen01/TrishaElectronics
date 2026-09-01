@@ -3,20 +3,29 @@ import bcrypt from 'bcryptjs';
 
 export interface IUser extends Document {
   name: string;
-  email: string;
+  email?: string;
   password?: string;
-  role: 'super_admin' | 'admin' | 'manager' | 'user';
+  role: 'super_admin' | 'admin' | 'manager' | 'showroom_manager' | 'wholesaler' | 'employee' | 'user';
   image?: string;
   phone?: string;
+  nidImage?: string;
+  tradeLicenseImage?: string;
   lastActive?: Date;
   googleId?: string;
   resetPasswordToken?: string;
   resetPasswordExpires?: Date;
   isSubscriptionActive: boolean;
   walletBalance: number;
+  division?: string;
+  district?: string;
+  thana?: string;
+  area?: string;
   addresses: {
     street?: string;
     division?: string;
+    district?: string;
+    thana?: string;
+    area?: string;
     city?: string;
     state?: string;
     zipCode?: string;
@@ -39,29 +48,38 @@ export interface IUser extends Document {
 
 const UserSchema: Schema<IUser> = new Schema(
   {
-    name: { type: String, required: true },
+    name: { type: String, default: "" },
     email: {
       type: String,
-      required: true,
       unique: true,
+      sparse: true,
       lowercase: true,
       trim: true,
       match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.[A-Za-z]{2,})+$/, 'Please provide a valid email address']
     },
     password: { type: String, select: false },
-    role: { type: String, enum: ['super_admin', 'admin', 'manager', 'user'], default: 'user' },
+    role: { type: String, enum: ['super_admin', 'admin', 'manager', 'showroom_manager', 'wholesaler', 'employee', 'user'], default: 'user' },
     image: { type: String },
-    phone: { type: String },
+    phone: { type: String, unique: true, sparse: true },
+    nidImage: { type: String },
+    tradeLicenseImage: { type: String },
     googleId: { type: String },
     resetPasswordToken: { type: String, select: false },
     resetPasswordExpires: { type: Date },
     lastActive: { type: Date, default: Date.now },
     isSubscriptionActive: { type: Boolean, default: false },
     walletBalance: { type: Number, default: 0, min: 0 },
+    division: { type: String },
+    district: { type: String },
+    thana: { type: String },
+    area: { type: String },
     addresses: [
       {
         street: { type: String },
         division: { type: String },
+        district: { type: String },
+        thana: { type: String },
+        area: { type: String },
         city: { type: String },
         state: { type: String },
         zipCode: { type: String },

@@ -21,7 +21,7 @@ export async function GET(
       ? { _id: slug }
       : { slug: slug };
 
-    const product = await Product.findOne(query).populate('categories');
+    const product = await Product.findOne(query).populate('categories').populate('brand');
 
     if (!product) {
       return NextResponse.json({ message: 'Product not found' }, { status: 404 });
@@ -53,7 +53,8 @@ export async function PUT(
     const allowedFields = [
       'name', 'slug', 'description', 'price', 'salePrice', 'discountRate',
       'sku', 'stock', 'categories', 'tags', 'images',
-      'attributes', 'variants', 'isFeatured', 'isNewArrival', 'isPublished', 'deliveryCharge'
+      'attributes', 'variants', 'isFeatured', 'isNewArrival', 'isPublished', 'deliveryCharge',
+      'wholesalePrice', 'wholesaleSalePrice', 'purchasePrice', 'showroomStocks', 'brand', 'showroomPrice', 'batches'
     ];
     const safeUpdate: any = {};
 
@@ -83,8 +84,18 @@ export async function PUT(
             price: Number.isFinite(parseFloat(v.price)) ? parseFloat(v.price) : 0,
             purchasePrice: Number.isFinite(parseFloat(v.purchasePrice)) ? parseFloat(v.purchasePrice) : undefined,
             salePrice: Number.isFinite(parseFloat(v.salePrice)) ? parseFloat(v.salePrice) : undefined,
+            showroomPrice: Number.isFinite(parseFloat(v.showroomPrice)) ? parseFloat(v.showroomPrice) : undefined,
             stock: Number.isFinite(parseInt(v.stock, 10)) ? parseInt(v.stock, 10) : 0,
             discountRate: Number.isFinite(parseFloat(v.discountRate)) ? parseFloat(v.discountRate) : undefined,
+          }));
+        }
+
+        // Deep coercion for batches
+        if (key === 'batches' && Array.isArray(value)) {
+          value = value.map((b: any) => ({
+            batchNumber: b.batchNumber,
+            expiryDate: b.expiryDate ? new Date(b.expiryDate) : undefined,
+            stock: Number.isFinite(parseInt(b.stock, 10)) ? parseInt(b.stock, 10) : 0,
           }));
         }
 

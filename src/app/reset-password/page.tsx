@@ -1,5 +1,6 @@
-﻿'use client';
+'use client';
 
+import { useLanguage } from '@/contexts/LanguageContext';
 import { useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -45,6 +46,7 @@ function ResetPasswordForm() {
   const [isSuccess, setIsSuccess] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const { t } = useLanguage();
 
   const form = useForm<z.infer<typeof resetPasswordSchema>>({
     resolver: zodResolver(resetPasswordSchema),
@@ -109,7 +111,7 @@ function ResetPasswordForm() {
           </div>
         </motion.div>
         <div className="space-y-2">
-          <h1 className="text-2xl font-bold">Password Reset Successful</h1>
+          <h1 className="text-2xl font-bold">{t('auth.reset.success_title') || 'Password Reset Successful'}</h1>
           <p className="text-muted-foreground">
             Your password has been reset successfully. You will be redirected to the login page in a few seconds.
           </p>
@@ -128,7 +130,7 @@ function ResetPasswordForm() {
           <Lock className="size-12 text-destructive" />
         </div>
         <div className="space-y-2">
-          <h1 className="text-2xl font-bold">Invalid Reset Link</h1>
+          <h1 className="text-2xl font-bold">{t('auth.reset.invalid_title') || 'Invalid Reset Link'}</h1>
           <p className="text-muted-foreground">
             This password reset link is invalid or has expired. Please request a new one.
           </p>
@@ -143,7 +145,7 @@ function ResetPasswordForm() {
   return (
     <div className="w-full max-w-sm space-y-8">
       <div className="space-y-2 text-center">
-        <h1 className="text-3xl font-bold tracking-tight">Reset Password</h1>
+        <h1 className="text-3xl font-bold tracking-tight">{t('auth.reset.title') || 'Reset Password'}</h1>
         <p className="text-sm text-muted-foreground text-balance">
           Set a new password for your account
         </p>
@@ -156,11 +158,11 @@ function ResetPasswordForm() {
             name="password"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>New Password</FormLabel>
+                <FormLabel>{t('auth.reset.new_password') || 'New Password'}</FormLabel>
                 <div className="relative">
                   <FormControl>
                     <Input
-                      placeholder="••••••••"
+                      placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
                       type={showPassword ? "text" : "password"}
                       {...field}
                       disabled={isLoading}
@@ -195,11 +197,11 @@ function ResetPasswordForm() {
             name="confirmPassword"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Confirm New Password</FormLabel>
+                <FormLabel>{t('auth.reset.confirm_password') || 'Confirm New Password'}</FormLabel>
                 <div className="relative">
                   <FormControl>
                     <Input
-                      placeholder="••••••••"
+                      placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
                       type={showConfirmPassword ? "text" : "password"}
                       {...field}
                       disabled={isLoading}
@@ -246,7 +248,8 @@ function ResetPasswordForm() {
   );
 }
 
-export default function ResetPasswordPage() {
+export default function ResetPasswordPage() {  const { t } = useLanguage();
+
   return (
     <div className="relative min-h-screen">
       {/* Left Side: Image Banner */}
@@ -270,7 +273,7 @@ export default function ResetPasswordPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.4, duration: 0.6 }}
           >
-            <h2 className="text-4xl font-bold text-white mb-4 font-serif">Restore Access</h2>
+            <h2 className="text-4xl font-bold text-white mb-4 font-serif">{t('auth.reset.restore_access') || 'Restore Access'}</h2>
             <p className="text-lg text-white/80 max-w-md">
               Take a moment to set a strong password to keep your account safe and secure.
             </p>
@@ -296,7 +299,7 @@ export default function ResetPasswordPage() {
         </motion.div>
 
         <div className="mt-auto pt-6 text-center text-xs text-muted-foreground">
-          &copy; {new Date().getFullYear()} Trishna Electronics. All rights reserved.
+          &copy; {new Date().getFullYear()} à¦šà¦¿à¦Ÿà¦¾à¦—à¦¾à¦‚ à¦¡à§‹à¦°à¥¤ à¦¸à¦°à§à¦¬à¦¸à§à¦¬à¦¤à§à¦¬ à¦¸à¦‚à¦°à¦•à§à¦·à¦¿à¦¤à¥¤
         </div>
       </div>
     </div>

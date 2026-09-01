@@ -31,6 +31,7 @@ import {
 import { ProductImageGallery } from '@/components/storefront/ProductImageGallery';
 import { generateHtml } from '@/lib/server-html';
 import ShareDialog from '@/components/storefront/ShareDialog';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 const CURRENCY_SYMBOL = '৳';
 
@@ -39,6 +40,7 @@ interface ProductDetailsV4ClientProps {
 }
 
 export default function ProductDetailsV4Client({ product }: ProductDetailsV4ClientProps) {
+  const { t } = useLanguage();
   const dispatch = useAppDispatch();
   const { data: session } = useSession();
   const wishlist = useAppSelector((state) => state.wishlist.items);
@@ -141,7 +143,7 @@ export default function ProductDetailsV4Client({ product }: ProductDetailsV4Clie
       color: currentColor || undefined,
       size: currentSize || undefined
     }));
-    toast.success(`Item added to your collection`);
+    toast.success(t('store.product.added_to_cart') as string || `Item added to your collection`);
     return true;
   };
 
@@ -237,7 +239,7 @@ export default function ProductDetailsV4Client({ product }: ProductDetailsV4Clie
         <div className="space-y-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-primary font-bold text-[10px] uppercase tracking-[0.3em]">
-              <Star className="h-3 w-3 fill-current" /> Boutique Selection
+              <Star className="h-3 w-3 fill-current" /> {t('store.product.boutique_selection') || 'Boutique Selection'}
             </div>
             {isAdmin && (
               <DropdownMenu>
@@ -270,7 +272,7 @@ export default function ProductDetailsV4Client({ product }: ProductDetailsV4Clie
         <div className="space-y-8">
           {uniqueColors.length > 0 && (
             <div className="space-y-4">
-              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Color Palette</span>
+              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">{t('store.product.color') || 'Color Palette'}</span>
               <div className="flex flex-wrap gap-3">
                 {uniqueColors.map((color) => (
                   <button
@@ -286,7 +288,7 @@ export default function ProductDetailsV4Client({ product }: ProductDetailsV4Clie
           )}
           {uniqueSizes.length > 0 && (
             <div className="space-y-4">
-              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Size Profile</span>
+              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">{t('store.product.size') || 'Size Profile'}</span>
               <div className="flex flex-wrap gap-2">
                 {uniqueSizes.map((size) => (
                   <button
@@ -327,7 +329,7 @@ export default function ProductDetailsV4Client({ product }: ProductDetailsV4Clie
               disabled={displayStock <= 0}
               className="h-16 flex-1 rounded-[1.5rem] bg-primary text-white font-black text-lg uppercase tracking-widest shadow-2xl shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all"
             >
-              <ShoppingCart className="mr-3 h-5 w-5" /> {displayStock > 0 ? 'Add to Bag' : 'Sold Out'}
+              <ShoppingCart className="mr-3 h-5 w-5" /> {displayStock > 0 ? t('store.product.add_to_cart') || 'Add to Bag' : t('store.product.sold_out') || 'Sold Out'}
             </Button>
           </div>
           <Button
@@ -339,13 +341,13 @@ export default function ProductDetailsV4Client({ product }: ProductDetailsV4Clie
           </Button>
           <div className="flex justify-center gap-8 pt-4">
             <button onClick={handleFavorite} className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground hover:text-primary transition-colors">
-              <Heart className={`h-4 w-4 ${isInWishlist ? 'fill-primary text-primary' : ''}`} /> Save for Later
+              <Heart className={`h-4 w-4 ${isInWishlist ? 'fill-primary text-primary' : ''}`} /> {t('store.product.save_for_later') || 'Save for Later'}
             </button>
             <button
               onClick={() => setIsShareOpen(true)}
               className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground hover:text-primary transition-colors"
             >
-              <Share2 className="h-4 w-4" /> Share Collection
+              <Share2 className="h-4 w-4" /> {t('store.product.share') || 'Share Collection'}
             </button>
           </div>
         </div>
@@ -353,8 +355,8 @@ export default function ProductDetailsV4Client({ product }: ProductDetailsV4Clie
         <div className="pt-10">
           <Tabs defaultValue="description" className="w-full">
             <TabsList className="w-full justify-start gap-10 border-b rounded-none h-auto p-0 bg-transparent mb-8">
-              <TabsTrigger value="description" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-0 py-4 font-black uppercase text-[10px] tracking-widest text-muted-foreground data-[state=active]:text-foreground">About Piece</TabsTrigger>
-              <TabsTrigger value="reviews" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-0 py-4 font-black uppercase text-[10px] tracking-widest text-muted-foreground data-[state=active]:text-foreground">Client Feedback ({product.numReviews || 0})</TabsTrigger>
+              <TabsTrigger value="description" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-0 py-4 font-black uppercase text-[10px] tracking-widest text-muted-foreground data-[state=active]:text-foreground">{t('store.product.description') || 'About Piece'}</TabsTrigger>
+              <TabsTrigger value="reviews" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-0 py-4 font-black uppercase text-[10px] tracking-widest text-muted-foreground data-[state=active]:text-foreground">{t('store.product.reviews') || 'Client Feedback'} ({product.numReviews || 0})</TabsTrigger>
             </TabsList>
             <TabsContent value="description" className="animate-in fade-in duration-500">
                <div 

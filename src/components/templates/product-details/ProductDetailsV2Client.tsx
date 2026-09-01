@@ -32,6 +32,7 @@ import {
 import Image from 'next/image';
 import { generateHtml } from '@/lib/server-html';
 import ShareDialog from '@/components/storefront/ShareDialog';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 const CURRENCY_SYMBOL = '৳';
 
@@ -40,6 +41,7 @@ interface ProductDetailsV2ClientProps {
 }
 
 export default function ProductDetailsV2Client({ product }: ProductDetailsV2ClientProps) {
+  const { t } = useLanguage();
   const dispatch = useAppDispatch();
   const { data: session } = useSession();
   const wishlist = useAppSelector((state) => state.wishlist.items);
@@ -126,10 +128,10 @@ export default function ProductDetailsV2Client({ product }: ProductDetailsV2Clie
   }
 
   const handleAddToCart = () => {
-    if (uniqueColors.length > 0 && !currentColor) return toast.error('Select color');
-    if (uniqueSizes.length > 0 && !currentSize) return toast.error('Select size');
+    if (uniqueColors.length > 0 && !currentColor) return toast.error(t('store.product.select_color') as string || 'Select color');
+    if (uniqueSizes.length > 0 && !currentSize) return toast.error(t('store.product.select_size') as string || 'Select size');
     
-    if (displayStock <= 0) return toast.error('Out of stock');
+    if (displayStock <= 0) return toast.error(t('store.product.out_of_stock') as string || 'Out of stock');
     if (quantity > displayStock) {
       toast.error(`Only ${displayStock} items available in stock`);
       setQuantity(displayStock);
@@ -146,7 +148,7 @@ export default function ProductDetailsV2Client({ product }: ProductDetailsV2Clie
       color: currentColor || undefined,
       size: currentSize || undefined
     }));
-    toast.success(`Added ${product.name} to cart`);
+    toast.success(`${t('store.product.added_to_cart') as string || 'Added to cart'} ${product.name}`);
     return true;
   };
 
@@ -254,7 +256,7 @@ export default function ProductDetailsV2Client({ product }: ProductDetailsV2Clie
                  <div className="flex text-primary">
                     {[...Array(5)].map((_, i) => <Star key={i} className="h-4 w-4 fill-current" />)}
                  </div>
-                 <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Handcrafted Excellence</span>
+                 <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest">{t('store.product.handcrafted_excellence') || 'Handcrafted Excellence'}</span>
               </div>
             </div>
 
@@ -270,7 +272,7 @@ export default function ProductDetailsV2Client({ product }: ProductDetailsV2Clie
           <div className="space-y-8">
              {uniqueColors.length > 0 && (
                 <div className="space-y-4">
-                   <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Select Color Palette</span>
+                   <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">{t('store.product.select_color_palette') || 'Select Color Palette'}</span>
                    <div className="flex flex-wrap gap-3">
                       {uniqueColors.map((color) => (
                          <button 
@@ -287,7 +289,7 @@ export default function ProductDetailsV2Client({ product }: ProductDetailsV2Clie
 
              {uniqueSizes.length > 0 && (
                 <div className="space-y-4">
-                   <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Select Size Profile</span>
+                   <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">{t('store.product.select_size_profile') || 'Select Size Profile'}</span>
                    <div className="flex flex-wrap gap-2">
                       {uniqueSizes.map((size) => (
                          <button 
@@ -328,15 +330,15 @@ export default function ProductDetailsV2Client({ product }: ProductDetailsV2Clie
                   disabled={displayStock <= 0}
                   className="h-16 flex-1 rounded-2xl bg-primary text-primary-foreground font-black text-lg uppercase tracking-widest shadow-2xl shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all"
                 >
-                   {displayStock > 0 ? 'Inquire & Add' : 'Sold Out'}
+                   {displayStock > 0 ? t('store.product.inquire_add') || 'Inquire & Add' : t('store.product.sold_out') || 'Sold Out'}
                 </Button>
              </div>
              <div className="grid grid-cols-2 gap-4">
                 <Button variant="outline" className="h-14 rounded-2xl gap-2 font-black uppercase text-[10px] tracking-widest" onClick={handleFavorite}>
-                   <Heart className={`h-4 w-4 ${isInWishlist ? 'fill-primary text-primary' : ''}`} /> Wishlist
+                   <Heart className={`h-4 w-4 ${isInWishlist ? 'fill-primary text-primary' : ''}`} /> {t('store.product.wishlist') || 'Wishlist'}
                 </Button>
                 <Button variant="outline" className="h-14 rounded-2xl gap-2 font-black uppercase text-[10px] tracking-widest" onClick={handleShare}>
-                   <Share2 className="h-4 w-4" /> Share
+                   <Share2 className="h-4 w-4" /> {t('store.product.share') || 'Share'}
                 </Button>
              </div>
           </div>
@@ -360,8 +362,8 @@ export default function ProductDetailsV2Client({ product }: ProductDetailsV2Clie
           <div className="pt-12">
             <Tabs defaultValue="specs" className="w-full">
               <TabsList className="w-full justify-start border-b rounded-none h-auto p-0 bg-transparent gap-8">
-                 <TabsTrigger value="specs" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-0 py-4 font-black uppercase tracking-widest text-[10px]">Specifications</TabsTrigger>
-                 <TabsTrigger value="reviews" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-0 py-4 font-black uppercase tracking-widest text-[10px]">Reviews</TabsTrigger>
+                 <TabsTrigger value="specs" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-0 py-4 font-black uppercase tracking-widest text-[10px]">{t('store.product.specifications') || 'Specifications'}</TabsTrigger>
+                 <TabsTrigger value="reviews" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-0 py-4 font-black uppercase tracking-widest text-[10px]">{t('store.product.reviews') || 'Reviews'}</TabsTrigger>
               </TabsList>
               <TabsContent value="specs" className="py-8">
                  <div 

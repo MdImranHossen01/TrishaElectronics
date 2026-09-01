@@ -4,49 +4,49 @@ import {
   Carousel,
   CarouselContent,
   CarouselItem,
-  CarouselNext,
-  CarouselPrevious,
 } from "@/components/ui/carousel";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Quote, Star } from "lucide-react";
 
 import { useSettings } from "@/components/SettingsProvider";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 const fallbackReviews = [
   {
     name: "Ariful Islam",
     role: "Verified Buyer",
-    content: "The quality of the products is amazing. I was skeptical about ordering surveillance gear online, but this shop proved me wrong. Delivery was super fast too!",
+    content: "এখান থেকে ঘরের জন্য সেগুন কাঠের দরজা নিয়েছিলাম। কাঠের সিজনিং চমৎকার এবং নকশা নিখুঁত হয়েছে। অনলাইন অর্ডারে প্রথমে কিছুটা চিন্তিত ছিলাম, কিন্তু তাদের ডেলিভারি ও কাজের মান আমায় সন্তুষ্ট করেছে।",
     image: "https://i.pravatar.cc/80?u=1",
     rating: 5
   },
   {
     name: "Sadia Afrin",
     role: "Regular Customer",
-    content: "Excellent customer service! They helped me choose the right smart IP camera for my home. The checkout process was smooth as silk. Highly recommended.",
+    content: "দারুণ কাস্টমার সার্ভিস! সঠিক মাপ ও কাঠের ধরন বেছে নিতে তারা অনেক সাহায্য করেছেন। চেকআউট থেকে শুরু করে সঠিক সময়ে বাড়িতে এসে দরজা পৌঁছে দেওয়া—পুরো প্রক্রিয়াটি খুব সহজ ছিল।",
     image: "https://i.pravatar.cc/80?u=2",
     rating: 5
   },
   {
     name: "Tanvir Ahmed",
-    role: "Home Cinema Fan",
-    content: "Bought my new smart LED TV and projector from here. Genuine product with official warranty support. The packaging was very secure. Keep up the good work!",
+    role: "Verified Buyer",
+    content: "আমি তাদের গামারি কাঠের ল্যামিনেটেড দরজা অর্ডার করেছিলাম। দরজার ফিনিশিং এবং পলিশের কাজ অসাধারণ। ট্রান্সপোর্টে যাতে কোনো ক্ষতি না হয় সেজন্য প্যাকেজিং খুবই মজবুত ছিল।",
     image: "https://i.pravatar.cc/80?u=3",
     rating: 5
   },
   {
     name: "Nusrat Jahan",
     role: "Verified Buyer",
-    content: "I love the variety of CC cameras and security accessories they have. It's my one-stop shop for home safety. The prices are very competitive compared to other local shops.",
+    content: "বাজারে যাচাই করে দেখেছি, অন্যান্য দোকানের তুলনায় এখানে কাঠের মান ও দামের সামঞ্জস্য খুবই ভালো। আমাদের নতুন ফ্লাটের সবকটি দরজা এখান থেকেই বানিয়েছি এবং সবাই ডিজাইনগুলোর প্রশংসা করছে।",
     image: "https://i.pravatar.cc/80?u=4",
     rating: 5
   }
 ];
 
 export function Testimonials() {
+  const { t } = useLanguage();
   const settings = useSettings();
-  const reviews = settings?.testimonials && settings.testimonials.length > 0 
-    ? settings.testimonials 
+  const reviews = settings?.testimonials && settings.testimonials.length > 0
+    ? settings.testimonials
     : fallbackReviews;
 
   return (
@@ -55,10 +55,10 @@ export function Testimonials() {
         <div className="flex flex-col md:flex-row items-center md:items-end justify-between gap-8 mb-16">
           <div className="space-y-4 text-center md:text-left max-w-xl">
             <h2 className="text-2xl md:text-4xl font-black tracking-tighter">
-              What our <span className="text-primary italic">Customers</span> say
+              {t('store.home.testimonials.title_start') || 'What our'} <span className="text-primary italic">{t('store.home.testimonials.title_highlight') || 'Customers'}</span> {t('store.home.testimonials.title_end') || 'say'}
             </h2>
             <p className="text-muted-foreground font-medium">
-              Don't just take our word for it. Join thousands of happy customers all over Bangladesh!
+              {t('store.home.testimonials.desc') || 'Don\'t just take our word for it. Join thousands of happy customers all over Bangladesh!'}
             </p>
           </div>
           <div className="flex items-center gap-2 pb-2">
@@ -101,7 +101,7 @@ export function Testimonials() {
                     ))}
                   </div>
                   <p className="text-lg leading-relaxed mb-8 flex-1 italic text-muted-foreground font-medium">
-                    "{review.content}"
+                    &quot;{review.content}&quot;
                   </p>
                   <div className="flex items-center gap-4">
                     <Avatar className="size-12 rounded-full border-2 border-primary/20 shadow-lg shadow-primary/10">

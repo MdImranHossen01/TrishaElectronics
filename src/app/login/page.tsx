@@ -1,5 +1,6 @@
-﻿'use client';
+'use client';
 
+import { useLanguage } from '@/contexts/LanguageContext';
 import { useState, useEffect } from 'react';
 import { signIn, useSession } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -28,16 +29,23 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { cn } from "@/lib/utils";
 import { Logo } from '@/components/ui/logo';
 
 const loginSchema = z.object({
-  email: z.string().email({ message: 'Invalid email address' }),
-  password: z.string().min(1, { message: 'Password is required' }),
+  email: z.string().min(1, { message: 'Email or phone number is required' }).refine(
+    (val) => {
+      const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val);
+      const isPhone = /^[0-9]{11,}$/.test(val);
+      return isEmail || isPhone;
+    },
+    { message: 'Please enter a valid email or phone number' }
+  ),
+  password: z.string().optional().or(z.literal('')),
 });
 
 export default function LoginPage() {
+  const { t } = useLanguage();
+
   const router = useRouter();
   const { data: session, status } = useSession();
   const searchParams = useSearchParams();
@@ -50,8 +58,14 @@ export default function LoginPage() {
   useEffect(() => {
     if (status === 'authenticated' && session?.user) {
       const role = (session.user as any)?.role;
-      if (role === 'admin' || role === 'super_admin') {
+      if (role === 'admin' || role === 'super_admin' || role === 'manager') {
         router.replace('/admin/dashboard');
+      } else if (role === 'showroom_manager') {
+        router.replace('/showroom/dashboard');
+      } else if (role === 'employee') {
+        router.replace('/employee/dashboard');
+      } else if (role === 'wholesaler') {
+        router.replace('/wholesaler/dashboard');
       } else {
         router.replace('/dashboard');
       }
@@ -86,10 +100,15 @@ export default function LoginPage() {
       });
 
       if (response?.error) {
-        toast.error(response.error);
+        if (response.error === 'CredentialsSignin' || response.error === 'CallbackRouteError' || response.error === 'Configuration') {
+          toast.error(t('auth.login.invalid_credentials') || 'Invalid email/phone number or password.');
+        } else {
+          toast.error(response.error);
+        }
       } else {
         toast.success('Logged in successfully!');
-        window.location.href = '/dashboard';
+        // Redirect to /dashboard â€” proxy will read fresh JWT and redirect to correct role-based dashboard
+        window.location.replace('/dashboard');
       }
     } catch (error) {
       toast.error('Something went wrong. Please try again.');
@@ -100,37 +119,9 @@ export default function LoginPage() {
 
   return (
     <main className="relative min-h-screen">
-      {/* Left Side: Image Banner */}
-      <motion.div
-        initial={{ opacity: 0, x: -50 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ duration: 0.8, ease: "easeOut" }}
-        className="fixed inset-y-0 left-0 hidden w-1/2 bg-muted lg:block"
-      >
-        <Image
-          src="/assets/login_banner_v2.webp"
-          alt="Login Banner"
-          fill
-          className="absolute inset-0 h-full w-full object-cover brightness-[0.8] contrast-[1.1]"
-          sizes="50vw"
-        />
-        <div className="absolute inset-0 bg-linear-to-t from-black/60 to-transparent flex flex-col justify-end p-12">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4, duration: 0.6 }}
-          >
-            <h2 className="text-4xl font-bold text-white mb-4 font-serif">Discover the Best Deals</h2>
-            <p className="text-lg text-white/80 max-w-md">
-              Join Trishna Electronics today and get access to exclusive offers, personalized recommendations, and a seamless shopping experience.
-            </p>
-          </motion.div>
-        </div>
-      </motion.div>
-
-      {/* Right Side: Login Form */}
-      <div className="flex flex-col p-6 md:p-10 bg-background lg:ml-[50%] min-h-screen">
-        <div className="flex justify-center gap-2 md:justify-start mb-8">
+      {/* Login Form centered */}
+      <div className="flex flex-col p-6 md:p-10 bg-background min-h-screen items-center justify-center w-full">
+        <div className="flex justify-center mb-8">
           <Logo />
         </div>
 
@@ -142,7 +133,7 @@ export default function LoginPage() {
         >
           <div className="w-full max-w-sm space-y-8">
             <div className="space-y-2 text-center">
-              <h1 className="text-3xl font-bold tracking-tight">Welcome back</h1>
+              <h1 className="text-3xl font-bold tracking-tight">{t('auth.login.welcome') || 'Welcome back'}</h1>
               <p className="text-sm text-muted-foreground">
                 Enter your credentials to access your account
               </p>
@@ -179,7 +170,7 @@ export default function LoginPage() {
                 </div>
                 <div className="relative flex justify-center text-xs uppercase">
                   <span className="bg-background px-4 text-muted-foreground">
-                    Or continue with email
+                    email or phone
                   </span>
                 </div>
               </div>
@@ -191,11 +182,11 @@ export default function LoginPage() {
                     name="email"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Email Address</FormLabel>
+                        <FormLabel>{t('auth.login.email_phone') || 'Email or Phone Number'}</FormLabel>
                         <FormControl>
                           <Input
-                            placeholder="m@example.com"
-                            type="email"
+                            placeholder="email@example.com or 017xxxxxxxx"
+                            type="text"
                             {...field}
                             disabled={isLoading || isGoogleLoading}
                             className="h-11 focus-visible:ring-primary/20"
@@ -211,7 +202,7 @@ export default function LoginPage() {
                     render={({ field }) => (
                       <FormItem>
                         <div className="flex items-center justify-between">
-                          <FormLabel>Password</FormLabel>
+                          <FormLabel>{t('auth.login.password') || 'Password'}</FormLabel>
                           <Link
                             href="/forgot-password"
                             className="text-sm font-medium text-foreground/80 hover:text-primary hover:underline underline-offset-4 transition-colors"
@@ -222,7 +213,7 @@ export default function LoginPage() {
                         <FormControl>
                           <div className="relative">
                             <Input
-                              placeholder="••••••••"
+                              placeholder="Enter your password"
                               type={showPassword ? "text" : "password"}
                               {...field}
                               disabled={isLoading || isGoogleLoading}
@@ -261,7 +252,7 @@ export default function LoginPage() {
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
                       <span className="flex items-center justify-center">
-                        Sign In <ArrowRight className="ml-2 h-4 w-4" />
+                        {t('auth.login.sign_in') || 'Sign In'} <ArrowRight className="ml-2 h-4 w-4" />
                       </span>
                     )}
                   </Button>
@@ -278,16 +269,7 @@ export default function LoginPage() {
           </div>
         </motion.div>
 
-        <div className="mt-auto pt-6 text-center text-xs text-muted-foreground">
-          By clicking continue, you agree to our{' '}
-          <Link href="/terms" className="underline underline-offset-4 hover:text-primary">
-            Terms of Service
-          </Link>{' '}
-          and{' '}
-          <Link href="/privacy" className="underline underline-offset-4 hover:text-primary">
-            Privacy Policy
-          </Link>.
-        </div>
+
       </div>
     </main>
   );

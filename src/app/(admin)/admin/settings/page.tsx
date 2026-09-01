@@ -17,7 +17,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Loader2, Truck, CreditCard, Globe, X, BarChart3 } from 'lucide-react';
+import { Loader2, Truck, CreditCard, Globe, X, BarChart3, MapPin } from 'lucide-react';
 import { AdminSettingsSkeleton } from '@/components/admin/AdminSkeletons';
 import { toast } from 'sonner';
 import { ImageUpload } from '@/components/ui/image-upload';
@@ -28,7 +28,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { PasswordChangeForm } from '@/components/user/PasswordChangeForm';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import Swal from 'sweetalert2';
+
 
 
 const FONT_OPTIONS = [
@@ -73,7 +76,7 @@ const settingsSchema = z.object({
     linkedin: z.string().nullish().transform(v => v ?? ''),
     tiktok: z.string().nullish().transform(v => v ?? ''),
     whatsapp: z.string().nullish().transform(v => v ?? ''),
-  }).nullish(),
+  }),
   marqueeText: z.string().nullish().transform(val => val ?? ''),
   metaTitle: z.string().nullish().transform(val => val ?? ''),
   metaDescription: z.string().nullish().transform(val => val ?? ''),
@@ -120,6 +123,13 @@ const settingsSchema = z.object({
       active: z.boolean().default(false),
     }).nullable().optional(),
     instructions: z.string().nullish().transform(val => val ?? ''),
+    bank: z.object({
+      bankName: z.string().default(''),
+      accountNumber: z.string().default(''),
+      routingNumber: z.string().default(''),
+      branchName: z.string().default(''),
+      active: z.boolean().default(false),
+    }).nullable().optional(),
   }).optional(),
   courierConfig: z.object({
     activeProvider: z.string().default('none'),
@@ -140,13 +150,19 @@ const settingsSchema = z.object({
   metaPixelId: z.string().nullish().transform(val => val ?? ''),
   facebookAccessToken: z.string().nullish().transform(val => val ?? ''),
   facebookTestEventCode: z.string().nullish().transform(val => val ?? ''),
+  aiConfig: z.object({
+    geminiApiKey: z.string().nullish().transform(val => val ?? ''),
+  }).optional(),
 });
 
 type SettingsFormValues = z.infer<typeof settingsSchema>;
 
 export default function SettingsPage() {
+  const { t } = useLanguage();
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+
+
 
   const form = useForm<SettingsFormValues>({
     resolver: zodResolver(settingsSchema) as any,
@@ -193,6 +209,7 @@ export default function SettingsPage() {
         rocket: { number: '', qrCode: '', active: false },
         banglaQr: { qrCode: '', active: false },
         instructions: '',
+        bank: { bankName: '', accountNumber: '', routingNumber: '', branchName: '', active: false },
       },
       courierConfig: {
         activeProvider: 'none',
@@ -204,6 +221,9 @@ export default function SettingsPage() {
       metaPixelId: '',
       facebookAccessToken: '',
       facebookTestEventCode: '',
+      aiConfig: {
+        geminiApiKey: '',
+      },
     },
   });
 
@@ -281,6 +301,13 @@ export default function SettingsPage() {
                     active: result.data.manualPaymentConfig?.banglaQr?.active ?? false,
                   },
                   instructions: result.data.manualPaymentConfig?.instructions || '',
+                  bank: {
+                    bankName: result.data.manualPaymentConfig?.bank?.bankName || '',
+                    accountNumber: result.data.manualPaymentConfig?.bank?.accountNumber || '',
+                    routingNumber: result.data.manualPaymentConfig?.bank?.routingNumber || '',
+                    branchName: result.data.manualPaymentConfig?.bank?.branchName || '',
+                    active: result.data.manualPaymentConfig?.bank?.active ?? false,
+                  },
                 },
                 courierConfig: {
                   activeProvider: result.data.courierConfig?.activeProvider || 'none',
@@ -301,6 +328,9 @@ export default function SettingsPage() {
                 metaPixelId: result.data.metaPixelId || '',
                 facebookAccessToken: result.data.facebookAccessToken || '',
                 facebookTestEventCode: result.data.facebookTestEventCode || '',
+                aiConfig: {
+                  geminiApiKey: result.data.aiConfig?.geminiApiKey || '',
+                },
               };
               form.reset(sanitizedData);
             }
@@ -352,26 +382,26 @@ export default function SettingsPage() {
   };
 
   if (loading) {
-    return <AdminSettingsSkeleton title="Global Settings" />;
+    return <AdminSettingsSkeleton />;
   }
 
   return (
-    <div className="flex-1 space-y-4 px-0 py-4 md:p-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold tracking-tight">Global Settings</h1>
-        <Button type="submit" form="settings-form" disabled={submitting}>
+    <div className="flex-1 space-y-4 px-[1px] pt-[1px] pb-4 md:p-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 w-full px-[1px] md:px-0 mb-[1px] md:mb-0">
+        <h1 className="hidden md:block text-2xl font-bold tracking-tight">{t("settings.title")}</h1>
+        <Button type="submit" form="settings-form" disabled={submitting} className="w-full md:w-auto">
           {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          Save Changes
+          {t("settings.save_changes")}
         </Button>
       </div>
 
       <Tabs defaultValue="general" className="w-full">
         <TabsList className="grid w-full grid-cols-5 lg:w-[600px]">
-          <TabsTrigger value="general">General</TabsTrigger>
-          <TabsTrigger value="contact">Contact</TabsTrigger>
-          <TabsTrigger value="social">Social</TabsTrigger>
-          <TabsTrigger value="appearance">Appearance</TabsTrigger>
-          <TabsTrigger value="security">Security</TabsTrigger>
+          <TabsTrigger value="general">{t("settings.tab_general")}</TabsTrigger>
+          <TabsTrigger value="contact">{t("settings.tab_contact")}</TabsTrigger>
+          <TabsTrigger value="social">{t("settings.tab_social")}</TabsTrigger>
+          <TabsTrigger value="appearance">{t("settings.tab_appearance")}</TabsTrigger>
+          <TabsTrigger value="ai">{t("settings.tab_ai_api")}</TabsTrigger>
         </TabsList>
 
         <Form {...form}>
@@ -379,8 +409,8 @@ export default function SettingsPage() {
             <TabsContent value="general" className="space-y-4">
               <Card>
                 <CardHeader>
-                  <CardTitle>Branding</CardTitle>
-                  <CardDescription>Manage your store's identity and visibility.</CardDescription>
+                  <CardTitle>{t("settings.branding")}</CardTitle>
+                  <CardDescription>{t("settings.branding_desc")}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <FormField
@@ -388,9 +418,9 @@ export default function SettingsPage() {
                     name="brandName"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="text-sm font-semibold text-gray-700">Brand Name</FormLabel>
+                        <FormLabel className="text-sm font-semibold text-gray-700">{t("settings.brand_name")}</FormLabel>
                         <FormControl>
-                          <Input placeholder="Palli Vita Nutrition Hub" {...field} className="h-12 rounded-xl bg-gray-50 border-2 border-gray-100 focus:border-primary transition-all" />
+                          <Input placeholder={process.env.NEXT_PUBLIC_STORE_NAME || "Store"} {...field} className="h-12 rounded-xl bg-gray-50 border-2 border-gray-100 focus:border-primary transition-all" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -402,7 +432,7 @@ export default function SettingsPage() {
                     name="logoUrl"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="text-sm font-semibold text-gray-700">Store Logo</FormLabel>
+                        <FormLabel className="text-sm font-semibold text-gray-700">{t("settings.store_logo")}</FormLabel>
                         <FormControl>
                           <ImageUpload
                             value={field.value}
@@ -411,7 +441,7 @@ export default function SettingsPage() {
                             aspect="square"
                           />
                         </FormControl>
-                        <FormDescription>Professional high-resolution logo (PNG, JPG, or WEBP)</FormDescription>
+                        <FormDescription>{t("settings.logo_desc")}</FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -423,11 +453,11 @@ export default function SettingsPage() {
                       name="marqueeText"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Marquee/Ticker Text</FormLabel>
+                          <FormLabel>{t("settings.marquee_text")}</FormLabel>
                           <FormControl>
-                            <Input placeholder="Announcements, offers, promotions..." {...field} />
+                            <Input placeholder={t("settings.marquee_placeholder") as string} {...field} />
                           </FormControl>
-                          <FormDescription>This text will display as a scrolling marquee at the top of the site.</FormDescription>
+                          <FormDescription>{t("settings.marquee_desc")}</FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -440,11 +470,11 @@ export default function SettingsPage() {
                       name="metaTitle"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Global Meta Title</FormLabel>
+                          <FormLabel>{t("settings.meta_title")}</FormLabel>
                           <FormControl>
-                            <Input placeholder="Palli Vita Nutrition Hub | Best Ecommerce in BD" {...field} />
+                            <Input placeholder={`${process.env.NEXT_PUBLIC_STORE_NAME || "Store"} | Best Ecommerce in BD`} {...field} />
                           </FormControl>
-                          <FormDescription>Used as the primary browser title for the home page.</FormDescription>
+                          <FormDescription>{t("settings.meta_title_desc")}</FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -454,11 +484,11 @@ export default function SettingsPage() {
                       name="metaDescription"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Global Meta Description</FormLabel>
+                          <FormLabel>{t("settings.meta_desc")}</FormLabel>
                           <FormControl>
-                            <Input placeholder="Shop the best products at Palli Vita Nutrition Hub..." {...field} />
+                            <Input placeholder={`Shop the best products at ${process.env.NEXT_PUBLIC_STORE_NAME || "Store"}...`} {...field} />
                           </FormControl>
-                          <FormDescription>Used for search engine snippets and social sharing.</FormDescription>
+                          <FormDescription>{t("settings.meta_desc_help")}</FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -471,8 +501,8 @@ export default function SettingsPage() {
             <TabsContent value="contact" className="space-y-4">
               <Card>
                 <CardHeader>
-                  <CardTitle>Contact Information</CardTitle>
-                  <CardDescription>Update how customers can reach you.</CardDescription>
+                  <CardTitle>{t("settings.contact_info")}</CardTitle>
+                  <CardDescription>{t("settings.contact_info_desc")}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <FormField
@@ -480,7 +510,7 @@ export default function SettingsPage() {
                     name="contact.email"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Contact Email</FormLabel>
+                        <FormLabel>{t("settings.contact_email")}</FormLabel>
                         <FormControl>
                           <Input placeholder="support@shop.com" {...field} />
                         </FormControl>
@@ -493,7 +523,7 @@ export default function SettingsPage() {
                     name="contact.phone"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Contact Phone</FormLabel>
+                        <FormLabel>{t("settings.contact_phone")}</FormLabel>
                         <FormControl>
                           <Input placeholder="+880 1234567890" {...field} />
                         </FormControl>
@@ -506,7 +536,7 @@ export default function SettingsPage() {
                     name="contact.address"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Store Address</FormLabel>
+                        <FormLabel>{t("settings.store_address")}</FormLabel>
                         <FormControl>
                           <Input placeholder="Building name, Street, City" {...field} />
                         </FormControl>
@@ -521,8 +551,8 @@ export default function SettingsPage() {
             <TabsContent value="social" className="space-y-4">
               <Card>
                 <CardHeader>
-                  <CardTitle>Social Media Links</CardTitle>
-                  <CardDescription>Add links to your social media profiles.</CardDescription>
+                  <CardTitle>{t("settings.social_media")}</CardTitle>
+                  <CardDescription>{t("settings.social_media_desc")}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -625,20 +655,20 @@ export default function SettingsPage() {
             <TabsContent value="appearance" className="space-y-4">
               <Card className="border-2 border-primary/10 shadow-none overflow-hidden rounded-3xl">
                 <CardHeader className="bg-primary/5 border-b">
-                  <CardTitle>Brand Aesthetics</CardTitle>
-                  <CardDescription>Choose a theme that matches your brand identity.</CardDescription>
+                  <CardTitle>{t("settings.brand_aesthetics")}</CardTitle>
+                  <CardDescription>{t("settings.brand_aesthetics_desc")}</CardDescription>
                 </CardHeader>
-                <CardContent className="p-6">
+                <CardContent className="px-0 py-4 md:p-6">
                   <FormField
                     control={form.control}
                     name="uiTemplates.theme"
                     render={({ field }) => (
                       <FormItem className="space-y-4">
-                        <FormLabel className="text-base font-bold">Storefront Theme Preset</FormLabel>
+                        <FormLabel className="text-base font-bold">{t("settings.theme_preset")}</FormLabel>
                         <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
                           <FormControl>
                             <SelectTrigger className="h-14 rounded-2xl bg-background border-2 border-muted hover:border-primary/50 transition-all text-lg font-medium">
-                              <SelectValue placeholder="Select a theme" />
+                              <SelectValue placeholder={t("settings.select_theme")} />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent className="rounded-2xl p-2 max-h-[400px]">
@@ -686,7 +716,7 @@ export default function SettingsPage() {
                           </SelectContent>
                         </Select>
                         <FormDescription className="text-sm">
-                          Switching themes will instantly update your storefront colors, fonts, and overall vibe.
+                          {t("settings.theme_desc")}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -699,11 +729,11 @@ export default function SettingsPage() {
                     name="uiTemplates.logoFont"
                     render={({ field }) => (
                       <FormItem className="space-y-4 mt-6">
-                        <FormLabel className="text-base font-bold">Logo Typography</FormLabel>
+                        <FormLabel className="text-base font-bold">{t("settings.logo_typography")}</FormLabel>
                         <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
                           <FormControl>
                             <SelectTrigger className="h-14 rounded-2xl bg-background border-2 border-muted hover:border-primary/50 transition-all text-lg font-medium">
-                              <SelectValue placeholder="Select a font for logo" />
+                              <SelectValue placeholder={t("settings.select_logo_font")} />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent className="rounded-2xl p-2 max-h-[300px]">
@@ -715,7 +745,7 @@ export default function SettingsPage() {
                           </SelectContent>
                         </Select>
                         <FormDescription className="text-sm">
-                          Select the font style for your Brand Name in the logo.
+                          {t("settings.logo_font_desc")}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -728,11 +758,11 @@ export default function SettingsPage() {
                     name="uiTemplates.bodyFont"
                     render={({ field }) => (
                       <FormItem className="space-y-4 mt-6">
-                        <FormLabel className="text-base font-bold">Global Body Typography</FormLabel>
+                        <FormLabel className="text-base font-bold">{t("settings.body_typography")}</FormLabel>
                         <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
                           <FormControl>
                             <SelectTrigger className="h-14 rounded-2xl bg-background border-2 border-muted hover:border-primary/50 transition-all text-lg font-medium">
-                              <SelectValue placeholder="Select a font for body" />
+                              <SelectValue placeholder={t("settings.select_body_font")} />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent className="rounded-2xl p-2 max-h-[300px]">
@@ -744,7 +774,7 @@ export default function SettingsPage() {
                           </SelectContent>
                         </Select>
                         <FormDescription className="text-sm">
-                          This font will be applied to all text across your storefront.
+                          {t("settings.body_font_desc")}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -756,29 +786,48 @@ export default function SettingsPage() {
                       <Truck className="h-6 w-6 text-muted-foreground" />
                     </div>
                     <div>
-                      <h4 className="font-bold">Live Preview (Coming Soon)</h4>
+                      <h4 className="font-bold">{t("settings.live_preview")}</h4>
                       <p className="text-xs text-muted-foreground max-w-[250px] mx-auto">
-                        In the next update, you'll be able to see a live preview of the theme before applying it.
+                        {t("settings.live_preview_desc")}
                       </p>
                     </div>
                   </div>
                 </CardContent>
               </Card>
             </TabsContent>
+
+            <TabsContent value="ai" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>{t("settings.ai_api_settings")}</CardTitle>
+                  <CardDescription>{t("settings.ai_api_settings_desc")}</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4 max-w-md">
+                  <FormField
+                    control={form.control}
+                    name="aiConfig.geminiApiKey"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-sm font-semibold text-gray-700">Gemini API Key</FormLabel>
+                        <FormControl>
+                          <Input 
+                            placeholder="Enter Gemini API Key..." 
+                            type="text" 
+                            {...field} 
+                            className="h-12 rounded-xl bg-gray-50 border-2 border-gray-100 focus:border-primary transition-all" 
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </CardContent>
+              </Card>
+            </TabsContent>
           </form>
         </Form>
 
-        <TabsContent value="security" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Security Settings</CardTitle>
-              <CardDescription>Update your password and manage account security.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4 max-w-md">
-              <PasswordChangeForm hideHeader={true} />
-            </CardContent>
-          </Card>
-        </TabsContent>
+
       </Tabs>
     </div>
   );

@@ -49,6 +49,7 @@ import {
 } from '@/components/ui/dialog';
 import { fbEvent } from '@/lib/fpixel';
 import { ttEvent } from '@/lib/tiktok';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 const CURRENCY_SYMBOL = '৳';
 
@@ -57,6 +58,7 @@ interface ProductDetailsClientProps {
 }
 
 export default function ProductDetailsClient({ product }: ProductDetailsClientProps) {
+  const { t } = useLanguage();
   const dispatch = useAppDispatch();
   const { data: session } = useSession();
   const wishlist = useAppSelector((state) => state.wishlist.items);
@@ -251,6 +253,19 @@ export default function ProductDetailsClient({ product }: ProductDetailsClientPr
   const displayStock = hasVariants ? (currentVariant?.stock ?? 0) : (product.stock ?? 0);
   const displaySku = hasVariants ? (currentVariant?.sku ?? '') : product.sku;
 
+  const isWholesaler = (session?.user as any)?.role === 'wholesaler';
+  const displayWholesalePrice = hasVariants 
+    ? (currentVariant?.wholesaleSalePrice || currentVariant?.wholesalePrice || 0)
+    : (product.wholesaleSalePrice || product.wholesalePrice || 0);
+  
+  const displayCostPrice = hasVariants
+    ? (currentVariant?.purchasePrice || 0)
+    : (product.purchasePrice || 0);
+
+  const wholesaleProfit = displayWholesalePrice > 0 && displayCostPrice > 0
+    ? (displayWholesalePrice - displayCostPrice)
+    : 0;
+
   // Debug log for troubleshooting stock discrepancies
   useEffect(() => {
     if (selectedSize || selectedColor) {
@@ -262,17 +277,17 @@ export default function ProductDetailsClient({ product }: ProductDetailsClientPr
   }, [selectedColor, selectedSize, activeVariant, displayStock]);
   const handleAddToCart = () => {
     if (uniqueColors.length > 0 && !selectedColor) {
-      toast.error('Please select a color');
+      toast.error(t('store.product.select_color') as string || 'Please select a color');
       return false;
     }
     if (uniqueSizes.length > 0 && !selectedSize) {
-      toast.error('Please select a size');
+      toast.error(t('store.product.select_size') as string || 'Please select a size');
       return false;
     }
 
     const stock = displayStock || 0;
     if (stock <= 0) {
-      toast.error('This item is currently out of stock');
+      toast.error(t('store.product.out_of_stock') as string || 'This item is currently out of stock');
       return false;
     }
 
@@ -281,11 +296,14 @@ export default function ProductDetailsClient({ product }: ProductDetailsClientPr
       toast.info(`Adjusted quantity to ${stock} (available stock)`);
     }
 
+    const activePrice = isWholesaler && displayWholesalePrice > 0 ? displayWholesalePrice : (displaySalePrice || displayPrice);
+    const activeBasePrice = isWholesaler && displayWholesalePrice > 0 ? displayWholesalePrice : displayPrice;
+
     dispatch(addToCart({
       productId: product._id,
       name: product.name,
-      price: displaySalePrice || displayPrice,
-      basePrice: displayPrice,
+      price: activePrice,
+      basePrice: activeBasePrice,
       quantity: finalQuantity,
       image: activeVariant?.images?.[0] || activeVariant?.image || (product.variants && product.variants.length > 0 ? (product.variants[0]?.images?.[0] || product.variants[0]?.image) : product.images?.[0]),
       color: selectedColor || undefined,
@@ -488,7 +506,7 @@ export default function ProductDetailsClient({ product }: ProductDetailsClientPr
               </>
             ) : (
               <div className="flex h-full w-full items-center justify-center text-muted-foreground italic">
-                No images available
+                {t('store.product.no_images') || 'No images available'}
               </div>
             )}
 
@@ -583,7 +601,7 @@ export default function ProductDetailsClient({ product }: ProductDetailsClientPr
               title="Share product"
             >
               <Share2 className="h-4 w-4" />
-              <span>Share</span>
+              <span>{t('store.product.share') || 'Share'}</span>
             </button>
             {eligibility?.eligible && (
               <>
@@ -595,7 +613,7 @@ export default function ProductDetailsClient({ product }: ProductDetailsClientPr
                   }}
                   className="text-sm font-bold text-primary hover:underline cursor-pointer"
                 >
-                  Write a review
+                  {t('store.product.write_review') || 'Write a review'}
                 </button>
               </>
             )}
@@ -621,6 +639,32 @@ export default function ProductDetailsClient({ product }: ProductDetailsClientPr
               <span className="text-xs text-muted-foreground">| SKU: {displaySku}</span>
             )}
           </div>
+          {isWholesaler && (
+            <div className="mt-3 p-4 bg-primary/5 border border-primary/20 rounded-2xl space-y-2 max-w-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold text-muted-foreground">Wholesale Rate:</span>
+                <span className="text-xl font-extrabold text-primary">
+                  {CURRENCY_SYMBOL}{Math.round(displayWholesalePrice)}
+                </span>
+              </div>
+              {displayCostPrice > 0 && (
+                <div className="flex items-center justify-between text-xs text-muted-foreground border-t pt-2 border-primary/10">
+                  <span>Your Profit (Per Unit):</span>
+                  <span className="font-bold text-green-600 text-sm">
+                    +{CURRENCY_SYMBOL}{Math.round(wholesaleProfit)}
+                  </span>
+                </div>
+              )}
+              {quantity > 1 && displayCostPrice > 0 && (
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>Total Profit ({quantity} units):</span>
+                  <span className="font-bold text-green-600 text-sm">
+                    +{CURRENCY_SYMBOL}{Math.round(wholesaleProfit * quantity)}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <Separator />
@@ -633,7 +677,7 @@ export default function ProductDetailsClient({ product }: ProductDetailsClientPr
             {uniqueColors.length > 0 && (
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-bold uppercase tracking-wider">Color:</span>
+                  <span className="text-sm font-bold uppercase tracking-wider">{t('store.product.color') || 'Color'}:</span>
                   <span className="text-sm text-primary font-medium">{selectedColor}</span>
                 </div>
                 <div className="flex flex-wrap gap-3">
@@ -694,7 +738,7 @@ export default function ProductDetailsClient({ product }: ProductDetailsClientPr
             {uniqueSizes.length > 0 && (
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-bold uppercase tracking-wider">Size:</span>
+                  <span className="text-sm font-bold uppercase tracking-wider">{t('store.product.size') || 'Size'}:</span>
                   <span className="text-sm text-primary font-medium">{selectedSize || 'Select a size'}</span>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -782,7 +826,7 @@ export default function ProductDetailsClient({ product }: ProductDetailsClientPr
               onClick={handleAddToCart}
               disabled={(displayStock || 0) === 0}
             >
-              <ShoppingCart className="mr-2 h-5 w-5 hidden sm:block" /> Add to Cart
+              <ShoppingCart className="mr-2 h-5 w-5 hidden sm:block" /> {t('store.product.add_to_cart') || 'Add to Cart'}
             </Button>
             <Button
               size="lg"
@@ -790,7 +834,7 @@ export default function ProductDetailsClient({ product }: ProductDetailsClientPr
               onClick={handleBuyNow}
               disabled={(displayStock || 0) === 0}
             >
-              Buy Now
+              {t('store.product.buy_now') || 'Buy Now'}
             </Button>
           </div>
 
@@ -850,13 +894,13 @@ export default function ProductDetailsClient({ product }: ProductDetailsClientPr
               value="description"
               className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-6 py-4 font-bold uppercase tracking-wider text-muted-foreground data-[state=active]:text-foreground"
             >
-              Description
+              {t('store.product.description') || 'Description'}
             </TabsTrigger>
             <TabsTrigger
               value="reviews"
               className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-6 py-4 font-bold uppercase tracking-wider text-muted-foreground data-[state=active]:text-foreground"
             >
-              Reviews
+              {t('store.product.reviews') || 'Reviews'}
             </TabsTrigger>
           </TabsList>
 

@@ -16,6 +16,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface MobileMenuProps {
   navItems: { href: string; label: string }[];
@@ -25,6 +26,7 @@ interface MobileMenuProps {
 }
 
 export function MobileMenu({ navItems, categories, session, triggerClassName }: MobileMenuProps) {
+  const { t } = useLanguage();
   const pathname = usePathname();
   const [open, setOpen] = React.useState(false);
 
@@ -42,7 +44,7 @@ export function MobileMenu({ navItems, categories, session, triggerClassName }: 
         <div className="flex flex-col h-full bg-background font-jost">
           {/* Header */}
           <div className="p-6 border-b">
-            <Logo onClick={() => setOpen(false)} textClassName="text-sm whitespace-nowrap" />
+            <Logo onClick={() => setOpen(false)} />
           </div>
 
           {/* Navigation Items */}
@@ -69,7 +71,7 @@ export function MobileMenu({ navItems, categories, session, triggerClassName }: 
                       <Accordion type="single" collapsible className="w-full">
                         <AccordionItem value="categories" className="border-none px-4">
                           <AccordionTrigger className="py-3 text-sm font-bold uppercase tracking-widest text-foreground/70 hover:text-primary hover:no-underline">
-                            Categories
+                            {t('store.nav.categories') || 'Categories'}
                           </AccordionTrigger>
                           <AccordionContent className="flex flex-col gap-3 pt-2 pl-4">
                             {categories.map((cat: any) => (
@@ -92,7 +94,16 @@ export function MobileMenu({ navItems, categories, session, triggerClassName }: 
             </nav>
           </div>
 
-          {/* Footer Actions (Removed as per user request) */}
+          {/* Footer Actions */}
+          {!session && (
+            <div className="p-6 border-t bg-muted/30">
+              <Link href="/login" onClick={() => setOpen(false)}>
+                <button className="w-full py-4 bg-primary text-white font-black uppercase tracking-[0.2em] rounded-xl text-xs shadow-xl shadow-primary/20">
+                  Access Account
+                </button>
+              </Link>
+            </div>
+          )}
         </div>
       </SheetContent>
     </Sheet>

@@ -1,4 +1,4 @@
-﻿/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
 import Link from 'next/link';
@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import DeveloperLogo from '@/components/ui/developerlogo';
 import { useSettings } from '@/components/SettingsProvider';
 import * as SocialIcons from '@/components/ui/social-icons';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { LanguageToggle } from '@/components/layout/LanguageToggle';
 
 const socialIconMap: Record<string, any> = {
    facebook: SocialIcons.Facebook || Circle,
@@ -19,6 +21,7 @@ const socialIconMap: Record<string, any> = {
 };
 
 export default function FooterV3() {
+   const { t } = useLanguage();
    const currentYear = new Date().getFullYear();
    const settings = useSettings();
    const socialLinks = settings?.socialLinks || {};
@@ -33,10 +36,13 @@ export default function FooterV3() {
                <div className="space-y-8">
                   <div className="flex items-center gap-3 text-primary">
                      <Cpu className="h-6 w-6" />
-                     <span className="font-black text-sm sm:text-base md:text-xl tracking-tighter break-words max-w-[200px] md:max-w-none">Trishna Electronics</span>
+                     <span className="font-black text-sm sm:text-base md:text-xl tracking-tighter break-words max-w-[200px] md:max-w-none">Omor Auto Corner</span>
+                  </div>
+                  <div className="flex justify-start">
+                     <LanguageToggle />
                   </div>
                   <p className="text-[10px] text-neutral-500 uppercase tracking-widest leading-relaxed">
-                     Systematic commerce architecture. High-precision retail logistics. Distributed from DHAKA_HQ.
+                     {t('store.footer.description')}
                   </p>
                   {hasSocialLinks && (
                      <div className="flex items-center gap-4">
@@ -68,11 +74,15 @@ export default function FooterV3() {
 
                {/* Module: Registry */}
                <div className="space-y-8">
-                  <h4 className="text-[10px] font-black uppercase tracking-[0.4em] text-primary">Registry_Link</h4>
+                  <h4 className="text-[10px] font-black uppercase tracking-[0.4em] text-primary">{t('store.footer.quick_links')}</h4>
                   <div className="flex flex-col gap-4">
-                     {['Shop', 'Categories', 'Flash_Sale', 'Archive', 'Protocol'].map(item => (
-                        <Link key={item} href="#" className="text-xs font-black uppercase hover:text-primary transition-all flex items-center justify-between group">
-                           {item} <MoveRight className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-all group-hover:translate-x-2" />
+                     {[
+                        { label: t('store.nav.shop'), href: '/shop' },
+                        { label: t('store.nav.categories'), href: '/shop?filter=categories' },
+                        { label: t('store.footer.new_arrivals'), href: '/shop?filter=new' },
+                     ].map(item => (
+                        <Link key={item.label} href={item.href} className="text-xs font-black uppercase hover:text-primary transition-all flex items-center justify-between group">
+                           {item.label} <MoveRight className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-all group-hover:translate-x-2" />
                         </Link>
                      ))}
                   </div>
@@ -80,10 +90,10 @@ export default function FooterV3() {
 
                {/* Module: Communication */}
                <div className="space-y-8">
-                  <h4 className="text-[10px] font-black uppercase tracking-[0.4em] text-primary">Comm_Links</h4>
+                  <h4 className="text-[10px] font-black uppercase tracking-[0.4em] text-primary">{t('store.footer.contact')}</h4>
                   <div className="space-y-4">
                      <div className="flex items-center gap-4 text-xs text-neutral-400">
-                        <Mail className="h-4 w-4 text-primary" /> {settings?.contact?.email || 'support@trishnaelectronics.com'}
+                        <Mail className="h-4 w-4 text-primary" /> {settings?.contact?.email || 'support@omorautocorner.com'}
                      </div>
                      <div className="flex items-center gap-4 text-xs text-neutral-400">
                         <Phone className="h-4 w-4 text-primary" /> {settings?.contact?.phone || '+880 1234 5678'}
@@ -110,7 +120,7 @@ export default function FooterV3() {
                            required
                            type="email"
                         />
-                        <Button type="submit" className="w-full h-12 bg-primary text-white rounded-xl font-black text-xs uppercase tracking-widest">INIT_UPLINK</Button>
+                        <Button type="submit" className="w-full h-12 bg-primary text-white rounded-xl font-black text-xs uppercase tracking-widest">{t('store.footer.init_uplink') || 'INIT_UPLINK'}</Button>
                      </form>
                   </div>
                </div>
@@ -123,8 +133,8 @@ export default function FooterV3() {
                   <span className="flex items-center gap-2"><ShieldCheck className="h-3 w-3 text-primary" /> SECURED_V4.1</span>
                </div>
                <div className="flex gap-8">
-                  <Link href="#" className="hover:text-primary transition-colors">DE_PRIVACY</Link>
-                  <Link href="#" className="hover:text-primary transition-colors">DE_TERMS</Link>
+                  <Link href="/privacy" className="hover:text-primary transition-colors">{t('store.footer.privacy')}</Link>
+                  <Link href="/terms" className="hover:text-primary transition-colors">{t('store.footer.terms')}</Link>
                </div>
                <DeveloperLogo className="opacity-40 grayscale hover:grayscale-0 hover:opacity-100 invert scale-75 md:scale-90" />
             </div>

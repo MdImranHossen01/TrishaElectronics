@@ -4,6 +4,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { Sparkles, MoveUpRight } from 'lucide-react';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface Category {
   _id: string;
@@ -17,6 +18,7 @@ interface CategoryV5Props {
 }
 
 export default function CategoryV5({ categories }: CategoryV5Props) {
+  const { t } = useLanguage();
   if (!categories || categories.length === 0) return null;
 
   return (
@@ -25,15 +27,15 @@ export default function CategoryV5({ categories }: CategoryV5Props) {
         <div className="grid lg:grid-cols-2 gap-20 items-center mb-32">
            <div className="space-y-8">
               <div className="inline-flex items-center gap-3 text-primary font-black uppercase tracking-[0.4em] text-[10px]">
-                 <Sparkles className="h-4 w-4 fill-primary" /> Artistic Fluidity
+                 <Sparkles className="h-4 w-4 fill-primary" /> {t('store.categories.artistic_fluidity') || 'Artistic Fluidity'}
               </div>
               <h2 className="text-6xl md:text-[8rem] font-black tracking-tighter leading-[0.8] uppercase">
-                The New <br /> <span className="text-primary italic">Narrative</span>
+                {t('store.categories.the_new') || 'The New'} <br /> <span className="text-primary italic">{t('store.categories.narrative') || 'Narrative'}</span>
               </h2>
            </div>
            <div className="relative">
               <p className="text-xl md:text-2xl text-muted-foreground font-medium italic leading-relaxed max-w-lg">
-                Breaking traditional boundaries with asymmetric collections designed for the modern explorer.
+                {t('store.categories.breaking_boundaries') || 'Breaking traditional boundaries with asymmetric collections designed for the modern explorer.'}
               </p>
               <div className="absolute -top-20 -right-20 h-64 w-64 bg-primary/10 rounded-full blur-[100px] -z-10" />
            </div>
@@ -64,7 +66,7 @@ export default function CategoryV5({ categories }: CategoryV5Props) {
 
                 <div className="pt-10 flex items-end justify-between">
                    <div className="space-y-2">
-                      <span className="text-[10px] font-black uppercase tracking-[0.5em] text-primary">Discover Module</span>
+                      <span className="text-[10px] font-black uppercase tracking-[0.5em] text-primary">{t('store.categories.discover_module') || 'Discover Module'}</span>
                       <h3 className="text-4xl font-black uppercase tracking-tighter group-hover:tracking-normal transition-all">{category.name}</h3>
                    </div>
                    <span className="text-5xl font-serif italic text-neutral-200 dark:text-neutral-800">0{(i+1)}</span>

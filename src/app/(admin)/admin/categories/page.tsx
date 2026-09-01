@@ -30,20 +30,14 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { Plus, Edit, Trash, Loader2, MoreHorizontal } from 'lucide-react';
+import { Plus, Edit, Trash, Loader2 } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { toast } from 'sonner';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-} from '@/components/ui/dropdown-menu';
 import {
   Select,
   SelectContent,
@@ -52,6 +46,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import Swal from 'sweetalert2';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { slugify, sanitizeSlugInput } from '@/lib/slugify';
 
 const categorySchema = z.object({
@@ -70,6 +65,7 @@ export default function CategoriesPage() {
   const [open, setOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<any>(null);
   const [submitting, setSubmitting] = useState(false);
+  const { t } = useLanguage();
 
   const form = useForm({
     resolver: zodResolver(categorySchema),
@@ -192,9 +188,9 @@ export default function CategoriesPage() {
   }, [nameValue, form, editingCategory]);
 
   return (
-    <div className="flex flex-col gap-4 px-0 py-4 md:p-8 pt-6">
-      <div className="flex items-center justify-between px-2 md:px-0">
-        <h1 className="text-xl md:text-2xl font-bold tracking-tight">Categories</h1>
+    <div className="flex-1 space-y-0 md:space-y-6 px-[1px] pt-[1px] pb-4 md:p-6 w-full max-w-full overflow-x-hidden flex flex-col gap-0 md:gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-0 md:gap-4 px-0 md:px-0 mb-[1px] md:mb-0 w-full">
+        <h1 className="hidden md:block text-2xl font-bold tracking-tight">{t("categories.title")}</h1>
         <Dialog open={open} onOpenChange={(val) => {
           setOpen(val);
           if (!val) {
@@ -202,16 +198,16 @@ export default function CategoriesPage() {
             form.reset();
           }
         }}>
-        <DialogTrigger render={<Button />}>
-          <Plus className="mr-2 h-4 w-4" /> Add Category
+        <DialogTrigger render={<Button className="w-full sm:w-auto rounded-none h-10 bg-primary text-primary-foreground font-bold flex items-center justify-center" />}>
+          <Plus className="mr-2 h-4 w-4" /> {t("categories.add_category")}
         </DialogTrigger>
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
-              <DialogTitle>{editingCategory ? 'Edit' : 'Add'} Category</DialogTitle>
+              <DialogTitle>{editingCategory ? t("categories.edit_category") : t("categories.add_category")}</DialogTitle>
               <DialogDescription>
                 {editingCategory 
-                  ? "Update the category details." 
-                  : "Create a new category to organize your products."}
+                  ? t("categories.update_details") 
+                  : t("categories.create_details")}
               </DialogDescription>
             </DialogHeader>
             <Form {...form}>
@@ -221,9 +217,9 @@ export default function CategoriesPage() {
                   name="name"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Name</FormLabel>
+                      <FormLabel>{t("categories.name")}</FormLabel>
                       <FormControl>
-                        <Input placeholder="Category name" {...field} />
+                        <Input placeholder={t("categories.name_placeholder") as string} {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -235,10 +231,10 @@ export default function CategoriesPage() {
                     name="slug"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Slug</FormLabel>
+                        <FormLabel>{t("categories.slug")}</FormLabel>
                         <FormControl>
                           <Input 
-                            placeholder="category-slug" 
+                            placeholder={t("categories.slug_placeholder") as string} 
                             {...field} 
                             onChange={(e) => {
                               field.onChange(sanitizeSlugInput(e.target.value));
@@ -246,7 +242,7 @@ export default function CategoriesPage() {
                           />
                         </FormControl>
                         <FormDescription>
-                          Unique URL-friendly name.
+                          {t("categories.slug_description")}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -258,7 +254,7 @@ export default function CategoriesPage() {
                   name="parentCategory"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Parent Category</FormLabel>
+                      <FormLabel>{t("categories.parent_category")}</FormLabel>
                       <Select 
                         onValueChange={field.onChange} 
                         defaultValue={field.value || "none"}
@@ -266,11 +262,11 @@ export default function CategoriesPage() {
                       >
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="Select a parent category" />
+                            <SelectValue placeholder={t("categories.select_parent") as string} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="none">None (Top Level)</SelectItem>
+                          <SelectItem value="none">{t("categories.none_top_level")}</SelectItem>
                           {categories
                             .filter((c) => c._id !== editingCategory?._id)
                             .map((category) => (
@@ -290,7 +286,7 @@ export default function CategoriesPage() {
                     name="image"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Category Image</FormLabel>
+                        <FormLabel>{t("categories.category_image")}</FormLabel>
                         <FormControl>
                           <ImageUpload 
                             value={field.value} 
@@ -306,7 +302,7 @@ export default function CategoriesPage() {
                 <DialogFooter>
                   <Button type="submit" disabled={submitting}>
                     {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    {editingCategory ? 'Update' : 'Create'} Category
+                    {editingCategory ? t("categories.update") : t("categories.create")}
                   </Button>
                 </DialogFooter>
               </form>
@@ -315,166 +311,168 @@ export default function CategoriesPage() {
         </Dialog>
       </div>
 
-      <div className="rounded-md border-none md:border bg-transparent md:bg-background">
-        <div className="hidden md:block">
+      {/* Desktop View */}
+      <div className="hidden md:block px-0 md:px-0 !mt-[1px] md:!mt-4">
+        <div className="rounded-md border bg-background overflow-x-auto">
           <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-[100px]">Image</TableHead>
-              <TableHead>Name</TableHead>
-              <TableHead>Slug</TableHead>
-              <TableHead>Parent</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              Array.from({ length: 5 }).map((_, i) => (
-                <TableRow key={i}>
-                  <TableCell><Skeleton className="h-10 w-10 rounded-md" /></TableCell>
-                  <TableCell><Skeleton className="h-4 w-32 rounded" /></TableCell>
-                  <TableCell><Skeleton className="h-4 w-24 rounded" /></TableCell>
-                  <TableCell><Skeleton className="h-5 w-20 rounded" /></TableCell>
-                  <TableCell><Skeleton className="h-5 w-16 rounded-full" /></TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      <Skeleton className="h-8 w-8 rounded-md" />
-                      <Skeleton className="h-8 w-8 rounded-md" />
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
-            ) : categories.length === 0 ? (
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={5} className="h-24 text-center">
-                  No categories found.
-                </TableCell>
+                <TableHead className="w-[100px]">{t("categories.image")}</TableHead>
+                <TableHead>{t("categories.name")}</TableHead>
+                <TableHead>{t("categories.slug")}</TableHead>
+                <TableHead>{t("categories.parent")}</TableHead>
+                <TableHead>{t("categories.status")}</TableHead>
+                <TableHead className="text-right">{t("categories.actions")}</TableHead>
               </TableRow>
-            ) : (
-              categories.map((category) => (
-                <TableRow key={category._id}>
-                  <TableCell>
-                    <div className="h-10 w-10 overflow-hidden rounded-md border bg-muted">
-                      {category.image ? (
-                        <Image src={category.image} alt={category.name} width={40} height={40} className="h-full w-full object-cover" />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center">
-                          <Plus className="h-4 w-4 text-muted-foreground" />
-                        </div>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell className="font-medium">{category.name}</TableCell>
-                  <TableCell>{category.slug}</TableCell>
-                  <TableCell>
-                    {category.parentCategory ? (
-                      <Badge variant="outline">{category.parentCategory.name || 'Parent'}</Badge>
-                    ) : (
-                      <span className="text-muted-foreground text-xs">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={category.isActive ? 'default' : 'secondary'}>
-                      {category.isActive ? 'Active' : 'Inactive'}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      onClick={() => handleEdit(category)}
-                      aria-label={`Edit ${category.name}`}
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      className="text-destructive" 
-                      onClick={() => handleDelete(category._id)}
-                      aria-label={`Delete ${category.name}`}
-                    >
-                      <Trash className="h-4 w-4" />
-                    </Button>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                Array.from({ length: 5 }).map((_, i) => (
+                  <TableRow key={i}>
+                    <TableCell><Skeleton className="h-10 w-10 rounded-md" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-32 rounded" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-24 rounded" /></TableCell>
+                    <TableCell><Skeleton className="h-5 w-20 rounded" /></TableCell>
+                    <TableCell><Skeleton className="h-5 w-16 rounded-full" /></TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Skeleton className="h-8 w-8 rounded-md" />
+                        <Skeleton className="h-8 w-8 rounded-md" />
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : categories.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="h-24 text-center">
+                    {t("categories.no_categories_found")}
                   </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-        </div>
-
-        {/* Mobile View */}
-        <div className="block md:hidden divide-y divide-border px-2">
-          {loading ? (
-            <div className="space-y-3 py-3">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="py-2 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2.5">
-                    <Skeleton className="h-10 w-10 rounded-md" />
-                    <div className="space-y-1.5">
-                      <Skeleton className="h-4 w-28 rounded" />
-                      <Skeleton className="h-3 w-20 rounded" />
-                    </div>
-                  </div>
-                  <Skeleton className="h-5 w-12 rounded" />
-                </div>
-              ))}
-            </div>
-          ) : categories.length === 0 ? (
-            <div className="py-12 text-center text-muted-foreground text-sm">
-              No categories found.
-            </div>
-          ) : (
-            categories.map((category) => (
-              <div key={category._id} className="py-3 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="h-10 w-10 shrink-0 overflow-hidden rounded-md border bg-muted">
-                    {category.image ? (
-                      <Image src={category.image} alt={category.name} width={40} height={40} className="h-full w-full object-cover" />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center">
-                        <Plus className="h-3 w-3 text-muted-foreground" />
+              ) : (
+                categories.map((category) => (
+                  <TableRow key={category._id}>
+                    <TableCell>
+                      <div className="h-10 w-10 overflow-hidden rounded-md border bg-muted">
+                        {category.image ? (
+                          <Image src={category.image} alt={category.name} width={40} height={40} className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center">
+                            <Plus className="h-4 w-4 text-muted-foreground" />
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                  <div className="min-w-0 space-y-0.5">
-                    <span className="font-bold text-xs text-foreground truncate block max-w-[180px]">
-                      {category.name}
-                    </span>
-                    <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground font-medium">
-                      <span>{category.slug}</span>
-                      <span>•</span>
-                      <span>{category.parentCategory ? category.parentCategory.name || 'Parent' : 'Top Level'}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1 shrink-0">
-                  <Badge variant={category.isActive ? 'default' : 'secondary'} className="text-[8px] px-1 py-0 font-bold tracking-tighter scale-90">
-                    {category.isActive ? 'Active' : 'Inactive'}
-                  </Badge>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" aria-label={`Actions for ${category.name}`}>
-                        <MoreHorizontal className="h-4 w-4" />
+                    </TableCell>
+                    <TableCell className="font-medium">{category.name}</TableCell>
+                    <TableCell>{category.slug}</TableCell>
+                    <TableCell>
+                      {category.parentCategory ? (
+                        <Badge variant="outline">{category.parentCategory.name || 'Parent'}</Badge>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={category.isActive ? 'default' : 'secondary'}>
+                        {category.isActive ? t("categories.active") : t("categories.inactive")}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={() => handleEdit(category)}
+                        aria-label={`Edit ${category.name}`}
+                      >
+                        <Edit className="h-4 w-4" />
                       </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => handleEdit(category)}>
-                        <Edit className="mr-2 h-4 w-4" /> Edit
-                      </DropdownMenuItem>
-                      <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => handleDelete(category._id)}>
-                        <Trash className="mr-2 h-4 w-4" /> Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="text-destructive" 
+                        onClick={() => handleDelete(category._id)}
+                        aria-label={`Delete ${category.name}`}
+                      >
+                        <Trash className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+
+      {/* Mobile View */}
+      <div className="block md:hidden space-y-3 px-0 md:px-0 !mt-[1px] md:!mt-4">
+        {loading ? (
+          <div className="space-y-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="p-4 border border-border/50 rounded-xl bg-card shadow-sm space-y-2">
+                <div className="flex gap-3 items-center">
+                  <Skeleton className="h-12 w-12 rounded-md" />
+                  <div className="space-y-2 flex-1">
+                    <Skeleton className="h-4 w-1/2 rounded" />
+                    <Skeleton className="h-3.5 w-3/4 rounded" />
+                  </div>
                 </div>
               </div>
-            ))
-          )}
-        </div>
+            ))}
+          </div>
+        ) : categories.length === 0 ? (
+          <div className="p-8 text-center text-muted-foreground bg-background rounded-xl border">
+            <p className="font-semibold text-sm">{t("categories.no_categories_found")}</p>
+          </div>
+        ) : (
+          categories.map((category) => (
+            <div key={category._id} className="p-4 mb-3 border border-border/50 rounded-xl bg-card shadow-sm flex flex-col gap-2.5 relative bg-white dark:bg-zinc-900">
+              <div className="flex items-center gap-3">
+                <div className="h-12 w-12 overflow-hidden rounded-md border bg-muted shrink-0">
+                  {category.image ? (
+                    <Image src={category.image} alt={category.name} width={48} height={48} className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center">
+                      <Plus className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-base text-foreground truncate">{category.name}</div>
+                  <div className="text-xs text-muted-foreground truncate">{category.slug}</div>
+                </div>
+                <Badge variant={category.isActive ? 'default' : 'secondary'} className="shrink-0">
+                  {category.isActive ? t("categories.active") : t("categories.inactive")}
+                </Badge>
+              </div>
+
+              {category.parentCategory && (
+                <div className="flex items-center justify-between border-t border-border/30 pt-2 text-xs">
+                  <span className="text-muted-foreground">{t("categories.parent") || "Parent"}:</span>
+                  <Badge variant="outline">{category.parentCategory.name || 'Parent'}</Badge>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 border-t border-border/30 pt-2 mt-1">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="h-8 text-xs font-semibold"
+                  onClick={() => handleEdit(category)}
+                >
+                  <Edit className="h-3.5 w-3.5 mr-1" /> {t("showroom_managers.edit") || "Edit"}
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="h-8 text-xs font-semibold text-destructive hover:text-destructive hover:bg-destructive/10"
+                  onClick={() => handleDelete(category._id)}
+                >
+                  <Trash className="h-3.5 w-3.5 mr-1" /> {t("products.delete") || "Delete"}
+                </Button>
+              </div>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );

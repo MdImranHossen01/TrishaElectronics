@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { supplierId, date, items, subtotal, discount, total, paidAmount, paymentMethod } = body;
+    const { supplierId, date, items, subtotal, discount, total, paidAmount, paymentMethod, paymentAccountId, expectedPaymentDate } = body;
 
     if (!supplierId || !items || items.length === 0) {
       return NextResponse.json({ message: 'Supplier and items are required' }, { status: 400 });
@@ -84,7 +84,12 @@ export async function POST(req: NextRequest) {
           throw new Error('Invalid paid amount');
         }
 
-        const dueNum = Math.max(0, totalNum - paidNum);
+        if (paidNum > totalNum) {
+          customErrorResponse = NextResponse.json({ message: 'Paid amount cannot exceed the total bill amount' }, { status: 400 });
+          throw new Error('Paid amount cannot exceed the total bill amount');
+        }
+
+        const dueNum = totalNum - paidNum;
         const status = dueNum === 0 ? 'Paid' : 'Due';
 
         // Generate sequential purchase bill number using Counter model
@@ -112,12 +117,58 @@ export async function POST(req: NextRequest) {
           paidAmount: paidNum,
           dueAmount: dueNum,
           paymentMethod,
+          paymentAccountId: paymentAccountId || undefined,
+          expectedPaymentDate: expectedPaymentDate ? new Date(expectedPaymentDate) : undefined,
           status
         }], { session: dbSession });
 
         // Increment supplier balance by dueAmount
         supplier.currentBalance = (supplier.currentBalance || 0) + dueNum;
         await supplier.save({ session: dbSession });
+
+        const { logLedgerTransaction } = await import('@/lib/ledgerHelper');
+
+        if (dueNum > 0) {
+          await logLedgerTransaction(
+            'AP',
+            'credit',
+            dueNum,
+            `Supplier Bill Generated: ${billNo}`,
+            bill._id.toString(),
+            date ? new Date(date) : new Date(),
+            undefined,
+            undefined,
+            dbSession
+          );
+        }
+
+        if (paidNum > 0) {
+          let accCode = 'CASH';
+          if (paymentMethod === 'Bank' || paymentMethod === 'MFS') {
+            if (!paymentAccountId) {
+              customErrorResponse = NextResponse.json({ message: `${paymentMethod} account must be selected.` }, { status: 400 });
+              throw new Error(`${paymentMethod} account must be selected.`);
+            }
+            const LedgerAccount = (await import('@/models/LedgerAccount')).default;
+            const pAccount = await LedgerAccount.findById(paymentAccountId).session(dbSession);
+            if (!pAccount) {
+              customErrorResponse = NextResponse.json({ message: 'Selected payment account not found.' }, { status: 404 });
+              throw new Error('Selected payment account not found.');
+            }
+            accCode = pAccount.code;
+          }
+          await logLedgerTransaction(
+            accCode,
+            'credit',
+            paidNum,
+            `Supplier Bill Upfront Payment: ${billNo}`,
+            bill._id.toString(),
+            date ? new Date(date) : new Date(),
+            undefined,
+            undefined,
+            dbSession
+          );
+        }
 
         billResult = bill;
       });

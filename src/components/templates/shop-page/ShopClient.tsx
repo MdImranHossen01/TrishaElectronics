@@ -29,6 +29,7 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Pagination } from '@/components/ui/pagination';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface ShopCategory {
   _id: string;
@@ -67,6 +68,7 @@ interface ShopClientProps {
 }
 
 export default function ShopClient({ initialProducts, initialCategories, searchParams: initialSearchParams, cardStyle }: ShopClientProps) {
+  const { t } = useLanguage();
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -351,13 +353,13 @@ export default function ShopClient({ initialProducts, initialCategories, searchP
     <div className="space-y-6">
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-bold uppercase tracking-wider">Categories</h3>
+          <h3 className="text-sm font-bold uppercase tracking-wider">{t('store.shop.categories') || 'Categories'}</h3>
           {selectedCategories.length > 0 && (
             <button
               onClick={() => setSelectedCategories([])}
               className="text-xs text-primary hover:underline font-medium"
             >
-              Clear
+              {t('store.shop.clear') || 'Clear'}
             </button>
           )}
         </div>
@@ -476,24 +478,24 @@ export default function ShopClient({ initialProducts, initialCategories, searchP
       </div>
 
       <div>
-        <h3 className="text-sm font-bold uppercase tracking-wider mb-4">Price Range</h3>
+        <h3 className="text-sm font-bold uppercase tracking-wider mb-4">{t('store.shop.price_range') || 'Price Range'}</h3>
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
             <span className="absolute left-2.5 top-2.5 text-xs text-muted-foreground">৳</span>
             <Input
               type="number"
-              placeholder="Min"
+              placeholder={t('store.shop.min') as string || 'Min'}
               value={minPrice}
               onChange={(e) => setMinPrice(e.target.value)}
               className="pl-6 text-sm"
             />
           </div>
-          <span className="text-muted-foreground text-xs font-medium">to</span>
+          <span className="text-muted-foreground text-xs font-medium">{t('store.shop.to') || 'to'}</span>
           <div className="relative flex-1">
             <span className="absolute left-2.5 top-2.5 text-xs text-muted-foreground">৳</span>
             <Input
               type="number"
-              placeholder="Max"
+              placeholder={t('store.shop.max') as string || 'Max'}
               value={maxPrice}
               onChange={(e) => setMaxPrice(e.target.value)}
               className="pl-6 text-sm"
@@ -503,7 +505,7 @@ export default function ShopClient({ initialProducts, initialCategories, searchP
       </div>
 
       <Button variant="outline" className="w-full" onClick={clearFilters}>
-        Reset All Filters
+        {t('store.shop.reset_filters') || 'Reset All Filters'}
       </Button>
     </div>
   );
@@ -522,7 +524,7 @@ export default function ShopClient({ initialProducts, initialCategories, searchP
             <div className="relative w-full sm:max-w-xs">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search products..."
+                placeholder={(t('store.shop.search') as string) || 'Search products...'}
                 className="pl-8"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -533,12 +535,12 @@ export default function ShopClient({ initialProducts, initialCategories, searchP
               <Sheet>
                 <SheetTrigger asChild>
                   <Button variant="outline" size="sm" className="md:hidden flex items-center gap-1">
-                    <Filter className="h-4 w-4" /> Filters
+                    <Filter className="h-4 w-4" /> {t('store.shop.filters') || 'Filters'}
                   </Button>
                 </SheetTrigger>
                 <SheetContent side="left" className="p-6 overflow-y-auto no-scrollbar [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                   <SheetHeader className="mb-6 p-0">
-                    <SheetTitle>Filter Products</SheetTitle>
+                    <SheetTitle>{t('store.shop.filters') || 'Filter Products'}</SheetTitle>
                   </SheetHeader>
                   {renderSidebar()}
                 </SheetContent>
@@ -548,16 +550,16 @@ export default function ShopClient({ initialProducts, initialCategories, searchP
                 if (val) setSortBy(val);
               }}>
                 <SelectTrigger className="w-full sm:w-[190px]">
-                  <SelectValue placeholder="All Products" />
+                  <SelectValue placeholder={t('store.shop.sort_by.all') as string || 'All Products'} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Products</SelectItem>
-                  <SelectItem value="new">New Arrivals</SelectItem>
-                  <SelectItem value="trending">Trending Products</SelectItem>
-                  <SelectItem value="sale">Flash Sale</SelectItem>
-                  <SelectItem value="featured">Featured Products</SelectItem>
-                  <SelectItem value="price-asc">Price: Low to High</SelectItem>
-                  <SelectItem value="price-desc">Price: High to Low</SelectItem>
+                  <SelectItem value="all">{t('store.shop.sort_by.all') || 'All Products'}</SelectItem>
+                  <SelectItem value="new">{t('store.shop.sort_by.new') || 'New Arrivals'}</SelectItem>
+                  <SelectItem value="trending">{t('store.shop.sort_by.trending') || 'Trending Products'}</SelectItem>
+                  <SelectItem value="sale">{t('store.shop.sort_by.sale') || 'Flash Sale'}</SelectItem>
+                  <SelectItem value="featured">{t('store.shop.sort_by.featured') || 'Featured Products'}</SelectItem>
+                  <SelectItem value="price-asc">{t('store.shop.sort_by.price_asc') || 'Price: Low to High'}</SelectItem>
+                  <SelectItem value="price-desc">{t('store.shop.sort_by.price_desc') || 'Price: High to Low'}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -565,15 +567,14 @@ export default function ShopClient({ initialProducts, initialCategories, searchP
 
           <div className="flex items-center justify-between">
             <p className="text-sm text-muted-foreground">
-              {filteredProducts.length === 0 ? '0 products found' : `Showing ${(currentPage - 1) * itemsPerPage + 1}-${Math.min(currentPage * itemsPerPage, filteredProducts.length)} of ${filteredProducts.length} product${filteredProducts.length === 1 ? '' : 's'}`}
+              {filteredProducts.length === 0 ? t('store.shop.no_products') : `${t('store.shop.showing')} ${(currentPage - 1) * itemsPerPage + 1}-${Math.min(currentPage * itemsPerPage, filteredProducts.length)} ${t('store.shop.of')} ${filteredProducts.length} ${filteredProducts.length === 1 ? (t('store.shop.product') || 'product') : (t('store.shop.products') || 'products')}`}
             </p>
-
           </div>
 
           {/* Active Filters Bar */}
           {(selectedCategories.length > 0 || searchTerm || minPrice !== '' || maxPrice !== '' || sortBy !== 'all' || showOnlyNew || showOnlySale || showOnlyFeatured || showOnlyTrending) && (
             <div className="flex flex-wrap gap-2 items-center">
-              <span className="text-xs font-bold uppercase text-muted-foreground mr-2">Filtered By:</span>
+              <span className="text-xs font-bold uppercase text-muted-foreground mr-2">{t('store.shop.filtered_by') || 'Filtered By:'}</span>
               {selectedCategories.map(cat => {
                 const categoryName = categories.find(c => c.slug === cat || c._id === cat)?.name || cat;
                 return (
@@ -595,7 +596,7 @@ export default function ShopClient({ initialProducts, initialCategories, searchP
               })}
               {searchTerm && (
                 <Badge variant="secondary" className="gap-1 rounded-full pl-3 pr-1 py-1 flex items-center">
-                  <span>Search: {searchTerm}</span>
+                  <span>{t('store.shop.search')}: {searchTerm}</span>
                   <button
                     type="button"
                     onClick={(e) => {
@@ -611,7 +612,7 @@ export default function ShopClient({ initialProducts, initialCategories, searchP
               )}
               {(minPrice !== '' || maxPrice !== '') && (
                 <Badge variant="secondary" className="gap-1 rounded-full pl-3 pr-1 py-1 flex items-center">
-                  <span>Price: ৳{minPrice || '0'} - ৳{maxPrice || '∞'}</span>
+                  <span>{t('store.shop.price')}: ৳{minPrice || '0'} - ৳{maxPrice || '∞'}</span>
                   <button
                     type="button"
                     onClick={(e) => {
@@ -628,7 +629,7 @@ export default function ShopClient({ initialProducts, initialCategories, searchP
               )}
               {(showOnlyNew || sortBy === 'new') && (
                 <Badge variant="secondary" className="gap-1 rounded-full pl-3 pr-1 py-1 flex items-center">
-                  <span>New Arrivals</span>
+                  <span>{t('store.shop.sort_by.new')}</span>
                   <button
                     type="button"
                     onClick={(e) => {
@@ -645,7 +646,7 @@ export default function ShopClient({ initialProducts, initialCategories, searchP
               )}
               {(showOnlySale || sortBy === 'sale') && (
                 <Badge variant="secondary" className="gap-1 rounded-full pl-3 pr-1 py-1 flex items-center">
-                  <span>Flash Sale</span>
+                  <span>{t('store.shop.sort_by.sale')}</span>
                   <button
                     type="button"
                     onClick={(e) => {
@@ -662,7 +663,7 @@ export default function ShopClient({ initialProducts, initialCategories, searchP
               )}
               {(showOnlyFeatured || sortBy === 'featured') && (
                 <Badge variant="secondary" className="gap-1 rounded-full pl-3 pr-1 py-1 flex items-center">
-                  <span>Featured</span>
+                  <span>{t('store.shop.sort_by.featured')}</span>
                   <button
                     type="button"
                     onClick={(e) => {
@@ -679,7 +680,7 @@ export default function ShopClient({ initialProducts, initialCategories, searchP
               )}
               {(showOnlyTrending || sortBy === 'trending') && (
                 <Badge variant="secondary" className="gap-1 rounded-full pl-3 pr-1 py-1 flex items-center">
-                  <span>Trending</span>
+                  <span>{t('store.shop.sort_by.trending')}</span>
                   <button
                     type="button"
                     onClick={(e) => {
@@ -696,7 +697,7 @@ export default function ShopClient({ initialProducts, initialCategories, searchP
               )}
               {sortBy === 'price-asc' && (
                 <Badge variant="secondary" className="gap-1 rounded-full pl-3 pr-1 py-1 flex items-center">
-                  <span>Price: Low to High</span>
+                  <span>{t('store.shop.sort_by.price_asc')}</span>
                   <button
                     type="button"
                     onClick={(e) => {
@@ -712,7 +713,7 @@ export default function ShopClient({ initialProducts, initialCategories, searchP
               )}
               {sortBy === 'price-desc' && (
                 <Badge variant="secondary" className="gap-1 rounded-full pl-3 pr-1 py-1 flex items-center">
-                  <span>Price: High to Low</span>
+                  <span>{t('store.shop.sort_by.price_desc')}</span>
                   <button
                     type="button"
                     onClick={(e) => {
@@ -727,7 +728,7 @@ export default function ShopClient({ initialProducts, initialCategories, searchP
                 </Badge>
               )}
               <Button variant="ghost" size="sm" className="text-xs h-7 px-2" onClick={clearFilters}>
-                Clear All
+                {t('store.shop.clear_all') || 'Clear All'}
               </Button>
             </div>
           )}
@@ -738,11 +739,11 @@ export default function ShopClient({ initialProducts, initialCategories, searchP
               <div className="rounded-full bg-muted p-6">
                 <Search className="h-10 w-10 text-muted-foreground" />
               </div>
-              <h2 className="text-xl font-bold">No products found</h2>
+              <h2 className="text-xl font-bold">{t('store.shop.no_products') || 'No products found'}</h2>
               <p className="text-muted-foreground max-w-xs">
-                Try adjusting your filters or search terms to find what you&apos;re looking for.
+                {t('store.shop.try_adjusting') || "Try adjusting your filters or search terms to find what you're looking for."}
               </p>
-              <Button variant="outline" onClick={clearFilters}>Reset All Filters</Button>
+              <Button variant="outline" onClick={clearFilters}>{t('store.shop.reset_filters') || 'Reset All Filters'}</Button>
             </div>
           ) : (
             <div className="grid gap-6 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">

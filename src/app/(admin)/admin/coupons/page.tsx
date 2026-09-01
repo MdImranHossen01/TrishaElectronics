@@ -22,7 +22,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Skeleton } from '@/components/ui/skeleton';
 import {
   Dialog,
   DialogContent,
@@ -37,12 +36,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
+import { Badge } from '@/components/ui/badge';
 import { CouponForm } from '@/components/admin/CouponForm';
 import Swal from 'sweetalert2';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 export default function CouponsPage() {
+  const { t } = useLanguage();
   const [coupons, setCoupons] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -50,6 +51,7 @@ export default function CouponsPage() {
   const [editingCoupon, setEditingCoupon] = useState<any>(null);
 
   const fetchCoupons = async () => {
+    await Promise.resolve();
     try {
       const response = await fetch('/api/admin/coupons');
       if (response.ok) {
@@ -67,9 +69,10 @@ export default function CouponsPage() {
   };
 
   useEffect(() => {
-    (async () => {
-      await fetchCoupons();
-    })();
+    const timer = setTimeout(() => {
+      fetchCoupons();
+    }, 0);
+    return () => clearTimeout(timer);
   }, []);
 
   const handleDelete = async (id: string) => {
@@ -105,24 +108,24 @@ export default function CouponsPage() {
   );
 
   return (
-    <div className="flex-1 space-y-4 px-0 py-4 md:p-8">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">Coupons</h2>
-          <p className="text-muted-foreground">Manage discount codes and promotional offers.</p>
+    <div className="flex-1 space-y-4 px-[1px] pt-[1px] pb-4 md:p-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 w-full mb-[1px] md:mb-0">
+        <div className="hidden md:block">
+          <h2 className="text-3xl font-bold tracking-tight">{t("coupons.title")}</h2>
+          <p className="text-muted-foreground">{t("coupons.subtitle")}</p>
         </div>
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
           <DialogTrigger 
             render={
-              <Button className="bg-primary hover:bg-primary/90">
-                <Plus className="mr-2 h-4 w-4" /> Add Coupon
+              <Button className="w-full md:w-auto bg-primary hover:bg-primary/90">
+                <Plus className="mr-2 h-4 w-4" /> {t("coupons.add_coupon")}
               </Button>
             }
           />
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
-              <DialogTitle>Create New Coupon</DialogTitle>
-              <DialogDescription>Fill in the details to create a new discount code.</DialogDescription>
+              <DialogTitle>{t("coupons.create_new")}</DialogTitle>
+              <DialogDescription>{t("coupons.create_desc")}</DialogDescription>
             </DialogHeader>
             <CouponForm onSuccess={() => {
               setIsAddDialogOpen(false);
@@ -136,7 +139,7 @@ export default function CouponsPage() {
         <div className="relative flex-1">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search by coupon code..."
+            placeholder={t("coupons.search_placeholder") as string}
             className="pl-8"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -145,80 +148,64 @@ export default function CouponsPage() {
       </div>
 
       <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
-        <Table>
-          <TableHeader className="bg-muted/50">
-            <TableRow>
-              <TableHead className="font-bold">Code</TableHead>
-              <TableHead className="font-bold">Discount</TableHead>
-              <TableHead className="font-bold">Min Purchase</TableHead>
-              <TableHead className="font-bold">Expiry</TableHead>
-              <TableHead className="font-bold">Usage</TableHead>
-              <TableHead className="font-bold">Status</TableHead>
-              <TableHead className="text-right font-bold">Actions</TableHead>
+        <Table className="block md:table">
+          <TableHeader className="hidden md:table-header-group bg-muted/50">
+            <TableRow className="block md:table-row border md:border-b border-slate-100 rounded-xl p-3 sm:p-4 md:p-0 bg-white md:bg-transparent shadow-sm md:shadow-none mb-3 md:mb-0">
+              <TableHead className="font-bold">{t("coupons.code")}</TableHead>
+              <TableHead className="font-bold">{t("coupons.discount")}</TableHead>
+              <TableHead className="font-bold">{t("coupons.min_purchase")}</TableHead>
+              <TableHead className="font-bold">{t("coupons.expiry")}</TableHead>
+              <TableHead className="font-bold">{t("coupons.usage")}</TableHead>
+              <TableHead className="font-bold">{t("coupons.status")}</TableHead>
+              <TableHead className="text-right font-bold">{t("coupons.actions")}</TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
+          <TableBody className="block md:table-row-group space-y-3 md:space-y-0 p-3 md:p-0">
             {loading ? (
-              Array.from({ length: 5 }).map((_, i) => (
-                <TableRow key={i}>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <Skeleton className="h-4 w-4 rounded" />
-                      <Skeleton className="h-4 w-20 rounded" />
-                    </div>
-                  </TableCell>
-                  <TableCell><Skeleton className="h-4 w-16 rounded" /></TableCell>
-                  <TableCell><Skeleton className="h-4 w-16 rounded" /></TableCell>
-                  <TableCell><Skeleton className="h-4 w-24 rounded" /></TableCell>
-                  <TableCell><Skeleton className="h-4 w-12 rounded" /></TableCell>
-                  <TableCell><Skeleton className="h-5 w-16 rounded-full" /></TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      <Skeleton className="h-8 w-8 rounded-md" />
-                      <Skeleton className="h-8 w-8 rounded-md" />
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
+              <TableRow className="block md:table-row border md:border-b border-slate-100 rounded-xl p-3 sm:p-4 md:p-0 bg-white md:bg-transparent shadow-sm md:shadow-none mb-3 md:mb-0">
+                <TableCell colSpan={7} className="block md:table-cell py-1.5 md:py-4 text-left h-24 text-center">
+                  <Loader2 className="mx-auto h-6 w-6 animate-spin text-primary" />
+                </TableCell>
+              </TableRow>
             ) : filteredCoupons.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                  No coupons found.
+              <TableRow className="block md:table-row border md:border-b border-slate-100 rounded-xl p-3 sm:p-4 md:p-0 bg-white md:bg-transparent shadow-sm md:shadow-none mb-3 md:mb-0">
+                <TableCell colSpan={7} className="block md:table-cell py-1.5 md:py-4 text-left h-24 text-center text-muted-foreground">
+                  {t("coupons.no_coupons")}
                 </TableCell>
               </TableRow>
             ) : (
               filteredCoupons.map((coupon) => (
-                <TableRow key={coupon._id} className="hover:bg-muted/30 transition-colors">
-                  <TableCell>
+                <TableRow key={coupon._id} className="block md:table-row border md:border-b border-slate-100 rounded-xl p-3 sm:p-4 md:p-0 bg-white md:bg-transparent shadow-sm md:shadow-none mb-3 md:mb-0 hover:bg-muted/30 transition-colors">
+                  <TableCell className="block md:table-cell py-1.5 md:py-4 text-left">
                     <div className="flex items-center gap-2">
                       <Tag className="h-4 w-4 text-primary" />
                       <span className="font-bold">{coupon.code}</span>
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="block md:table-cell py-1.5 md:py-4 text-left">
                     {coupon.discountType === 'percentage' 
                       ? `${coupon.discountValue}%` 
                       : `৳${coupon.discountValue}`}
                   </TableCell>
-                  <TableCell>৳{coupon.minPurchase}</TableCell>
-                  <TableCell>
+                  <TableCell className="block md:table-cell py-1.5 md:py-4 text-left">৳{coupon.minPurchase}</TableCell>
+                  <TableCell className="block md:table-cell py-1.5 md:py-4 text-left">
                     <div className="flex items-center gap-1 text-xs">
                       <Calendar className="h-3 w-3" />
                       {new Date(coupon.expiryDate).toLocaleDateString()}
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="block md:table-cell py-1.5 md:py-4 text-left">
                     <div className="flex items-center gap-1 text-xs">
                       <Users className="h-3 w-3" />
                       {coupon.usedCount} / {coupon.usageLimit || '∞'}
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="block md:table-cell py-1.5 md:py-4 text-left">
                     <Badge variant={coupon.isActive ? "default" : "secondary"}>
-                      {coupon.isActive ? 'Active' : 'Inactive'}
+                      {coupon.isActive ? t("coupons.active") : t("coupons.inactive")}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="block md:table-cell py-1.5 md:py-4 text-left md:text-right">
                     <DropdownMenu>
                       <DropdownMenuTrigger 
                         render={
@@ -250,8 +237,8 @@ export default function CouponsPage() {
       <Dialog open={!!editingCoupon} onOpenChange={() => setEditingCoupon(null)}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Edit Coupon</DialogTitle>
-            <DialogDescription>Update the coupon details below.</DialogDescription>
+            <DialogTitle>{t("coupons.edit_coupon")}</DialogTitle>
+            <DialogDescription>{t("coupons.edit_desc")}</DialogDescription>
           </DialogHeader>
           {editingCoupon && (
             <CouponForm 

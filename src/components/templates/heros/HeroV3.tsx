@@ -6,6 +6,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { Play, ChevronDown, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface HeroV3Props {
    banners: any[];
@@ -13,6 +14,7 @@ interface HeroV3Props {
 }
 
 export default function HeroV3({ banners, onPlay }: HeroV3Props) {
+   const { t } = useLanguage();
    const sectionRef = useRef<HTMLElement>(null);
 
    const banner = banners?.[0] || {
@@ -82,12 +84,12 @@ export default function HeroV3({ banners, onPlay }: HeroV3Props) {
                <div className="flex gap-4">
                   <Link href="/shop">
                      <Button className="h-16 px-12 rounded-full bg-white text-black hover:bg-primary hover:text-white font-black text-xs uppercase tracking-[0.3em] transition-all duration-500 shadow-2xl">
-                        Explore Selection
+                        {banner.primaryBtnText || (t('store.hero.shop_now') as string) || 'Explore Selection'}
                      </Button>
                   </Link>
                   <Link href="/categories">
                      <Button variant="ghost" className="h-16 px-12 rounded-full border border-white/20 text-white hover:bg-white hover:text-black font-black text-xs uppercase tracking-[0.3em] transition-all duration-500">
-                        Categories
+                        {banner.secondaryBtnText || 'Categories'}
                      </Button>
                   </Link>
                </div>

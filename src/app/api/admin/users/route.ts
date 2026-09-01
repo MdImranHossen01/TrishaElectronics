@@ -3,13 +3,15 @@ import { auth } from '@/auth';
 import connectToDatabase from '@/lib/db';
 import User from '@/models/User';
 import Order from '@/models/Order'; // Import to ensure model is registered
+import bcrypt from 'bcryptjs';
+import { normalizePhoneNumber } from '@/lib/utils';
 
 export async function GET(req: NextRequest) {
   try {
     const session = await auth();
     const userRole = (session?.user as any)?.role;
     
-    if (!session || (userRole !== 'admin' && userRole !== 'super_admin')) {
+    if (!session || !(['admin', 'super_admin'].includes(userRole))) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
@@ -20,7 +22,9 @@ export async function GET(req: NextRequest) {
 
     await connectToDatabase();
 
-    const matchQuery: any = { role: { $ne: 'super_admin' as const } };
+    // Only show customers with role 'user'
+    // Wholesalers → /admin/wholesalers, Employees/Managers/Admins → /admin/employees
+    const matchQuery: any = { role: 'user' };
     if (search) {
       matchQuery.$or = [
         { name: { $regex: search, $options: 'i' } },
@@ -28,6 +32,7 @@ export async function GET(req: NextRequest) {
         { phone: { $regex: search, $options: 'i' } }
       ];
     }
+
     const totalCount = await User.countDocuments(matchQuery);
 
     // Aggregate users with their order stats (efficiently skip/limit before lookup)
@@ -56,6 +61,26 @@ export async function GET(req: NextRequest) {
           lastActive: 1,
           totalOrders: { $size: '$userOrders' },
           totalSpent: { $sum: '$userOrders.totalAmount' },
+          totalDue: {
+            $sum: {
+              $map: {
+                input: '$userOrders',
+                as: 'order',
+                in: {
+                  $cond: [
+                    { $eq: ['$$order.paymentStatus', 'Paid'] },
+                    0,
+                    {
+                      $subtract: [
+                        '$$order.totalAmount',
+                        { $ifNull: ['$$order.paidAmount', 0] }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
           lastOrderDate: { $max: '$userOrders.createdAt' }
         }
       }
@@ -78,35 +103,58 @@ export async function POST(req: NextRequest) {
     const session = await auth();
     const currentUserRole = (session?.user as any)?.role;
     
-    // Both admin and super_admin can manually assign admins by email
+    // Both admin and super_admin can manually assign admins by email or phone
     if (!session || (currentUserRole !== 'super_admin' && currentUserRole !== 'admin')) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
-    const { email } = await req.json();
+    const { email, name, image, phone, password } = await req.json();
 
-    if (!email || !/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.[A-Za-z]{2,})+$/.test(email)) {
+    // Must have either email or phone
+    if (!email && !phone) {
+      return NextResponse.json({ message: 'Email or phone number is required' }, { status: 400 });
+    }
+
+    // Validate email format if provided
+    if (email && !/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.[A-Za-z]{2,})+$/.test(email)) {
       return NextResponse.json({ message: 'Invalid email address' }, { status: 400 });
     }
 
     await connectToDatabase();
 
-    // Find or Create user with this email and set role to admin
-    // If user already exists, update their role to admin
-    // If they don't exist, we create them with a placeholder name
+    const cleanPhone = phone ? normalizePhoneNumber(phone) : undefined;
+
+    const updateObj: any = { role: 'admin' };
+    if (name) updateObj.name = name;
+    if (image) updateObj.image = image;
+    if (email) updateObj.email = email.toLowerCase();
+    if (cleanPhone) updateObj.phone = cleanPhone;
+    if (password) {
+      updateObj.password = await bcrypt.hash(password, 12);
+    }
+
+    const setOnInsertObj: any = {};
+    if (!name) {
+      setOnInsertObj.name = email ? email.split('@')[0] : cleanPhone;
+    }
+
+    // Build query: find by email OR phone (whichever is provided)
+    const query: any = { $or: [] };
+    if (email) query.$or.push({ email: email.toLowerCase() });
+    if (cleanPhone) query.$or.push({ phone: cleanPhone });
+
     const result = await User.findOneAndUpdate(
-      { email: email.toLowerCase() },
+      query,
       { 
-        $set: { role: 'admin' },
-        $setOnInsert: { 
-          name: email.split('@')[0], // Use email prefix as initial name
-        }
+        $set: updateObj,
+        $setOnInsert: setOnInsertObj
       },
       { upsert: true, new: true }
     );
 
+    const identifier = email || phone;
     return NextResponse.json({ 
-      message: `Successfully assigned Admin role to ${email}`,
+      message: `Successfully assigned Admin role to ${identifier}`,
       user: result
     });
   } catch (error) {
@@ -126,7 +174,7 @@ export async function PATCH(req: NextRequest) {
 
     const { userId, role } = await req.json();
 
-    if (!userId || !['user', 'admin', 'manager'].includes(role)) {
+    if (!userId || !['user', 'admin', 'manager', 'wholesaler'].includes(role)) {
       return NextResponse.json({ message: 'Invalid data' }, { status: 400 });
     }
 

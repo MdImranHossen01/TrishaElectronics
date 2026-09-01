@@ -4,6 +4,7 @@
 import Link from 'next/link';
 import { ArrowUpRight, Sparkles } from 'lucide-react';
 import Image from 'next/image';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface Category {
   _id: string;
@@ -17,6 +18,7 @@ interface CategoryV2Props {
 }
 
 export default function CategoryV2({ categories }: CategoryV2Props) {
+  const { t } = useLanguage();
   if (!categories || categories.length === 0) return null;
 
   return (
@@ -24,10 +26,10 @@ export default function CategoryV2({ categories }: CategoryV2Props) {
       <div className="container mx-auto">
         <div className="flex flex-col items-center text-center space-y-6 mb-24">
            <div className="inline-flex items-center gap-2 px-4 py-1 bg-primary/10 text-primary rounded-full text-[10px] font-black uppercase tracking-[0.3em]">
-              <Sparkles className="h-3 w-3 fill-current" /> Curated Collections
+              <Sparkles className="h-3 w-3 fill-current" /> {t('store.categories.curated_collections') || 'Curated Collections'}
            </div>
            <h2 className="text-4xl md:text-7xl font-serif italic tracking-tighter leading-none">
-             Seek by Essence
+             {t('store.categories.seek_by_essence') || 'Seek by Essence'}
            </h2>
         </div>
 
@@ -47,7 +49,7 @@ export default function CategoryV2({ categories }: CategoryV2Props) {
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent p-10 flex flex-col justify-end">
                    <div className="flex items-center justify-between">
                       <div className="space-y-1">
-                         <span className="text-[10px] font-black uppercase tracking-widest text-primary">Explore Series</span>
+                         <span className="text-[10px] font-black uppercase tracking-widest text-primary">{t('store.categories.explore_series') || 'Explore Series'}</span>
                          <h3 className="text-2xl font-bold text-white uppercase tracking-tighter">{category.name}</h3>
                       </div>
                       <div className="h-12 w-12 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-white group-hover:bg-primary transition-colors">

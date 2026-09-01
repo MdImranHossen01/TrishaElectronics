@@ -3,8 +3,8 @@
 import { useState, useEffect, useRef, Suspense, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Plus, Trash, Edit, Search, MoreHorizontal, Loader2, Check, X, ArrowDownCircle, ArrowUpCircle, Wallet, Clock, SlidersHorizontal } from 'lucide-react';
-import { Skeleton } from '@/components/ui/skeleton';
 import { AdminTableSkeleton } from '@/components/admin/AdminSkeletons';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -42,10 +42,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 function ExpensesIncomesContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { t } = useLanguage();
   const { data: session } = useSession();
 
   const userRole = (session?.user as any)?.role;
@@ -60,7 +62,10 @@ function ExpensesIncomesContent() {
 
   const initialType = (searchParams.get('type') as 'all' | 'expense' | 'income') || 'all';
   const [typeFilter, setTypeFilter] = useState<'all' | 'expense' | 'income'>(initialType);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'Approved' | 'Pending' | 'Rejected'>('all');
+  
+  const initialStatus = (searchParams.get('status') as 'all' | 'Approved' | 'Pending' | 'Rejected') || 'all';
+  const [statusFilter, setStatusFilter] = useState<'all' | 'Approved' | 'Pending' | 'Rejected'>(initialStatus);
+
   const [dateFilter, setDateFilter] = useState(() => {
     const now = new Date();
     const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -98,11 +103,13 @@ function ExpensesIncomesContent() {
     const params = new URLSearchParams(searchParams.toString());
     const newPage = targetPage > 1 ? targetPage.toString() : '';
     const newType = typeFilter !== 'all' ? typeFilter : '';
+    const newStatus = statusFilter !== 'all' ? statusFilter : '';
 
     const currentType = searchParams.get('type') || '';
+    const currentStatus = searchParams.get('status') || '';
     const currentPageParam = searchParams.get('page') || '';
 
-    if (newType !== currentType || newPage !== currentPageParam) {
+    if (newType !== currentType || newStatus !== currentStatus || newPage !== currentPageParam) {
       if (newPage) {
         params.set('page', newPage);
       } else {
@@ -113,17 +120,35 @@ function ExpensesIncomesContent() {
       } else {
         params.delete('type');
       }
+      if (newStatus) {
+        params.set('status', newStatus);
+      } else {
+        params.delete('status');
+      }
       router.push(`/admin/expenses-incomes?${params.toString()}`);
     }
   }, [currentPage, searchTerm, typeFilter, statusFilter, dateFilter.from, dateFilter.to, searchParams, router]);
+
+  // Keep state updated if URL search parameters change externally
+  useEffect(() => {
+    const urlType = (searchParams.get('type') as 'all' | 'expense' | 'income') || 'all';
+    const urlStatus = (searchParams.get('status') as 'all' | 'Approved' | 'Pending' | 'Rejected') || 'all';
+
+    if (urlType !== typeFilter) {
+      setTypeFilter(urlType);
+    }
+    if (urlStatus !== statusFilter) {
+      setStatusFilter(urlStatus);
+    }
+  }, [searchParams]);
 
   const fetchTransactions = async () => {
     setLoading(true);
     try {
       const res = await fetch('/api/admin/expenses-incomes');
-      if (!res.ok) throw new Error('Failed to fetch transactions');
       const data = await res.json();
-      setTransactions(data);
+      if (!res.ok) throw new Error(data.message || 'Failed to fetch transactions');
+      setTransactions(Array.isArray(data) ? data : []);
     } catch (error: any) {
       toast.error(error.message || 'Failed to fetch transactions');
     } finally {
@@ -134,6 +159,16 @@ function ExpensesIncomesContent() {
   useEffect(() => {
     fetchTransactions();
   }, []);
+
+  useEffect(() => {
+    if (searchParams.get('action') === 'new') {
+      setIsDialogOpen(true);
+      // Clean up URL parameter
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete('action');
+      router.replace(`/admin/expenses-incomes?${params.toString()}`);
+    }
+  }, [searchParams, router]);
 
   const handleUpdateStatus = async (id: string, status: 'Approved' | 'Rejected') => {
     try {
@@ -257,20 +292,20 @@ function ExpensesIncomesContent() {
   );
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl md:text-2xl font-bold tracking-tight font-heading">Expenses & Incomes</h1>
-          <p className="text-muted-foreground text-xs md:text-sm">Track ads, rent, salary, sales, investments, and other costs or revenues.</p>
+    <div className="space-y-0 md:space-y-6">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-0 md:gap-4 mt-0 md:mt-0">
+        <div className="hidden md:block">
+          <h1 className="text-xl md:text-2xl font-bold tracking-tight font-heading">{t("expenses.title")}</h1>
+          <p className="text-muted-foreground text-xs md:text-sm">{t("expenses.subtitle")}</p>
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger render={<Button onClick={() => setEditingTransaction(null)} className="h-9 w-9 p-0 md:h-10 md:w-auto md:px-4 shrink-0" />}>
-            <Plus className="h-4 w-4 md:mr-2" />
-            <span className="hidden md:inline">Add Record</span>
+          <DialogTrigger render={<Button onClick={() => setEditingTransaction(null)} className="w-full h-10 px-4 md:w-auto shrink-0 mb-[1px] md:mb-0" />}>
+            <Plus className="h-4 w-4 mr-2" />
+            <span>{t("expenses.add_record")}</span>
           </DialogTrigger>
           <DialogContent className="sm:max-w-[480px] w-full animate-in fade-in duration-200 max-h-[85vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>{editingTransaction ? 'Edit' : 'Add'} Transaction</DialogTitle>
+              <DialogTitle>{editingTransaction ? t("expenses.edit_transaction") : t("expenses.add_transaction")}</DialogTitle>
             </DialogHeader>
             <TransactionForm
               initialData={editingTransaction}
@@ -286,7 +321,7 @@ function ExpensesIncomesContent() {
       </div>
 
       {/* Overview Card (TallyPay Inspired) */}
-      <Card className="relative overflow-hidden rounded-2xl border-none md:border bg-transparent md:bg-card shadow-none md:shadow-sm p-0 md:p-6">
+      <Card className="relative overflow-hidden rounded-2xl border-none md:border bg-transparent md:bg-card shadow-none md:shadow-sm p-0 md:p-6 mt-[1px] md:mt-0">
         {/* 3 Cards in 1 Row */}
         <div className="grid grid-cols-3 gap-2 md:gap-6">
           {/* Income Card */}
@@ -295,13 +330,13 @@ function ExpensesIncomesContent() {
               <ArrowDownCircle className="h-5 w-5 md:h-6 md:w-6" />
             </div>
             <span className="text-[9px] md:text-xs font-semibold text-muted-foreground uppercase tracking-wider truncate max-w-full">
-              Total Income
+              {t("expenses.total_income")}
             </span>
             <span className="text-xs md:text-lg font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">
               ৳{Math.round(totalIncome)}
             </span>
             <span className="text-[7px] md:text-[9px] text-muted-foreground mt-1 truncate max-w-full">
-              {isFiltered ? 'Filtered inflow' : 'Approved total'}
+              {isFiltered ? t("expenses.filtered_inflow") : t("expenses.approved_total")}
             </span>
           </div>
 
@@ -311,13 +346,13 @@ function ExpensesIncomesContent() {
               <ArrowUpCircle className="h-5 w-5 md:h-6 md:w-6" />
             </div>
             <span className="text-[9px] md:text-xs font-semibold text-muted-foreground uppercase tracking-wider truncate max-w-full">
-              Total Expense
+              {t("expenses.total_expense")}
             </span>
             <span className="text-xs md:text-lg font-bold text-rose-600 dark:text-rose-400 mt-0.5">
               ৳{Math.round(totalExpense)}
             </span>
             <span className="text-[7px] md:text-[9px] text-muted-foreground mt-1 truncate max-w-full">
-              {isFiltered ? 'Filtered outflow' : 'Approved total'}
+              {isFiltered ? t("expenses.filtered_outflow") : t("expenses.approved_total")}
             </span>
           </div>
 
@@ -327,22 +362,22 @@ function ExpensesIncomesContent() {
               <Clock className="h-5 w-5 md:h-6 md:w-6" />
             </div>
             <span className="text-[9px] md:text-xs font-semibold text-muted-foreground uppercase tracking-wider truncate max-w-full">
-              Pending
+              {t("expenses.pending")}
             </span>
             <span className="text-xs md:text-lg font-bold text-amber-600 dark:text-amber-400 mt-0.5">
-              {pendingCount} Records
+              {pendingCount} {t("expenses.records")}
             </span>
             <span className="text-[7px] md:text-[9px] text-muted-foreground mt-1 truncate max-w-full">
-              ৳{Math.round(pendingAmount)} pending
+              ৳{Math.round(pendingAmount)} {t("expenses.pending_small")}
             </span>
           </div>
         </div>
       </Card>
 
-      <Card className="border-none md:border bg-transparent md:bg-card shadow-none md:shadow-sm">
+      <Card className="border-none md:border bg-transparent md:bg-card shadow-none md:shadow-sm mt-4 md:mt-0">
         <CardHeader className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 px-0 md:px-6">
           <div className="flex items-center justify-between w-full lg:w-auto">
-            <CardTitle>All Transactions</CardTitle>
+            <CardTitle>{t("expenses.all_transactions")}</CardTitle>
             {/* Mobile Filter Toggle Button */}
             <div className="block lg:hidden">
               <Button
@@ -352,7 +387,7 @@ function ExpensesIncomesContent() {
                 className={`h-9 px-3 ${showMobileFilters ? 'bg-primary/10 text-primary border-primary/20' : ''}`}
               >
                 <SlidersHorizontal className="mr-2 h-4 w-4" />
-                Filters
+                {t("expenses.filters")}
                 {isFiltered && (
                   <span className="ml-1.5 flex h-2 w-2 rounded-full bg-primary animate-pulse" />
                 )}
@@ -370,7 +405,7 @@ function ExpensesIncomesContent() {
               <div className="relative w-full lg:w-64">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search title, showroom..."
+                  placeholder={t("expenses.search_placeholder") as string}
                   className="pl-8"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
@@ -380,24 +415,24 @@ function ExpensesIncomesContent() {
               <div className="grid grid-cols-2 lg:flex items-center gap-2 w-full lg:w-auto">
                 <Select value={typeFilter} onValueChange={(val: any) => setTypeFilter(val)}>
                   <SelectTrigger className="w-full lg:w-36">
-                    <SelectValue placeholder="All Types" />
+                    <SelectValue placeholder={t("expenses.all_types")} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Types</SelectItem>
-                    <SelectItem value="expense">Expense</SelectItem>
-                    <SelectItem value="income">Income</SelectItem>
+                    <SelectItem value="all">{t("expenses.all_types")}</SelectItem>
+                    <SelectItem value="expense">{t("expenses.expense")}</SelectItem>
+                    <SelectItem value="income">{t("expenses.income")}</SelectItem>
                   </SelectContent>
                 </Select>
 
                 <Select value={statusFilter} onValueChange={(val: any) => setStatusFilter(val)}>
                   <SelectTrigger className="w-full lg:w-36">
-                    <SelectValue placeholder="All Statuses" />
+                    <SelectValue placeholder={t("expenses.all_statuses")} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Statuses</SelectItem>
-                    <SelectItem value="Approved">Approved</SelectItem>
-                    <SelectItem value="Pending">Pending</SelectItem>
-                    <SelectItem value="Rejected">Rejected</SelectItem>
+                    <SelectItem value="all">{t("expenses.all_statuses")}</SelectItem>
+                    <SelectItem value="Approved">{t("expenses.approved")}</SelectItem>
+                    <SelectItem value="Pending">{t("expenses.pending")}</SelectItem>
+                    <SelectItem value="Rejected">{t("expenses.rejected")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -411,7 +446,7 @@ function ExpensesIncomesContent() {
                       onChange={(e) => setFilterByDate(e.target.checked)}
                       className="rounded border-border text-primary focus:ring-primary h-3.5 w-3.5 accent-primary"
                     />
-                    Filter by Date
+                    {t("expenses.filter_by_date")}
                   </label>
 
                   <div className={`flex items-center gap-1 bg-muted/50 p-0.5 rounded-md border w-full sm:w-auto transition-opacity duration-200 ${!filterByDate ? 'opacity-40 pointer-events-none' : ''}`}>
@@ -422,7 +457,7 @@ function ExpensesIncomesContent() {
                       onChange={(e) => setDateFilter((prev: any) => ({ ...prev, from: e.target.value }))}
                       disabled={!filterByDate}
                     />
-                    <span className="text-muted-foreground text-[10px] shrink-0 font-medium">to</span>
+                    <span className="text-muted-foreground text-[10px] shrink-0 font-medium">{t("expenses.to")}</span>
                     <Input
                       type="date"
                       className="h-7 border-none bg-transparent focus-visible:ring-0 p-0.5 text-xs md:w-28 font-medium"
@@ -452,7 +487,7 @@ function ExpensesIncomesContent() {
                     }}
                     className="text-xs text-muted-foreground hover:text-primary shrink-0 h-8"
                   >
-                    Clear
+                    {t("expenses.clear")}
                   </Button>
                 )}
               </div>
@@ -463,12 +498,12 @@ function ExpensesIncomesContent() {
           {loading ? (
             <div className="space-y-3 p-4">
               {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="flex items-center justify-between p-3 border rounded-xl animate-pulse">
+                <div key={i} className="flex items-center justify-between p-3 border rounded-xl">
                   <div className="space-y-1.5">
                     <Skeleton className="h-4 w-36 rounded" />
                     <Skeleton className="h-3 w-24 rounded" />
                   </div>
-                  <Skeleton className="h-5 w-20 rounded-md hidden sm:block" />
+                  <Skeleton className="h-5 w-20 rounded-md" />
                   <Skeleton className="h-5 w-16 rounded-full" />
                   <Skeleton className="h-4 w-20 rounded" />
                   <div className="flex gap-2">
@@ -480,7 +515,7 @@ function ExpensesIncomesContent() {
             </div>
           ) : filteredTransactions.length === 0 ? (
             <div className="flex h-32 flex-col items-center justify-center text-muted-foreground">
-              <p>No transactions found.</p>
+              <p>{t("expenses.no_transactions")}</p>
             </div>
           ) : (
             <>
@@ -489,13 +524,13 @@ function ExpensesIncomesContent() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Title</TableHead>
-                      <TableHead>Showroom / Origin</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Amount (Tk)</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
+                      <TableHead>{t("expenses.date")}</TableHead>
+                      <TableHead>{t("expenses.title_col")}</TableHead>
+                      <TableHead>{t("expenses.showroom_origin")}</TableHead>
+                      <TableHead>{t("expenses.type")}</TableHead>
+                      <TableHead>{t("expenses.status")}</TableHead>
+                      <TableHead className="text-right">{t("expenses.amount")}</TableHead>
+                      <TableHead className="text-right">{t("expenses.actions")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -519,35 +554,35 @@ function ExpensesIncomesContent() {
                               </span>
                             ) : (
                               <span className="text-xs text-muted-foreground italic">
-                                Head Office
+                                {t("expenses.head_office")}
                               </span>
                             )}
                           </TableCell>
                           <TableCell>
                             {isExpense ? (
                               <span className="px-2 py-0.5 rounded text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-900/30">
-                                Expense
+                                {t("expenses.expense")}
                               </span>
                             ) : (
                               <span className="px-2 py-0.5 rounded text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/30">
-                                Income
+                                {t("expenses.income")}
                               </span>
                             )}
                           </TableCell>
                           <TableCell>
                             {(tx.status === 'Approved' || !tx.status) && (
                               <span className="px-2 py-0.5 rounded text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/30">
-                                Approved
+                                {t("expenses.approved")}
                               </span>
                             )}
                             {tx.status === 'Pending' && (
                               <span className="px-2 py-0.5 rounded text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/30">
-                                Pending
+                                {t("expenses.pending")}
                               </span>
                             )}
                             {tx.status === 'Rejected' && (
                               <span className="px-2 py-0.5 rounded text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-900/30">
-                                Rejected
+                                {t("expenses.rejected")}
                               </span>
                             )}
                           </TableCell>
@@ -568,13 +603,13 @@ function ExpensesIncomesContent() {
                                       className="text-emerald-600 focus:text-emerald-600 font-bold"
                                       onClick={() => handleUpdateStatus(tx._id, 'Approved')}
                                     >
-                                      <Check className="mr-2 h-4 w-4" /> Approve
+                                      <Check className="mr-2 h-4 w-4" /> {t("expenses.approve_action")}
                                     </DropdownMenuItem>
                                     <DropdownMenuItem
                                       className="text-rose-600 focus:text-rose-600 font-bold"
                                       onClick={() => handleUpdateStatus(tx._id, 'Rejected')}
                                     >
-                                      <X className="mr-2 h-4 w-4" /> Reject
+                                      <X className="mr-2 h-4 w-4" /> {t("expenses.reject_action")}
                                     </DropdownMenuItem>
                                   </>
                                 )}
@@ -586,13 +621,13 @@ function ExpensesIncomesContent() {
                                         setIsDialogOpen(true);
                                       }}
                                     >
-                                      <Edit className="mr-2 h-4 w-4" /> Edit
+                                      <Edit className="mr-2 h-4 w-4" /> {t("expenses.edit_action")}
                                     </DropdownMenuItem>
                                     <DropdownMenuItem
                                       className="text-destructive focus:text-destructive"
                                       onClick={() => handleDelete(tx._id)}
                                     >
-                                      <Trash className="mr-2 h-4 w-4" /> Delete
+                                      <Trash className="mr-2 h-4 w-4" /> {t("expenses.delete_action")}
                                     </DropdownMenuItem>
                                   </>
                                 )}
@@ -606,98 +641,102 @@ function ExpensesIncomesContent() {
                 </Table>
               </div>
 
-              {/* Mobile View (TallyPay recent transactions style) */}
-              <div className="block md:hidden divide-y divide-border">
+              {/* Mobile View (Rounded individual cards matching products page) */}
+              <div className="block md:hidden space-y-3">
                 {paginatedTransactions.map((tx) => {
                   const isExpense = (tx.type || 'expense') === 'expense';
                   return (
-                    <div key={tx._id} className="py-3 flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        {/* Details */}
-                        <div className="min-w-0">
-                          <p className="font-bold text-sm text-foreground truncate">{tx.title}</p>
-                          <div className="flex flex-wrap gap-1.5 items-center pt-0.5">
-                            {tx.showroom?.name ? (
-                              <span className="text-[10px] font-semibold bg-primary/10 text-primary border border-primary/20 px-1.5 py-0.5 rounded">
-                                {tx.showroom.name}
-                              </span>
-                            ) : (
-                              <span className="text-[10px] italic text-muted-foreground">
-                                Head Office
-                              </span>
-                            )}
-                             {tx.status && (
-                              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${tx.status === 'Approved'
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400'
-                                  : tx.status === 'Pending'
-                                    ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400'
-                                    : 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/20 dark:text-rose-400'
-                                }`}>
-                                {tx.status}
-                              </span>
-                            )}
-                          </div>
-                          {tx.description && (
-                            <p className="text-[10px] text-muted-foreground mt-1 truncate max-w-[200px]">
-                              {tx.description}
-                            </p>
-                          )}
+                    <div key={tx._id} className="p-4 mb-3 border border-border/50 rounded-xl bg-card shadow-sm flex flex-col gap-2.5 relative">
+                      {/* Top Row: Title & Actions */}
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="font-bold text-base text-foreground leading-snug">{tx.title}</p>
+                        
+                        {/* Action Menu */}
+                        <div className="shrink-0 -mr-1 -mt-1">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground shrink-0">
+                                <MoreHorizontal className="h-4.5 w-4.5" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              {isAdmin && tx.status === 'Pending' && (
+                                <>
+                                  <DropdownMenuItem
+                                    className="text-emerald-600 focus:text-emerald-600 font-bold"
+                                    onClick={() => handleUpdateStatus(tx._id, 'Approved')}
+                                  >
+                                    <Check className="mr-2 h-4 w-4" /> {t("expenses.approve_action")}
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    className="text-rose-600 focus:text-rose-600 font-bold"
+                                    onClick={() => handleUpdateStatus(tx._id, 'Rejected')}
+                                  >
+                                    <X className="mr-2 h-4 w-4" /> {t("expenses.reject_action")}
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                              {(isAdmin || tx.status === 'Pending') && (
+                                <>
+                                  <DropdownMenuItem
+                                    onClick={() => {
+                                      setEditingTransaction(tx);
+                                      setIsDialogOpen(true);
+                                    }}
+                                  >
+                                    <Edit className="mr-2 h-4 w-4" /> {t("expenses.edit_action")}
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    className="text-destructive focus:text-destructive"
+                                    onClick={() => handleDelete(tx._id)}
+                                  >
+                                    <Trash className="mr-2 h-4 w-4" /> {t("expenses.delete_action")}
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
                       </div>
 
-                      {/* Right side Amount, Date & Action Menu */}
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <div className="text-right shrink-0">
-                          <p className={`font-extrabold text-sm ${isExpense ? 'text-rose-600' : 'text-emerald-600'}`}>
-                            {isExpense ? '-' : '+'}৳{tx.amount.toLocaleString()}
-                          </p>
-                          <p className="text-[10px] text-muted-foreground font-medium pt-0.5">
-                            {format(new Date(tx.date), 'dd MMM yyyy')}
-                          </p>
-                        </div>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            {isAdmin && tx.status === 'Pending' && (
-                              <>
-                                <DropdownMenuItem
-                                  className="text-emerald-600 focus:text-emerald-600 font-bold"
-                                  onClick={() => handleUpdateStatus(tx._id, 'Approved')}
-                                >
-                                  <Check className="mr-2 h-4 w-4" /> Approve
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  className="text-rose-600 focus:text-rose-600 font-bold"
-                                  onClick={() => handleUpdateStatus(tx._id, 'Rejected')}
-                                >
-                                  <X className="mr-2 h-4 w-4" /> Reject
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                            {(isAdmin || tx.status === 'Pending') && (
-                              <>
-                                <DropdownMenuItem
-                                  onClick={() => {
-                                    setEditingTransaction(tx);
-                                    setIsDialogOpen(true);
-                                  }}
-                                >
-                                  <Edit className="mr-2 h-4 w-4" /> Edit
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  className="text-destructive focus:text-destructive"
-                                  onClick={() => handleDelete(tx._id)}
-                                >
-                                  <Trash className="mr-2 h-4 w-4" /> Delete
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                      {/* Middle Row: Badges */}
+                      <div className="flex flex-wrap gap-2 items-center">
+                        {tx.showroom?.name ? (
+                          <span className="text-xs font-semibold bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded">
+                            {tx.showroom.name}
+                          </span>
+                        ) : (
+                          <span className="text-xs italic text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                            {t("expenses.head_office")}
+                          </span>
+                        )}
+                        {tx.status && (
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded border ${tx.status === 'Approved'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400'
+                              : tx.status === 'Pending'
+                                ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400'
+                                : 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/20 dark:text-rose-400'
+                            }`}>
+                            {tx.status === 'Approved' ? t("expenses.approved") : tx.status === 'Pending' ? t("expenses.pending") : t("expenses.rejected")}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Description (optional) */}
+                      {tx.description && (
+                        <p className="text-xs text-muted-foreground bg-muted/40 p-2 rounded border border-border/30 whitespace-pre-line leading-relaxed">
+                          {tx.description}
+                        </p>
+                      )}
+
+                      {/* Bottom Row: Date & Amount */}
+                      <div className="flex items-center justify-between border-t pt-2 mt-1">
+                        <span className="text-xs text-muted-foreground font-medium">
+                          {format(new Date(tx.date), 'dd MMM yyyy')}
+                        </span>
+                        <span className={`font-extrabold text-base ${isExpense ? 'text-rose-600' : 'text-emerald-600'}`}>
+                          {isExpense ? '-' : '+'}৳{tx.amount.toLocaleString()}
+                        </span>
                       </div>
                     </div>
                   );

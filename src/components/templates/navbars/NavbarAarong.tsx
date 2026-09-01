@@ -342,7 +342,7 @@ export default function NavbarAarong() {
         : 'bg-background lg:py-3'
         }`}>
         <div className="w-full px-2 lg:px-6 relative">
-          
+
           {/* ── Mobile Layout (Single Row) — V1 Style ── */}
           <div className="relative flex h-14 items-center justify-between px-1 lg:hidden">
 
@@ -647,7 +647,7 @@ export default function NavbarAarong() {
                 <Link href="/" className="relative block w-[44px] h-[44px] xl:w-[48px] xl:h-[48px] transition-transform hover:scale-105">
                   <Image
                     src={settings.logoUrl || "/logo.webp"}
-                    alt={`${settings.brandName || "Trishna Electronics"} Logo`}
+                    alt={`${settings.brandName || "Omor Auto Corner"} Logo`}
                     fill
                     sizes="48px"
                     className="object-contain"
@@ -914,13 +914,13 @@ export default function NavbarAarong() {
           ) : (
             /* 2-Row Default Desktop Layout */
             <div className="hidden lg:flex gap-3 items-stretch">
-              
+
               {/* Logo Image Column (Spanning both rows) */}
               <div className="flex items-center justify-center border-r border-border/10 pr-3 shrink-0 py-1">
                 <Link href="/" className="relative block w-[85px] h-[85px] transition-transform hover:scale-105">
                   <Image
                     src={settings.logoUrl || "/logo.webp"}
-                    alt={`${settings.brandName || "Trishna Electronics"} Logo`}
+                    alt={`${settings.brandName || "Omor Auto Corner"} Logo`}
                     fill
                     sizes="85px"
                     className="object-contain"
@@ -931,12 +931,12 @@ export default function NavbarAarong() {
 
               {/* Content Column (Row 1 and Row 2) */}
               <div className="flex-1 flex flex-col justify-between py-1">
-                
+
                 {/* Row 1: Logo Brand Name, Sub-Brands, Utilities */}
                 <div className="flex items-center justify-between w-full border-b border-border/10 pb-2 gap-4">
                   {/* Logo Brand Name Text Only */}
                   <Link href="/" className="text-xl xl:text-2xl uppercase text-foreground transition-colors hover:text-primary font-black tracking-tighter font-logo shrink-0">
-                    {settings.brandName || "TRISHNA ELECTRONICS"}
+                    {settings.brandName || "OMOR AUTO CORNER"}
                   </Link>
 
                   {/* Right-side Utilities */}

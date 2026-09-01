@@ -2,7 +2,7 @@
 
 import { useState, useEffect, use } from 'react';
 import { BannerForm } from '@/components/admin/BannerForm';
-import { AdminFormSkeleton } from '@/components/admin/AdminSkeletons';
+import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function EditBannerPage({ params }: { params: Promise<{ id: string }> }) {
@@ -33,7 +33,11 @@ export default function EditBannerPage({ params }: { params: Promise<{ id: strin
   }, [id]);
 
   if (loading) {
-    return <AdminFormSkeleton titleWidth="w-48" />;
+    return (
+      <div className="flex h-[400px] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
   }
 
   if (!banner) {

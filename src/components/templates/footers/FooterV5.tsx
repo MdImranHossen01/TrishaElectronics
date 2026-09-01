@@ -1,4 +1,4 @@
-﻿/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
 import Link from 'next/link';
@@ -8,6 +8,8 @@ import DeveloperLogo from '@/components/ui/developerlogo';
 import { useSettings } from '@/components/SettingsProvider';
 import * as SocialIcons from '@/components/ui/social-icons';
 import { Circle } from 'lucide-react';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { LanguageToggle } from '@/components/layout/LanguageToggle';
 
 const socialIconMap: Record<string, any> = {
   facebook: SocialIcons.Facebook || Circle,
@@ -30,6 +32,7 @@ const socialLabels: Record<string, string> = {
 };
 
 export default function FooterV5() {
+  const { t } = useLanguage();
   const currentYear = new Date().getFullYear();
   const settings = useSettings();
   const socialLinks = settings?.socialLinks || {};
@@ -44,18 +47,27 @@ export default function FooterV5() {
               <Sparkles className="h-4 w-4 fill-primary" /> The Artistic Conclusion
             </div>
             <h2 className="text-7xl md:text-[15rem] font-black tracking-tighter leading-none uppercase">
-              Trishna Electronics.
+              Omor Auto Corner.
             </h2>
+            <div className="flex justify-center mt-4">
+              <LanguageToggle />
+            </div>
           </div>
 
           <div className="flex flex-wrap justify-center gap-12 md:gap-24">
-            {['Discovery', 'Curated', 'Journal', 'Inquiry', 'Legal'].map((item, i) => (
+            {[
+               { label: t('store.nav.shop'), href: '/shop' },
+               { label: t('store.nav.categories'), href: '/shop?filter=categories' },
+               { label: t('store.footer.new_arrivals'), href: '/shop?filter=new' },
+               { label: t('store.footer.contact_support'), href: '/contact' },
+               { label: t('store.footer.privacy'), href: '/privacy' }
+            ].map((item, i) => (
               <Link
-                key={item}
-                href="#"
+                key={item.label}
+                href={item.href}
                 className="group flex items-center gap-2 text-2xl md:text-5xl font-black uppercase tracking-tighter hover:text-primary transition-all"
               >
-                {item} <MoveUpRight className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-all group-hover:translate-x-2 group-hover:-translate-y-2" />
+                {item.label} <MoveUpRight className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-all group-hover:translate-x-2 group-hover:-translate-y-2" />
               </Link>
             ))}
           </div>
@@ -89,12 +101,12 @@ export default function FooterV5() {
 
           <div className="text-center space-y-4">
             <div className="text-[10px] font-black uppercase tracking-[0.4em] text-neutral-400">Architecture by</div>
-            <span className="text-2xl font-black uppercase tracking-tighter">Trishna Electronics Atelier</span>
+            <span className="text-2xl font-black uppercase tracking-tighter">Omor Auto Corner Atelier</span>
           </div>
 
           <div className="flex flex-col items-end gap-6">
             <p className="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-400 text-right">
-              © {currentYear} ALL NARRATIVES PROTECTED. <br /> ESTABLISHED IN THE DIGITAL HORIZON.
+              © {currentYear} {settings?.brandName || 'Omor Auto Corner'}. {t('store.footer.all_rights_reserved')}
             </p>
             <DeveloperLogo className="opacity-40 grayscale hover:grayscale-0 hover:opacity-100" />
           </div>

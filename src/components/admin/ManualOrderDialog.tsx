@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect } from 'react';
+import Image from 'next/image';
 import { Search, Trash2, Loader2 } from 'lucide-react';
+import { normalizePhoneNumber } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -44,7 +46,8 @@ const DEFAULT_STATUSES: StatusOption[] = [
 ];
 
 function generateGuestEmail(phone: string) {
-  return `${phone || Date.now()}@cdidoorind-guest.com`;
+  const domain = process.env.NEXT_PUBLIC_GUEST_EMAIL_DOMAIN || 'guest.local';
+  return `${phone || Date.now()}@${domain}`;
 }
 
 export default function ManualOrderDialog({
@@ -207,19 +210,7 @@ export default function ManualOrderDialog({
 
     setManualOrderLoading(true);
     try {
-      const banglaDigits = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
-      const englishDigits = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
-      let normalizedPhone = manualCustomer.phone || '';
-      for (let i = 0; i < 10; i++) {
-        normalizedPhone = normalizedPhone.replace(new RegExp(banglaDigits[i], 'g'), englishDigits[i]);
-      }
-      let cleanedPhone = normalizedPhone.replace(/[^0-9]/g, '');
-
-      if (cleanedPhone.startsWith('88')) {
-        cleanedPhone = cleanedPhone.substring(2);
-      } else if (cleanedPhone.startsWith('0088')) {
-        cleanedPhone = cleanedPhone.substring(4);
-      }
+      const cleanedPhone = normalizePhoneNumber(manualCustomer.phone);
 
       const res = await fetch('/api/admin/orders', {
         method: 'POST',
@@ -458,7 +449,7 @@ export default function ManualOrderDialog({
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-2">
                           {item.image && (
-                            <img src={item.image} alt={item.name} className="w-10 h-10 object-cover rounded border" />
+                           <Image src={item.image} alt={item.name} width={40} height={40} className="w-10 h-10 object-cover rounded border" />
                           )}
                           <div>
                             <p className="font-semibold text-sm leading-tight">{item.name}</p>

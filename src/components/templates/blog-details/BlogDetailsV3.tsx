@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import DOMPurify from 'isomorphic-dompurify';
 import { toast } from 'sonner';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface BlogAuthor {
   name: string;
@@ -31,6 +32,7 @@ interface BlogDetailsV3Props {
 }
 
 export default function BlogDetailsV3({ blog, readingTime }: BlogDetailsV3Props) {
+  const { t } = useLanguage();
   const [currentUrl, setCurrentUrl] = useState('');
   const [email, setEmail] = useState('');
 
@@ -90,14 +92,14 @@ export default function BlogDetailsV3({ blog, readingTime }: BlogDetailsV3Props)
         <div className="absolute inset-0 flex items-end justify-center pb-32 px-6">
           <div className="max-w-5xl w-full text-center space-y-10">
             <div className="inline-flex items-center gap-3 px-6 py-2 bg-black/10 backdrop-blur-3xl rounded-xl border border-white/10 text-white font-mono font-black uppercase tracking-[0.4em] text-[10px]">
-              <Zap className="h-4 w-4 fill-primary text-primary" /> Core Intel Insight
+              <Zap className="h-4 w-4 fill-primary text-primary" /> {t('store.blog.core_intel_insight') || 'Core Intel Insight'}
             </div>
             <h1 className="text-6xl md:text-[10rem] font-black tracking-tighter text-foreground leading-[0.8] uppercase break-words drop-shadow-2xl">
               {blog.title}
             </h1>
             <div className="flex items-center justify-center gap-12 text-foreground/60 font-mono font-black uppercase tracking-widest text-[10px]">
               <span className="flex items-center gap-2 border-b-2 border-primary/20 pb-1"><Calendar className="h-3 w-3" /> {formatDate(blog.createdAt || blog.publishedAt)}</span>
-              <span className="flex items-center gap-2 border-b-2 border-primary/20 pb-1"><Clock className="h-3 w-3" /> {readingTime || 0} MIN_PROCESS</span>
+              <span className="flex items-center gap-2 border-b-2 border-primary/20 pb-1"><Clock className="h-3 w-3" /> {readingTime || 0} {t('store.blog.min_process') || 'MIN_PROCESS'}</span>
             </div>
           </div>
         </div>
@@ -115,7 +117,7 @@ export default function BlogDetailsV3({ blog, readingTime }: BlogDetailsV3Props)
 
             <div className="mt-24 pt-12 border-t border-dashed border-neutral-200 dark:border-neutral-800 flex items-center justify-between">
               <Link href="/blog" className="group flex items-center gap-4 text-[10px] font-mono font-black uppercase tracking-[0.4em] text-muted-foreground hover:text-primary transition-all">
-                <MoveLeft className="h-5 w-5 group-hover:-translate-x-2 transition-transform" /> Ret_To_Archive
+                <MoveLeft className="h-5 w-5 group-hover:-translate-x-2 transition-transform" /> {t('store.blog.ret_to_archive') || 'Ret_To_Archive'}
               </Link>
               <div className="flex items-center gap-4 text-[10px] font-mono font-black uppercase tracking-[0.4em] text-muted-foreground">
                 SEC_LEVEL: <span className="text-primary">ALPHA_01</span>
@@ -136,12 +138,12 @@ export default function BlogDetailsV3({ blog, readingTime }: BlogDetailsV3Props)
                   )}
                 </div>
                 <div>
-                  <h4 className="font-black text-xl uppercase tracking-tighter leading-none">{blog.author?.name || 'Trishna Electronics Intelligence'}</h4>
-                  <p className="text-[10px] font-mono font-black text-primary uppercase tracking-widest mt-2">Logistics Analyst</p>
+                  <h4 className="font-black text-xl uppercase tracking-tighter leading-none">{blog.author?.name || t('store.blog.author_name') || 'Omor Auto Corner Intelligence'}</h4>
+                  <p className="text-[10px] font-mono font-black text-primary uppercase tracking-widest mt-2">{t('store.blog.author_title') || 'Logistics Analyst'}</p>
                 </div>
               </div>
               <p className="text-sm text-muted-foreground font-mono leading-relaxed opacity-80">
-                {blog.author?.bio || 'Synthesizing global commerce data into actionable retail narratives.'}
+                {blog.author?.bio || t('store.blog.author_bio') || 'Synthesizing global commerce data into actionable retail narratives.'}
               </p>
             </div>
 
@@ -151,8 +153,8 @@ export default function BlogDetailsV3({ blog, readingTime }: BlogDetailsV3Props)
                 <Cpu className="h-48 w-48 rotate-12" />
               </div>
               <div className="space-y-2 relative z-10">
-                <h3 className="text-2xl font-black uppercase tracking-tighter">Secure Feed</h3>
-                <p className="text-white/60 font-mono text-[10px] uppercase tracking-widest leading-relaxed">Join 50K+ operatives receiving elite market intel.</p>
+                <h3 className="text-2xl font-black uppercase tracking-tighter">{t('store.blog.secure_feed') || 'Secure Feed'}</h3>
+                <p className="text-white/60 font-mono text-[10px] uppercase tracking-widest leading-relaxed">{t('store.blog.join_feed_desc') || 'Join 50K+ operatives receiving elite market intel.'}</p>
               </div>
               <div className="space-y-4 relative z-10">
                 <input
@@ -160,20 +162,20 @@ export default function BlogDetailsV3({ blog, readingTime }: BlogDetailsV3Props)
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full h-14 rounded-2xl bg-white/10 border-2 border-white/20 px-6 font-mono text-sm placeholder:text-white/30 focus:outline-none focus:border-white transition-all"
-                  placeholder="ENTER_EMAIL_ADDR"
+                  placeholder={t('store.blog.enter_email_addr') as string || "ENTER_EMAIL_ADDR"}
                 />
                 <Button
                   onClick={handleSubscribe}
                   className="w-full h-14 rounded-2xl bg-white text-primary hover:bg-neutral-100 font-black font-mono text-xs uppercase tracking-[0.2em] shadow-xl"
                 >
-                  INIT_JOIN
+                  {t('store.blog.init_join') || 'INIT_JOIN'}
                 </Button>
               </div>
             </div>
 
             {/* Distribution Grid */}
             <div className="space-y-6">
-              <h3 className="text-center font-mono font-black text-[10px] uppercase tracking-[0.5em] text-muted-foreground border-b border-dashed border-neutral-300 dark:border-neutral-700 pb-4">Distribute_Intel</h3>
+              <h3 className="text-center font-mono font-black text-[10px] uppercase tracking-[0.5em] text-muted-foreground border-b border-dashed border-neutral-300 dark:border-neutral-700 pb-4">{t('store.blog.distribute_intel') || 'Distribute_Intel'}</h3>
               <div className="flex justify-center gap-6">
                 {[
                   { icon: Facebook, name: 'facebook', color: 'hover:bg-[#1877F2]' },

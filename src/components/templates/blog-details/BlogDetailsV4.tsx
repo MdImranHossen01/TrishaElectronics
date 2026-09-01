@@ -1,4 +1,4 @@
-﻿/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import DOMPurify from 'isomorphic-dompurify';
 import { toast } from 'sonner';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface BlogDetailsV4Props {
   blog: any;
@@ -15,6 +16,7 @@ interface BlogDetailsV4Props {
 }
 
 export default function BlogDetailsV4({ blog, readingTime }: BlogDetailsV4Props) {
+  const { t } = useLanguage();
   const [isScrolled, setIsScrolled] = useState(false);
 
   const [isBookmarked, setIsBookmarked] = useState(false);
@@ -35,10 +37,10 @@ export default function BlogDetailsV4({ blog, readingTime }: BlogDetailsV4Props)
     let newBookmarks;
     if (isBookmarked) {
       newBookmarks = bookmarks.filter((id: string) => id !== blog._id);
-      toast.success('Removed from Discovery Journal');
+      toast.success(t('store.blog.removed_from_journal') as string || 'Removed from Discovery Journal');
     } else {
       newBookmarks = [...bookmarks, blog._id];
-      toast.success('Archived in Discovery Journal');
+      toast.success(t('store.blog.archived_in_journal') as string || 'Archived in Discovery Journal');
     }
     localStorage.setItem('blog_bookmarks', JSON.stringify(newBookmarks));
     setIsBookmarked(!isBookmarked);
@@ -95,7 +97,7 @@ export default function BlogDetailsV4({ blog, readingTime }: BlogDetailsV4Props)
         <div className="relative z-10 container mx-auto px-6 text-center space-y-12 max-w-6xl">
           <div className="flex flex-col items-center gap-6 animate-in slide-in-from-bottom-10 duration-1000">
             <div className="inline-flex items-center gap-3 px-6 py-2 bg-white/10 backdrop-blur-3xl rounded-full border border-white/20 text-white text-[10px] font-black uppercase tracking-[0.5em]">
-              <Sparkles className="h-4 w-4 fill-primary text-primary" /> Curated Experience
+              <Sparkles className="h-4 w-4 fill-primary text-primary" /> {t('store.blog.curated_experience') || 'Curated Experience'}
             </div>
 
             <h1 className="text-7xl md:text-[12rem] font-black text-white tracking-tighter leading-[0.75] animate-in slide-in-from-bottom-20 duration-1000 delay-300">
@@ -106,7 +108,7 @@ export default function BlogDetailsV4({ blog, readingTime }: BlogDetailsV4Props)
             <div className="flex items-center gap-8 text-white/40 text-[10px] font-black uppercase tracking-[0.4em] pt-10">
               <span className="flex items-center gap-2"><Calendar className="h-4 w-4" /> {formatDate(blog.createdAt || blog.publishedAt)}</span>
               <span className="h-1 w-1 bg-white/40 rounded-full" />
-              <span className="flex items-center gap-2"><Clock className="h-4 w-4" /> {readingTime || 0} Min Discovery</span>
+              <span className="flex items-center gap-2"><Clock className="h-4 w-4" /> {readingTime || 0} {t('store.blog.min_discovery') || 'Min Discovery'}</span>
             </div>
           </div>
 
@@ -131,7 +133,7 @@ export default function BlogDetailsV4({ blog, readingTime }: BlogDetailsV4Props)
             <Bookmark className={`h-6 w-6 group-hover:scale-110 transition-transform ${isBookmarked ? 'fill-current' : ''}`} />
           </button>
           <div className="h-20 w-[2px] bg-neutral-100 dark:bg-neutral-800 mx-auto" />
-          <span className="text-[9px] font-black uppercase tracking-[0.4em] rotate-180 [writing-mode:vertical-rl] text-neutral-400">Interact</span>
+          <span className="text-[9px] font-black uppercase tracking-[0.4em] rotate-180 [writing-mode:vertical-rl] text-neutral-400">{t('store.blog.interact') || 'Interact'}</span>
         </div>
 
         <div className="relative">
@@ -144,21 +146,21 @@ export default function BlogDetailsV4({ blog, readingTime }: BlogDetailsV4Props)
             <div className="flex items-center gap-4">
               <div className="h-16 w-16 rounded-full bg-neutral-100 dark:bg-neutral-900 p-1 relative overflow-hidden">
                 <Image
-                  src={blog.author?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(blog.author?.name || 'Trishna Electronics')}`}
+                  src={blog.author?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(blog.author?.name || 'Omor Auto Corner')}`}
                   alt="Author"
                   fill
                   className="rounded-full object-cover"
                 />
               </div>
               <div className="flex flex-col">
-                <span className="text-xs font-black uppercase tracking-widest">{blog.author?.name || 'Trishna Electronics Curators'}</span>
-                <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">Design Narrative Expert</span>
+                <span className="text-xs font-black uppercase tracking-widest">{blog.author?.name || t('store.blog.author_name') || 'Omor Auto Corner Curators'}</span>
+                <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">{t('store.blog.design_expert') || 'Design Narrative Expert'}</span>
               </div>
             </div>
 
             <Link href="/blog">
               <Button variant="outline" className="h-16 px-12 rounded-full font-black uppercase tracking-[0.3em] text-[10px] border-2 group">
-                Continue Discovery <MoveRight className="ml-3 h-4 w-4 group-hover:translate-x-2 transition-transform" />
+                {t('store.blog.continue_discovery') || 'Continue Discovery'} <MoveRight className="ml-3 h-4 w-4 group-hover:translate-x-2 transition-transform" />
               </Button>
             </Link>
           </footer>

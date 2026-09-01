@@ -1,4 +1,4 @@
-﻿/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
 import { ArrowLeft, Share2, Bookmark, MessageSquare, Clock, Calendar, MoveLeft, Sparkles } from 'lucide-react';
@@ -7,6 +7,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import DOMPurify from 'isomorphic-dompurify';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface BlogDetailsV2Props {
   blog: any;
@@ -14,6 +15,7 @@ interface BlogDetailsV2Props {
 }
 
 export default function BlogDetailsV2({ blog, readingTime }: BlogDetailsV2Props) {
+  const { t } = useLanguage();
 
   const handleShare = async () => {
     if (typeof window !== 'undefined') {
@@ -49,7 +51,7 @@ export default function BlogDetailsV2({ blog, readingTime }: BlogDetailsV2Props)
 
         {/* Navigation Context */}
         <Link href="/blog" className="inline-flex items-center gap-3 text-[10px] font-black uppercase tracking-[0.4em] text-muted-foreground hover:text-primary transition-all mb-20 group">
-          <MoveLeft className="h-4 w-4 group-hover:-translate-x-2 transition-transform" /> Back to Journal
+          <MoveLeft className="h-4 w-4 group-hover:-translate-x-2 transition-transform" /> {t('store.blog.back_to_blog') || 'Back to Journal'}
         </Link>
 
         {/* Boutique Editorial Header */}
@@ -57,7 +59,7 @@ export default function BlogDetailsV2({ blog, readingTime }: BlogDetailsV2Props)
           <div className="flex items-center gap-6 text-[10px] font-black uppercase tracking-[0.5em] text-primary/60">
             <div className="flex items-center gap-2"><Calendar className="h-4 w-4" /> {formatDate(blog.createdAt)}</div>
             <div className="h-1 w-1 rounded-full bg-neutral-200" />
-            <div className="flex items-center gap-2"><Clock className="h-4 w-4" /> {readingTime || 0} Minute Immersion</div>
+            <div className="flex items-center gap-2"><Clock className="h-4 w-4" /> {readingTime || 0} {t('store.blog.min_read') || 'Minute Immersion'}</div>
           </div>
 
           <h1 className="text-6xl md:text-8xl font-serif italic tracking-tighter leading-[0.9] text-foreground">
@@ -73,8 +75,8 @@ export default function BlogDetailsV2({ blog, readingTime }: BlogDetailsV2Props)
               ))}
             </div>
             <div className="flex flex-col">
-              <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Words by</span>
-              <span className="text-sm font-bold">Trishna Electronics Editorial</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{t('store.blog.words_by') || 'Words by'}</span>
+              <span className="text-sm font-bold">{t('store.blog.author_name') || 'Omor Auto Corner Editorial'}</span>
             </div>
           </div>
         </header>
@@ -112,7 +114,7 @@ export default function BlogDetailsV2({ blog, readingTime }: BlogDetailsV2Props)
 
               <div className="flex items-center gap-4 px-8 py-4 bg-neutral-50 dark:bg-neutral-900 rounded-full border border-neutral-100 dark:border-neutral-800">
                 <Sparkles className="h-4 w-4 text-primary fill-primary" />
-                <span className="text-[10px] font-black uppercase tracking-widest">End of Narrative</span>
+                <span className="text-[10px] font-black uppercase tracking-widest">{t('store.blog.end_of_narrative') || 'End of Narrative'}</span>
               </div>
             </div>
           </footer>

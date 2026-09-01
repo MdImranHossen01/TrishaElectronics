@@ -1,4 +1,4 @@
-﻿import type { Metadata } from "next";
+import type { Metadata } from "next";
 import {
   Geist,
   Geist_Mono
@@ -102,21 +102,21 @@ export async function generateMetadata(): Promise<Metadata> {
       appleWebApp: {
         capable: true,
         statusBarStyle: 'default',
-        title: settings.brandName || "Trishna Electronics",
+        title: settings.brandName || "চিটাগাং ডোর",
       },
       formatDetection: {
         telephone: false,
       },
       openGraph: {
-        title: settings.metaTitle || settings.brandName || "Trishna Electronics",
+        title: settings.metaTitle || settings.brandName || "চিটাগাং ডোর",
         description: settings.metaDescription || settings.brandName || "Your ultimate destination for quality products.",
         url: baseUrl,
-        siteName: settings.brandName || "Trishna Electronics",
+        siteName: settings.brandName || "চিটাগাং ডোর",
         type: 'website',
       },
       twitter: {
         card: 'summary_large_image',
-        title: settings.metaTitle || settings.brandName || "Trishna Electronics",
+        title: settings.metaTitle || settings.brandName || "চিটাগাং ডোর",
         description: settings.metaDescription || settings.brandName || "Your ultimate destination for quality products.",
       },
       verification: {
@@ -133,7 +133,7 @@ export async function generateMetadata(): Promise<Metadata> {
     };
   } catch (error) {
     return {
-      title: "Trishna Electronics",
+      title: "চিটাগাং ডোর",
       description: "Your ultimate destination for quality products.",
     };
   }

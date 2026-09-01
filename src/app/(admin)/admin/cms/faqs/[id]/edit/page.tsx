@@ -2,7 +2,7 @@
 
 import { useState, useEffect, use } from 'react';
 import { FAQForm } from '@/components/admin/FAQForm';
-import { AdminFormSkeleton } from '@/components/admin/AdminSkeletons';
+import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function EditFAQPage({ params }: { params: Promise<{ id: string }> }) {
@@ -33,7 +33,11 @@ export default function EditFAQPage({ params }: { params: Promise<{ id: string }
   }, [id]);
 
   if (loading) {
-    return <AdminFormSkeleton titleWidth="w-44" />;
+    return (
+      <div className="flex h-[400px] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
   }
 
   if (!faq) {

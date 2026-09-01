@@ -2,6 +2,7 @@
 
 import { Terminal, Zap, Hash, ChevronRight, Share, Box } from 'lucide-react';
 import { generateHtml } from '@/lib/server-html';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface Blog {
   _id: string;
@@ -16,6 +17,7 @@ interface BlogDetailsV5Props {
 }
 
 export default function BlogDetailsV5({ blog, readingTime }: BlogDetailsV5Props) {
+  const { t } = useLanguage();
   // Safe date and ID processing
   const safeId = blog?._id ? blog._id.slice(-6) : 'UNKNOWN';
   const safeDate = (() => {
@@ -45,7 +47,7 @@ export default function BlogDetailsV5({ blog, readingTime }: BlogDetailsV5Props)
       <div className="p-8 md:p-12 space-y-10">
          <div className="space-y-4">
             <div className="text-primary font-bold text-xs flex items-center gap-2">
-               <Zap className="h-4 w-4 fill-current" /> EXECUTION_START: BLOG_DETAILS
+               <Zap className="h-4 w-4 fill-current" /> {t('store.blog.execution_start') || 'EXECUTION_START: BLOG_DETAILS'}
             </div>
             <h1 className="text-3xl md:text-5xl font-black text-white tracking-tighter leading-none border-l-4 border-primary pl-6">
                {blog?.title || 'UNTITLED_LOG'}
@@ -53,7 +55,7 @@ export default function BlogDetailsV5({ blog, readingTime }: BlogDetailsV5Props)
             <div className="flex items-center gap-6 text-[10px] text-neutral-500 pt-2 uppercase">
                <span className="flex items-center gap-1"><Hash className="h-3 w-3" /> ID_{safeId}</span>
                <span><ChevronRight className="h-3 w-3 inline" /> {safeDate}</span>
-               <span className="text-primary font-bold"><ChevronRight className="h-3 w-3 inline" /> {safeReadingTime}m_READ</span>
+               <span className="text-primary font-bold"><ChevronRight className="h-3 w-3 inline" /> {safeReadingTime}{t('store.blog.m_read') || 'm_READ'}</span>
             </div>
          </div>
 
@@ -67,7 +69,7 @@ export default function BlogDetailsV5({ blog, readingTime }: BlogDetailsV5Props)
                <button className="hover:text-primary transition-colors">TWITTER</button>
             </div>
             <button className="flex items-center gap-2 text-primary hover:underline">
-               <Share className="h-4 w-4" /> SHARE_DATA
+               <Share className="h-4 w-4" /> {t('store.blog.share_data') || 'SHARE_DATA'}
             </button>
          </footer>
       </div>

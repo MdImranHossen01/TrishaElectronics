@@ -15,12 +15,15 @@ export async function GET(
   try {
     const { slug } = await params;
     const session = await auth();
-    if (!mongoose.isValidObjectId(slug)) {
-      return NextResponse.json({ message: 'Invalid order ID' }, { status: 400 });
+    let query: any = {};
+    if (mongoose.isValidObjectId(slug)) {
+      query = { _id: slug };
+    } else {
+      query = { orderId: slug.startsWith('#') ? slug : `#${slug}` };
     }
 
     await connectToDatabase();
-    const order = await Order.findOne({ _id: slug })
+    const order = await Order.findOne(query)
       .populate('user', 'name email image')
       .populate('items.product', 'name price images slug');
 
@@ -28,12 +31,23 @@ export async function GET(
       return NextResponse.json({ message: 'Order not found' }, { status: 404 });
     }
 
-    // Authorization: Must be an admin OR the owner of the order OR it is a guest order
-    const isAdmin = session?.user && ['admin', 'super_admin', 'manager'].includes((session.user as any)?.role);
-    const isOwner = session?.user && order.user?._id?.toString() === (session.user as any).id;
+    // Authorization: Must be an admin OR the owner of the order OR it is a guest order OR a showroom manager for this showroom
+    const userRole = (session?.user as any)?.role;
+    const userId = (session?.user as any)?.id;
+    const isAdmin = session?.user && ['admin', 'super_admin', 'manager'].includes(userRole);
+    const isOwner = session?.user && order.user?._id?.toString() === userId;
     const isGuestOrder = !order.user;
 
-    if (!isAdmin && !isOwner && !isGuestOrder) {
+    let isShowroomManagerForOrder = false;
+    if (userRole === 'showroom_manager') {
+      const Showroom = (await import('@/models/Showroom')).default;
+      const showroom = await Showroom.findOne({ manager: userId }).lean();
+      if (showroom && order.showroom?.toString() === showroom._id.toString()) {
+        isShowroomManagerForOrder = true;
+      }
+    }
+
+    if (!isAdmin && !isOwner && !isGuestOrder && !isShowroomManagerForOrder) {
       return NextResponse.json({ message: 'Forbidden' }, { status: 403 });
     }
 
@@ -47,7 +61,7 @@ export async function GET(
   }
 }
 
-// PATCH update order status (Admin Only)
+// PATCH update order status (Admin & Showroom Manager)
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
@@ -55,7 +69,10 @@ export async function PATCH(
   try {
     const { slug } = await params;
     const session = await auth();
-    if (!session || !session.user || !(['admin', 'super_admin', 'manager'].includes((session.user as any)?.role))) {
+    const userRole = (session?.user as any)?.role;
+    const userId = (session?.user as any)?.id;
+
+    if (!session || !session.user || !(['admin', 'super_admin', 'manager', 'showroom_manager'].includes(userRole))) {
       return NextResponse.json({ message: 'Forbidden' }, { status: 403 });
     }
 
@@ -65,7 +82,7 @@ export async function PATCH(
     } catch (e) {
       return NextResponse.json({ message: 'Invalid JSON body' }, { status: 400 });
     }
-    const {
+    let {
       status,
       paymentStatus,
       shippingAddress,
@@ -94,6 +111,24 @@ export async function PATCH(
       if (!order) {
         await dbSession.abortTransaction();
         return NextResponse.json({ message: 'Order not found' }, { status: 404 });
+      }
+
+      if (userRole === 'showroom_manager') {
+        const Showroom = (await import('@/models/Showroom')).default;
+        const showroom = await Showroom.findOne({ manager: userId }).session(dbSession).lean();
+        if (!showroom || order.showroom?.toString() !== showroom._id.toString()) {
+          await dbSession.abortTransaction();
+          return NextResponse.json({ message: 'Forbidden' }, { status: 403 });
+        }
+        // Restrict showroom_manager: allow only status and internalNote
+        paymentStatus = undefined;
+        shippingAddress = undefined;
+        paymentMethod = undefined;
+        transactionId = undefined;
+        deliveryCharge = undefined;
+        couponDiscountAmount = undefined;
+        walletAmountUsed = undefined;
+        items = undefined;
       }
 
       const allowedStatuses = ['Order Placed', 'Confirmed', 'Paid', 'Ready for Delivery', 'Released for Delivery', 'Cancelled', 'Delivered'];
@@ -168,9 +203,19 @@ export async function PATCH(
         updateData.totalAmount = itemsTotal + finalDeliveryCharge;
       }
 
-      // 1. Handle Sales Counting logic (Atomic-like within transaction)
+      // 1. Handle Automatic Stock Restocking / Deduction on Status Change
+      if (status === 'Cancelled' && order.status !== 'Cancelled') {
+        const { restockOrderItems } = await import('@/lib/orderStockHelper');
+        await restockOrderItems(order, dbSession);
+        updateData.isSalesCounted = false;
+      } else if (order.status === 'Cancelled' && status && status !== 'Cancelled') {
+        const { deductOrderItems } = await import('@/lib/orderStockHelper');
+        await deductOrderItems(order, dbSession);
+      }
+
+      // 2. Handle Sales Counting logic (Atomic-like within transaction)
       const saleBecomingValid = ['Confirmed', 'Paid', 'Delivered'].includes(status || order.status);
-      if (saleBecomingValid && !order.isSalesCounted) {
+      if (saleBecomingValid && !order.isSalesCounted && (status !== 'Cancelled')) {
         const Product = (await import('@/models/Product')).default;
         for (const item of order.items) {
           await Product.updateOne(
@@ -230,6 +275,38 @@ export async function PATCH(
 
       await dbSession.commitTransaction();
 
+      // Log Accounts Receivable for Credit orders when they are confirmed
+      const becameValidForAR = ['Confirmed', 'Ready for Delivery', 'Released for Delivery', 'Delivered'].includes(updatedOrder?.status || '') && 
+                               !['Confirmed', 'Ready for Delivery', 'Released for Delivery', 'Delivered'].includes(order.status || '');
+      
+      if (becameValidForAR && (updatedOrder?.paymentMethod === 'Credit' || updatedOrder?.isCreditOrder)) {
+        try {
+          const { logLedgerTransaction } = await import('@/lib/ledgerHelper');
+          const amount = (updatedOrder.totalAmount || 0) - (updatedOrder.couponDiscountAmount || 0) - (updatedOrder.walletAmountUsed || 0);
+          const shortId = updatedOrder._id.toString().slice(-8).toUpperCase();
+          const arReference = `AR-ORDER-${shortId}`;
+          
+          const LedgerTransaction = (await import('@/models/LedgerTransaction')).default;
+          const arExists = await LedgerTransaction.findOne({ reference: arReference });
+          
+          if (!arExists) {
+            await logLedgerTransaction(
+              'AR',
+              'debit',
+              amount,
+              `Credit Order Confirmed #${shortId}`,
+              arReference,
+              new Date(),
+              undefined,
+              updatedOrder.showroom ? updatedOrder.showroom.toString() : undefined
+            );
+            console.log(`[Ledger] Logged AR debit for Order #${shortId} successfully.`);
+          }
+        } catch (err) {
+          console.error('[Ledger] Error logging credit order to AR:', err);
+        }
+      }
+
       if (order.paymentStatus !== 'Paid' && updatedOrder?.paymentStatus === 'Paid') {
         try {
           const { logOrderPaymentToLedger } = await import('@/lib/ledgerHelper');
@@ -270,11 +347,18 @@ export async function DELETE(
     }
 
     await connectToDatabase();
-    const deletedOrder = await Order.findOneAndDelete({ _id: slug });
+    const orderToDelete = await Order.findById(slug);
 
-    if (!deletedOrder) {
+    if (!orderToDelete) {
       return NextResponse.json({ message: 'Order not found' }, { status: 404 });
     }
+
+    if (orderToDelete.status !== 'Cancelled') {
+      const { restockOrderItems } = await import('@/lib/orderStockHelper');
+      await restockOrderItems(orderToDelete);
+    }
+
+    await Order.findByIdAndDelete(slug);
 
     return NextResponse.json({ message: 'Order deleted successfully' });
   } catch (error) {

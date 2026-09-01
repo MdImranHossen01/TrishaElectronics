@@ -7,6 +7,7 @@ import Image from 'next/image';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import useEmblaCarousel from 'embla-carousel-react';
 import Autoplay from 'embla-carousel-autoplay';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface Banner {
   _id?: string;
@@ -28,6 +29,7 @@ interface HeroSliderProps {
 const AUTOPLAY_DELAY = 5000;
 
 export default function HeroAarong({ banners, layout }: HeroSliderProps) {
+  const { t } = useLanguage();
   const [activeIndex, setActiveIndex] = useState(0);
   const slides = banners && banners.length > 0 ? banners : null;
 
@@ -83,7 +85,7 @@ export default function HeroAarong({ banners, layout }: HeroSliderProps) {
       subtitle: 'Summer/26 collection',
       image: '/placeholder.png', // Fallback
       link: '/shop',
-      primaryBtnText: 'SHOP NOW',
+      primaryBtnText: (t('store.hero.shop_now') as string) || 'SHOP NOW',
       primaryBtnLink: '/shop'
     },
     {
@@ -92,7 +94,7 @@ export default function HeroAarong({ banners, layout }: HeroSliderProps) {
       subtitle: 'Summer/26 collection',
       image: '/placeholder.png', // Fallback
       link: '/shop',
-      primaryBtnText: 'SHOP NOW',
+      primaryBtnText: (t('store.hero.shop_now') as string) || 'SHOP NOW',
       primaryBtnLink: '/shop'
     }
   ];

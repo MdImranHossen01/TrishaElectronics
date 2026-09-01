@@ -4,6 +4,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { Star } from 'lucide-react';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface Category {
   _id: string;
@@ -17,15 +18,16 @@ interface CategoryV4Props {
 }
 
 export default function CategoryV4({ categories }: CategoryV4Props) {
+  const { t } = useLanguage();
   if (!categories || categories.length === 0) return null;
 
   return (
     <section className="bg-white dark:bg-black py-32 px-6">
       <div className="container mx-auto">
         <div className="text-center space-y-4 mb-24">
-           <span className="text-[10px] font-black uppercase tracking-[0.6em] text-primary">The Boutique Selection</span>
+           <span className="text-[10px] font-black uppercase tracking-[0.6em] text-primary">{t('store.categories.boutique_selection') || 'The Boutique Selection'}</span>
            <h2 className="text-5xl md:text-8xl font-serif italic tracking-tighter leading-tight">
-             Showcase of Distinction
+             {t('store.categories.showcase_of_distinction') || 'Showcase of Distinction'}
            </h2>
         </div>
 
@@ -55,7 +57,7 @@ export default function CategoryV4({ categories }: CategoryV4Props) {
 
                 <div className="space-y-2">
                    <h3 className="text-2xl font-serif italic tracking-tight">{category.name}</h3>
-                   <span className="text-[10px] font-black uppercase tracking-[0.4em] text-muted-foreground group-hover:text-primary transition-colors">Examine Series</span>
+                   <span className="text-[10px] font-black uppercase tracking-[0.4em] text-muted-foreground group-hover:text-primary transition-colors">{t('store.categories.examine_series') || 'Examine Series'}</span>
                 </div>
              </Link>
            ))}

@@ -51,7 +51,7 @@ export async function printStickerInvoice(orderOrOrders: any | any[], settings: 
   const orders = Array.isArray(orderOrOrders) ? orderOrOrders : [orderOrOrders];
   if (orders.length === 0) return;
 
-  const storeName: string = settings?.siteName || settings?.brandName || 'Trishna Electronics';
+  const storeName: string = settings?.siteName || settings?.brandName || process.env.NEXT_PUBLIC_STORE_NAME || 'Store';
 
   // Dynamic theme variables
   let primary = '#00D1B2';
@@ -88,8 +88,29 @@ export async function printStickerInvoice(orderOrOrders: any | any[], settings: 
     const items: any[] = Array.isArray(order.items) ? order.items : [];
 
     const codAmount = order.paymentStatus === 'Paid' ? 0 : Math.round(order.totalAmount);
-    const trackingUrl = order.shippingDetails?.trackingUrl || `https://steadfast.com.bd/t/${consignmentId}`;
-    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(consignmentId || trackingUrl)}`;
+    const qrData = consignmentId || orderId;
+    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(qrData)}`;
+
+    const recipientName = order.shippingAddress?.fullName || 'Customer';
+    const recipientPhone = order.shippingAddress?.phone || '';
+    
+    // Clean address removing 'Outside Dhaka' / 'Inside Dhaka' placeholders
+    const street = order.shippingAddress?.street || '';
+    const area = order.shippingAddress?.area || '';
+    const thana = order.shippingAddress?.thana || '';
+    const district = order.shippingAddress?.district || '';
+    const city = order.shippingAddress?.city || '';
+    
+    const addrParts = [
+      street,
+      area && area !== 'Inside Dhaka' && area !== 'Outside Dhaka' ? area : '',
+      thana,
+      district || (city !== 'Inside Dhaka' && city !== 'Outside Dhaka' ? city : '')
+    ].filter(Boolean);
+    
+    let fullAddress = addrParts.join(', ').replace(/,?\s*(Outside Dhaka|Inside Dhaka)/gi, '').trim();
+    if (fullAddress.endsWith(',')) fullAddress = fullAddress.slice(0, -1).trim();
+    if (!fullAddress) fullAddress = street || city || '';
 
     return `
       <div class="sticker-container" style="${index < orders.length - 1 ? 'page-break-after: always; break-after: page;' : ''}">
@@ -113,15 +134,15 @@ export async function printStickerInvoice(orderOrOrders: any | any[], settings: 
               ${consignmentId ? `<img src="${qrCodeUrl}" alt="QR Link" />` : `<div style="font-size: 8px; text-align: center; color: #888;">No QR Code</div>`}
             </div>
             <div class="info-table" style="padding: 8px; display: flex; flex-direction: column; justify-content: center; gap: 4px;">
-              <div style="font-weight: 700; font-size: 13px; color: #000000; text-transform: uppercase;">${order.shippingAddress?.fullName || 'Customer'}</div>
-              <div style="font-weight: 700; font-size: 13px; color: #000000;">${order.shippingAddress?.phone || ''}</div>
+              <div style="font-weight: 700; font-size: 13px; color: #000000; text-transform: uppercase;">${recipientName}</div>
+              <div style="font-weight: 700; font-size: 13px; color: #000000;">${recipientPhone}</div>
               <div style="font-size: 10px; color: #333333; line-height: 1.3;">
-                ${order.shippingAddress?.street || ''}
+                ${fullAddress}
               </div>
               ${codAmount > 0 ? `
                 <div style="font-weight: 700; font-size: 13px; margin-top: 4px; border-top: 1px dashed #000000; padding-top: 4px; display: flex; justify-content: space-between; align-items: center;">
                   <span>COD Amount:</span>
-                  <span>৳${codAmount}</span>
+                  <span>৳${codAmount.toLocaleString()}</span>
                 </div>
               ` : `
                 <div style="font-weight: 700; font-size: 11px; margin-top: 4px; border-top: 1px dashed #000000; padding-top: 4px; color: green;">
@@ -337,27 +358,29 @@ export async function printStickerInvoice(orderOrOrders: any | any[], settings: 
 
   const printWindow = window.open('', '_blank');
   if (printWindow) {
-    printWindow.document.open();
     printWindow.document.write(htmlContent);
     printWindow.document.close();
-
+    
+    let hasPrinted = false;
     const triggerPrint = () => {
-      try {
-        printWindow.focus();
-        printWindow.print();
-      } catch (err) {
-        console.error('Print failed:', err);
-      }
+      if (hasPrinted) return;
+      hasPrinted = true;
+      printWindow.focus();
+      printWindow.onafterprint = () => {
+        try {
+          printWindow.close();
+        } catch (e) {}
+      };
+      printWindow.print();
     };
 
-    if (printWindow.document.readyState === 'complete') {
-      setTimeout(triggerPrint, 300);
-    } else {
-      printWindow.onload = () => {
-        setTimeout(triggerPrint, 300);
-      };
-    }
+    printWindow.onload = triggerPrint;
+    
+    setTimeout(() => {
+      if (!hasPrinted) {
+        triggerPrint();
+      }
+    }, 500);
   }
 }
-
 

@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/dialog';
 import Image from 'next/image';
 import { generateHtml } from '@/lib/server-html';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 const CURRENCY_SYMBOL = '৳';
 
@@ -39,6 +40,7 @@ interface ProductDetailsV5ClientProps {
 }
 
 export default function ProductDetailsV5Client({ product }: ProductDetailsV5ClientProps) {
+  const { t } = useLanguage();
   const dispatch = useAppDispatch();
   const { data: session } = useSession();
   const wishlist = useAppSelector((state) => state.wishlist.items);
@@ -131,7 +133,7 @@ export default function ProductDetailsV5Client({ product }: ProductDetailsV5Clie
       color: currentColor || undefined,
       size: currentSize || undefined
     }));
-    toast.success(`Exclusive piece added to bag`);
+    toast.success(t('store.product.added_to_cart') as string || `Exclusive piece added to bag`);
   };
 
   const handleFavorite = async () => {
@@ -217,7 +219,7 @@ export default function ProductDetailsV5Client({ product }: ProductDetailsV5Clie
             <div className="space-y-6">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-primary font-black uppercase tracking-[0.4em] text-[10px]">
-                   <Sparkles className="h-4 w-4 fill-current" /> Intentionally Crafted
+                   <Sparkles className="h-4 w-4 fill-current" /> {t('store.product.intentionally_crafted') || 'Intentionally Crafted'}
                 </div>
                 {isAdmin && (
                   <DropdownMenu>
@@ -248,7 +250,7 @@ export default function ProductDetailsV5Client({ product }: ProductDetailsV5Clie
             <div className="space-y-10">
                {uniqueColors.length > 0 && (
                   <div className="space-y-4">
-                     <span className="text-[10px] font-black uppercase tracking-[0.4em] text-muted-foreground">Color Palette</span>
+                     <span className="text-[10px] font-black uppercase tracking-[0.4em] text-muted-foreground">{t('store.product.color') || 'Color Palette'}</span>
                      <div className="flex flex-wrap gap-4">
                         {uniqueColors.map((color) => (
                            <button 
@@ -268,7 +270,7 @@ export default function ProductDetailsV5Client({ product }: ProductDetailsV5Clie
 
                {uniqueSizes.length > 0 && (
                   <div className="space-y-4">
-                     <span className="text-[10px] font-black uppercase tracking-[0.4em] text-muted-foreground">Selection Size</span>
+                     <span className="text-[10px] font-black uppercase tracking-[0.4em] text-muted-foreground">{t('store.product.size') || 'Selection Size'}</span>
                      <div className="flex flex-wrap gap-3">
                         {uniqueSizes.map((size) => (
                            <button 
@@ -312,12 +314,12 @@ export default function ProductDetailsV5Client({ product }: ProductDetailsV5Clie
                     disabled={displayStock <= 0}
                     className="h-16 flex-1 rounded-full bg-primary text-white font-black text-xl uppercase tracking-widest shadow-[0_20px_40px_-10px_rgba(var(--primary-rgb),0.4)] hover:scale-[1.02] active:scale-95 transition-all"
                   >
-                     {displayStock > 0 ? 'Reserve Piece' : 'Sold Out'}
+                     {displayStock > 0 ? t('store.product.reserve_piece') || 'Reserve Piece' : t('store.product.sold_out') || 'Sold Out'}
                   </Button>
                </div>
                <div className="flex gap-10 pt-4">
                  <button onClick={handleFavorite} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-neutral-400 hover:text-primary transition-all">
-                    <Heart className={`h-4 w-4 ${isInWishlist ? 'fill-primary text-primary' : ''}`} /> Atelier_Save
+                    <Heart className={`h-4 w-4 ${isInWishlist ? 'fill-primary text-primary' : ''}`} /> {t('store.product.wishlist') || 'Atelier_Save'}
                  </button>
                  <button 
                     onClick={async () => {
@@ -337,7 +339,7 @@ export default function ProductDetailsV5Client({ product }: ProductDetailsV5Clie
                     }} 
                     className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-neutral-400 hover:text-primary transition-all"
                  >
-                    <Share2 className="h-4 w-4" /> Atelier_Share
+                    <Share2 className="h-4 w-4" /> {t('store.product.share') || 'Atelier_Share'}
                  </button>
               </div>
             </div>
@@ -360,8 +362,8 @@ export default function ProductDetailsV5Client({ product }: ProductDetailsV5Clie
             <div className="pt-20">
                <Tabs defaultValue="reviews" className="w-full">
                   <TabsList className="w-full justify-start gap-12 border-b rounded-none h-auto p-0 bg-transparent mb-12">
-                     <TabsTrigger value="reviews" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-0 py-6 font-black uppercase text-[10px] tracking-[0.3em]">Client Experiences ({product.numReviews || 0})</TabsTrigger>
-                     <TabsTrigger value="story" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-0 py-6 font-black uppercase text-[10px] tracking-[0.3em]">The Story</TabsTrigger>
+                     <TabsTrigger value="reviews" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-0 py-6 font-black uppercase text-[10px] tracking-[0.3em]">{t('store.product.client_experiences') || 'Client Experiences'} ({product.numReviews || 0})</TabsTrigger>
+                     <TabsTrigger value="story" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-0 py-6 font-black uppercase text-[10px] tracking-[0.3em]">{t('store.product.the_story') || 'The Story'}</TabsTrigger>
                   </TabsList>
                   <TabsContent value="reviews" className="animate-in fade-in duration-500">
                      <ReviewsSection productId={product._id} />

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, Suspense, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import {
   Table,
@@ -14,10 +14,9 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Skeleton } from '@/components/ui/skeleton';
-import { AdminTableSkeleton } from '@/components/admin/AdminSkeletons';
 import {
   Loader2,
   Plus,
@@ -35,6 +34,8 @@ import {
   MoreHorizontal,
   Edit
 } from 'lucide-react';
+import { AdminTableSkeleton } from '@/components/admin/AdminSkeletons';
+import { Skeleton } from '@/components/ui/skeleton';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import Swal from 'sweetalert2';
@@ -46,6 +47,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Pagination } from '@/components/ui/pagination';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { divisions, bdDivisions, bdLocations } from '@/lib/bd-locations';
 
 interface BillItemInput {
   name: string;
@@ -56,6 +59,7 @@ interface BillItemInput {
 function ClientChalansContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { t } = useLanguage();
 
   const [chalans, setChalans] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
@@ -91,6 +95,7 @@ function ClientChalansContent() {
 
   // Reset page when search term or dates change
   useEffect(() => {
+    setCurrentPage(1);
     const params = new URLSearchParams(searchParams.toString());
     params.delete('page');
     router.push(`/admin/chalans?${params.toString()}`);
@@ -108,9 +113,116 @@ function ClientChalansContent() {
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
   const [clientAddress, setClientAddress] = useState('');
+  const [clientEmail, setClientEmail] = useState('');
+  const [clientDivision, setClientDivision] = useState('');
+  const [clientDistrict, setClientDistrict] = useState('');
+  const [clientThana, setClientThana] = useState('');
+  const [clientArea, setClientArea] = useState('');
+  const [areas, setAreas] = useState<any[]>([]);
+  const [showMoreFields, setShowMoreFields] = useState(false);
+
   const [billItems, setBillItems] = useState<BillItemInput[]>([
     { name: '', quantity: 1, price: 0 }
   ]);
+
+  // Customer auto-suggestion state
+  const [nameSuggestions, setNameSuggestions] = useState<any[]>([]);
+  const [phoneSuggestions, setPhoneSuggestions] = useState<any[]>([]);
+  const [showNameDropdown, setShowNameDropdown] = useState(false);
+  const [showPhoneDropdown, setShowPhoneDropdown] = useState(false);
+  const nameRef = useRef<HTMLDivElement>(null);
+  const phoneRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (nameRef.current && !nameRef.current.contains(e.target as Node)) setShowNameDropdown(false);
+      if (phoneRef.current && !phoneRef.current.contains(e.target as Node)) setShowPhoneDropdown(false);
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  const handleCustomerSelect = (customer: any) => {
+    setClientName(customer.clientName);
+    setClientPhone(customer.clientPhone);
+    setClientAddress(customer.clientAddress || '');
+    setClientEmail(customer.clientEmail || '');
+    setClientDivision(customer.clientDivision || '');
+    setClientDistrict(customer.clientDistrict || '');
+    setClientThana(customer.clientThana || '');
+    setClientArea(customer.clientArea || '');
+    setShowNameDropdown(false);
+    setShowPhoneDropdown(false);
+  };
+
+  const handleNameChange = (val: string) => {
+    setClientName(val);
+    
+    if (nameTimeoutRef.current) {
+      clearTimeout(nameTimeoutRef.current);
+    }
+    if (nameAbortControllerRef.current) {
+      nameAbortControllerRef.current.abort();
+    }
+
+    const trimmed = val.trim();
+    if (trimmed.length >= 1) {
+      const controller = new AbortController();
+      nameAbortControllerRef.current = controller;
+
+      nameTimeoutRef.current = setTimeout(async () => {
+        try {
+          const res = await fetch(`/api/admin/customers?search=${encodeURIComponent(trimmed)}`, {
+            signal: controller.signal
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const list = data.customers || [];
+            setNameSuggestions(list);
+            setShowNameDropdown(list.length > 0);
+          }
+        } catch (err: any) {
+          if (err.name !== 'AbortError') {
+            console.error('Error fetching suggestions:', err);
+          }
+        }
+      }, 200);
+    } else {
+      setNameSuggestions([]);
+      setShowNameDropdown(false);
+    }
+  };
+
+
+  const handlePhoneChange = (val: string) => {
+    setClientPhone(val);
+    if (phoneError) validatePhone(val);
+
+    if (phoneTimeoutRef.current) {
+      clearTimeout(phoneTimeoutRef.current);
+    }
+
+    const trimmed = val.trim();
+    if (trimmed.length >= 1) {
+      phoneTimeoutRef.current = setTimeout(async () => {
+        try {
+          const res = await fetch(`/api/admin/customers?search=${encodeURIComponent(trimmed)}`);
+          if (res.ok) {
+            const data = await res.json();
+            const list = data.customers || [];
+            setPhoneSuggestions(list);
+            setShowPhoneDropdown(list.length > 0);
+          }
+        } catch (err) {
+          console.error('Error fetching suggestions:', err);
+        }
+      }, 200);
+    } else {
+      setPhoneSuggestions([]);
+      setShowPhoneDropdown(false);
+    }
+  };
 
   // Product multi-select state
   const [productSearchTerm, setProductSearchTerm] = useState('');
@@ -120,6 +232,36 @@ function ClientChalansContent() {
   // Phone validation
   const [phoneError, setPhoneError] = useState('');
 
+  const nameTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const phoneTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const nameAbortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (nameTimeoutRef.current) clearTimeout(nameTimeoutRef.current);
+      if (phoneTimeoutRef.current) clearTimeout(phoneTimeoutRef.current);
+      if (nameAbortControllerRef.current) nameAbortControllerRef.current.abort();
+    };
+  }, []);
+
+  const fetchAreas = async () => {
+    try {
+      const res = await fetch('/api/admin/areas');
+      if (res.ok) {
+        const data = await res.json();
+        setAreas(data || []);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => {
+    fetchChalans();
+    fetchProducts();
+    fetchSettings();
+    fetchAreas();
+  }, []);
 
   const fetchChalans = async () => {
     try {
@@ -158,14 +300,6 @@ function ClientChalansContent() {
       console.error('Error fetching settings:', err);
     }
   };
-
-  useEffect(() => {
-    (async () => {
-      await fetchChalans();
-      await fetchProducts();
-      await fetchSettings();
-    })();
-  }, []);
 
   const validatePhone = (phone: string) => {
     const bdPhoneRegex = /^(?:\+?88)?01[3-9]\d{8}$/;
@@ -250,8 +384,8 @@ function ClientChalansContent() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!clientName.trim() || !clientAddress.trim()) {
-      toast.error('Client details are required');
+    if (!clientName.trim() || !clientPhone.trim()) {
+      toast.error('Client details (name and phone) are required');
       return;
     }
     if (!validatePhone(clientPhone)) {
@@ -273,6 +407,11 @@ function ClientChalansContent() {
         clientName,
         clientPhone,
         clientAddress,
+        clientEmail,
+        clientDivision,
+        clientDistrict,
+        clientThana,
+        clientArea,
         items: validItems,
         subtotal: subtotalVal,
         deliveryCharge: 0,
@@ -320,6 +459,12 @@ function ClientChalansContent() {
     setClientPhone('');
     setPhoneError('');
     setClientAddress('');
+    setClientEmail('');
+    setClientDivision('');
+    setClientDistrict('');
+    setClientThana('');
+    setClientArea('');
+    setShowMoreFields(false);
     setBillItems([{ name: '', quantity: 1, price: 0 }]);
     setSelectedProductVariants({});
     setProductSearchTerm('');
@@ -343,6 +488,11 @@ function ClientChalansContent() {
           clientName: chalan.clientName,
           clientPhone: chalan.clientPhone,
           clientAddress: chalan.clientAddress,
+          clientEmail: chalan.clientEmail,
+          clientDivision: chalan.clientDivision,
+          clientDistrict: chalan.clientDistrict,
+          clientThana: chalan.clientThana,
+          clientArea: chalan.clientArea,
           items: chalan.items,
           subtotal: chalan.subtotal,
           deliveryCharge: chalan.deliveryCharge || 0,
@@ -439,27 +589,28 @@ function ClientChalansContent() {
   const isFiltered = !!((filterByDate && (dateFilter.from || dateFilter.to)) || searchTerm);
 
   return (
-    <div className="flex-1 space-y-6 px-0 py-4 md:p-8">
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">Delivery Challans</h2>
-          <p className="text-muted-foreground text-sm">Create, manage, and print delivery challans for goods dispatched, and convert them to Bills.</p>
+    <div className="flex-1 space-y-0 md:space-y-6 px-[1px] pt-[1px] pb-4 md:p-8 w-full max-w-full overflow-x-hidden">
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-0 md:gap-4 px-0 md:px-0 mb-[1px] md:mb-0">
+        <div className="hidden md:block">
+          <h2 className="text-3xl font-bold tracking-tight">{t("chalans.title")}</h2>
+          <p className="text-muted-foreground text-sm">{t("chalans.subtitle")}</p>
         </div>
-        <Button onClick={() => setIsCreateOpen(true)} className="w-full md:w-auto bg-primary text-primary-foreground">
-          <Plus className="mr-2 h-4 w-4" /> Create Delivery Challan
+        <Button onClick={() => setIsCreateOpen(true)} className="w-full sm:w-auto rounded-none h-10 bg-primary text-primary-foreground font-bold flex items-center justify-center">
+          <Plus className="mr-2 h-4 w-4" /> {t("chalans.create_chalan")}
         </Button>
       </div>
 
       {/* Challans Table */}
-      <Card className="border-0 bg-transparent md:border md:bg-card shadow-none md:shadow-sm">
-        <CardHeader>
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <CardTitle>Challans List</CardTitle>
+      <div className="px-0 md:px-0 !mt-[1px] md:!mt-6">
+        <Card className="border-0 bg-transparent md:border md:bg-card shadow-none md:shadow-sm">
+          <CardHeader>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <CardTitle className="hidden md:block">{t("chalans.list_title")}</CardTitle>
             <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
               <div className="relative w-full md:w-56">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search by client or challan..."
+                  placeholder={t("chalans.search_placeholder") as string}
                   className="pl-8 text-xs h-8"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
@@ -475,7 +626,7 @@ function ClientChalansContent() {
                     onChange={(e) => setFilterByDate(e.target.checked)}
                     className="rounded border-border text-primary focus:ring-primary h-3.5 w-3.5 accent-primary"
                   />
-                  Filter by Date
+                  {t("bills.filter_by_date")}
                 </label>
 
                 <div className={`flex items-center gap-1 bg-muted/50 p-0.5 rounded-md border w-full sm:w-auto transition-opacity duration-200 ${!filterByDate ? 'opacity-40 pointer-events-none' : ''}`}>
@@ -486,7 +637,7 @@ function ClientChalansContent() {
                     onChange={(e) => setDateFilter(prev => ({ ...prev, from: e.target.value }))}
                     disabled={!filterByDate}
                   />
-                  <span className="text-muted-foreground text-[10px] shrink-0 font-medium">to</span>
+                  <span className="text-muted-foreground text-[10px] shrink-0 font-medium">{t("bills.to")}</span>
                   <Input
                     type="date"
                     className="h-7 border-none bg-transparent focus-visible:ring-0 p-0.5 text-xs md:w-28 font-medium"
@@ -514,7 +665,7 @@ function ClientChalansContent() {
                   }}
                   className="text-xs text-muted-foreground hover:text-primary shrink-0 h-8"
                 >
-                  Clear
+                  {t("bills.clear")}
                 </Button>
               )}
             </div>
@@ -524,16 +675,13 @@ function ClientChalansContent() {
           {loading ? (
             <div className="space-y-3 py-2">
               {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="flex items-center justify-between p-3 border rounded-xl animate-pulse">
-                  <div className="flex items-center gap-3">
-                    <Skeleton className="h-4 w-4 rounded" />
-                    <div className="space-y-1.5">
-                      <Skeleton className="h-4 w-32 rounded" />
-                      <Skeleton className="h-3 w-20 rounded" />
-                    </div>
+                <div key={i} className="flex items-center justify-between p-3 border rounded-xl">
+                  <div className="space-y-1.5">
+                    <Skeleton className="h-4 w-32 rounded" />
+                    <Skeleton className="h-3 w-24 rounded" />
                   </div>
-                  <Skeleton className="h-4 w-20 rounded hidden sm:block" />
-                  <Skeleton className="h-4 w-24 rounded hidden md:block" />
+                  <Skeleton className="h-4 w-28 rounded" />
+                  <Skeleton className="h-4 w-24 rounded" />
                   <div className="flex gap-2">
                     <Skeleton className="h-8 w-8 rounded-lg" />
                     <Skeleton className="h-8 w-8 rounded-lg" />
@@ -544,7 +692,7 @@ function ClientChalansContent() {
           ) : filteredChalans.length === 0 ? (
             <div className="flex h-32 flex-col items-center justify-center text-muted-foreground">
               <FileText className="h-10 w-10 mb-2 stroke-1" />
-              <p>No delivery challans found</p>
+              <p>{t("chalans.no_chalans_found")}</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -553,11 +701,11 @@ function ClientChalansContent() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Challan No</TableHead>
-                      <TableHead>Client Name</TableHead>
-                      <TableHead>Phone</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
+                      <TableHead>{t("chalans.chalan_no")}</TableHead>
+                      <TableHead>{t("bills.client_name")}</TableHead>
+                      <TableHead>{t("bills.phone")}</TableHead>
+                      <TableHead>{t("bills.date")}</TableHead>
+                      <TableHead className="text-right">{t("bills.actions")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -586,34 +734,41 @@ function ClientChalansContent() {
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
                                 <DropdownMenuItem onClick={() => setSelectedChalan(chalan)}>
-                                  <Eye className="mr-2 h-4 w-4" /> View Details
+                                  <Eye className="mr-2 h-4 w-4" /> {t("bills.view_details")}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onClick={() => {
                                     setEditingChalan(chalan);
                                     setClientName(chalan.clientName);
                                     setClientPhone(chalan.clientPhone);
-                                    setClientAddress(chalan.clientAddress);
+                                    setClientAddress(chalan.clientAddress || '');
+                                    setClientEmail(chalan.clientEmail || '');
+                                    setClientDivision(chalan.clientDivision || '');
+                                    setClientDistrict(chalan.clientDistrict || '');
+                                    setClientThana(chalan.clientThana || '');
+                                    setClientArea(chalan.clientArea || '');
                                     setBillItems(chalan.items);
+                                    const hasMore = !!(chalan.clientEmail || chalan.clientDivision || chalan.clientDistrict || chalan.clientThana || chalan.clientArea || chalan.clientAddress);
+                                    setShowMoreFields(hasMore);
                                     setIsCreateOpen(true);
                                   }}
                                 >
-                                  <Edit className="mr-2 h-4 w-4" /> Edit Challan
+                                  <Edit className="mr-2 h-4 w-4" /> {t("chalans.edit_chalan")}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => generateBillPDF(chalan, settings, 'download')}>
-                                  <Download className="mr-2 h-4 w-4" /> Download PDF
+                                  <Download className="mr-2 h-4 w-4" /> {t("bills.download_pdf")}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => generateBillPDF(chalan, settings, 'print')}>
-                                  <Printer className="mr-2 h-4 w-4" /> Print PDF
+                                  <Printer className="mr-2 h-4 w-4" /> {t("bills.print_bill")}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => handleConvertToBill(chalan)}>
-                                  <ArrowRight className="mr-2 h-4 w-4" /> Convert to Bill
+                                  <ArrowRight className="mr-2 h-4 w-4" /> {t("chalans.convert_to_bill")}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   className="text-destructive focus:text-destructive"
                                   onClick={() => handleDeleteChalan(chalan._id)}
                                 >
-                                  <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                  <Trash2 className="mr-2 h-4 w-4" /> {t("bills.delete")}
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
@@ -626,68 +781,75 @@ function ClientChalansContent() {
               </div>
 
               {/* Mobile View */}
-              <div className="block md:hidden space-y-3 p-2">
+              <div className="block md:hidden space-y-3">
                 {paginatedChalans.map((chalan) => (
-                  <div key={chalan._id} className="p-3 border rounded-lg bg-background shadow-sm space-y-2.5">
+                  <div key={chalan._id} className="p-4 mb-3 border border-border/50 rounded-xl bg-card shadow-sm flex flex-col gap-2.5 relative">
                     <div className="flex items-center justify-between">
-                      <span className="font-semibold text-sm text-primary">{chalan.invoiceNo}</span>
-                      <span className="text-[10px] text-muted-foreground">{format(new Date(chalan.date), 'dd MMM yyyy')}</span>
+                      <span className="font-bold text-base text-primary">{chalan.invoiceNo}</span>
+                      <span className="text-xs text-muted-foreground">{format(new Date(chalan.date), 'dd MMM yyyy')}</span>
                     </div>
-                    <div className="space-y-1 text-xs">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Client:</span>
-                        <span className="font-medium text-foreground">{chalan.clientName}</span>
+                    <div className="space-y-2 text-sm md:text-xs">
+                      <div className="flex justify-between items-center py-0.5">
+                        <span className="text-muted-foreground">{t("bills.client")}:</span>
+                        <span className="font-semibold text-foreground">{chalan.clientName}</span>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Phone:</span>
-                        <span className="text-foreground">{chalan.clientPhone}</span>
+                      <div className="flex justify-between items-center py-0.5 border-t border-border/30">
+                        <span className="text-muted-foreground">{t("bills.phone")}:</span>
+                        <span className="text-foreground font-medium">{chalan.clientPhone}</span>
                       </div>
                     </div>
-                    <div className="flex items-center justify-end gap-2 pt-2 border-t">
+                    <div className="flex items-center justify-end gap-2 pt-2.5 border-t mt-1">
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-8 text-teal-600 hover:text-teal-700 text-xs px-2.5"
+                        className="h-9 text-teal-600 hover:text-teal-700 text-xs px-3 py-1 flex items-center gap-1"
                         onClick={() => generateBillPDF(chalan, settings, 'print')}
                       >
-                        <Printer className="h-3.5 w-3.5 mr-1" /> Print
+                        <Printer className="h-3.5 w-3.5 mr-1" /> {t("bills.print")}
                       </Button>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="outline" size="sm" className="h-8 w-8 p-0">
-                            <MoreHorizontal className="h-4 w-4" />
+                          <Button variant="outline" size="sm" className="h-9 w-9 p-0 flex items-center justify-center">
+                            <MoreHorizontal className="h-4.5 w-4.5" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem onClick={() => setSelectedChalan(chalan)}>
-                            <Eye className="mr-2 h-4 w-4" /> View Details
+                            <Eye className="mr-2 h-4 w-4" /> {t("bills.view_details")}
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => {
                               setEditingChalan(chalan);
                               setClientName(chalan.clientName);
                               setClientPhone(chalan.clientPhone);
-                              setClientAddress(chalan.clientAddress);
+                              setClientAddress(chalan.clientAddress || '');
+                              setClientEmail(chalan.clientEmail || '');
+                              setClientDivision(chalan.clientDivision || '');
+                              setClientDistrict(chalan.clientDistrict || '');
+                              setClientThana(chalan.clientThana || '');
+                              setClientArea(chalan.clientArea || '');
                               setBillItems(chalan.items);
+                              const hasMore = !!(chalan.clientEmail || chalan.clientDivision || chalan.clientDistrict || chalan.clientThana || chalan.clientArea || chalan.clientAddress);
+                              setShowMoreFields(hasMore);
                               setIsCreateOpen(true);
                             }}
                           >
-                            <Edit className="mr-2 h-4 w-4" /> Edit Challan
+                            <Edit className="mr-2 h-4 w-4" /> {t("chalans.edit_chalan")}
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => generateBillPDF(chalan, settings, 'download')}>
-                            <Download className="mr-2 h-4 w-4" /> Download PDF
+                            <Download className="mr-2 h-4 w-4" /> {t("bills.download_pdf")}
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => generateBillPDF(chalan, settings, 'print')}>
-                            <Printer className="mr-2 h-4 w-4" /> Print PDF
+                            <Printer className="mr-2 h-4 w-4" /> {t("bills.print_bill")}
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => handleConvertToBill(chalan)}>
-                            <ArrowRight className="mr-2 h-4 w-4" /> Convert to Bill
+                            <ArrowRight className="mr-2 h-4 w-4" /> {t("chalans.convert_to_bill")}
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             className="text-destructive focus:text-destructive"
                             onClick={() => handleDeleteChalan(chalan._id)}
                           >
-                            <Trash2 className="mr-2 h-4 w-4" /> Delete
+                            <Trash2 className="mr-2 h-4 w-4" /> {t("bills.delete")}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -708,55 +870,223 @@ function ClientChalansContent() {
           )}
         </CardContent>
       </Card>
+    </div>
 
       {/* Create Dialog */}
       <Dialog open={isCreateOpen} onOpenChange={(open) => { setIsCreateOpen(open); if(!open) resetForm(); }}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editingChalan ? 'Edit' : 'Create New'} Delivery Challan</DialogTitle>
+            <DialogTitle>{editingChalan ? t("chalans.edit_chalan") : t("chalans.create_new")}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Client Info */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="cName">Client Name *</Label>
-                <Input
-                  id="cName"
-                  placeholder="e.g. Rahim & Bros"
-                  value={clientName}
-                  onChange={(e) => setClientName(e.target.value)}
-                  required
-                />
+            <div className="space-y-4 bg-gray-50/50 p-4 rounded-2xl border border-gray-100/80">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2 relative" ref={nameRef}>
+                  <Label htmlFor="cName">{t("bills.client_name")} <span className="text-destructive">*</span></Label>
+                  <div className="relative">
+                    <Input
+                      id="cName"
+                      placeholder="e.g. Rahim & Bros"
+                      value={clientName}
+                      onChange={(e) => handleNameChange(e.target.value)}
+                      onFocus={() => { if (clientName.trim() && nameSuggestions.length > 0) setShowNameDropdown(true); }}
+                      autoComplete="off"
+                      required
+                    />
+                    {showNameDropdown && nameSuggestions.length > 0 && (
+                      <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-52 overflow-y-auto">
+                        {nameSuggestions.map((c, i) => (
+                          <div
+                            key={i}
+                            className="flex flex-col px-3 py-2 cursor-pointer hover:bg-muted transition-colors text-left"
+                            onMouseDown={(e) => { e.preventDefault(); handleCustomerSelect(c); }}
+                          >
+                            <span className="font-medium text-sm text-foreground">{c.clientName}</span>
+                            <span className="text-xs text-muted-foreground">{c.clientPhone}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="space-y-2 relative" ref={phoneRef}>
+                  <Label htmlFor="cPhone">{t("bills.client_phone")} <span className="text-destructive">*</span></Label>
+                  <div className="flex gap-2 items-center">
+                    <div className="relative flex-1">
+                      <Input
+                        id="cPhone"
+                        placeholder="e.g. 017XXXXXXXX"
+                        value={clientPhone}
+                        onChange={(e) => handlePhoneChange(e.target.value)}
+                        onFocus={() => { if (clientPhone.trim() && phoneSuggestions.length > 0) setShowPhoneDropdown(true); }}
+                        autoComplete="off"
+                        required
+                      />
+                      {showPhoneDropdown && phoneSuggestions.length > 0 && (
+                        <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-52 overflow-y-auto">
+                          {phoneSuggestions.map((c, i) => (
+                            <div
+                              key={i}
+                              className="flex flex-col px-3 py-2 cursor-pointer hover:bg-muted transition-colors text-left"
+                              onMouseDown={(e) => { e.preventDefault(); handleCustomerSelect(c); }}
+                            >
+                              <span className="font-medium text-sm text-foreground">{c.clientPhone}</span>
+                              <span className="text-xs text-muted-foreground">{c.clientName}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <Button
+                      type="button"
+                      className={`h-8 px-3 text-xs font-bold rounded-lg shrink-0 transition-all ${
+                        showMoreFields 
+                          ? 'bg-destructive hover:bg-destructive/90 text-destructive-foreground' 
+                          : 'bg-primary hover:bg-primary/90 text-primary-foreground'
+                      }`}
+                      onClick={() => setShowMoreFields(!showMoreFields)}
+                    >
+                      {showMoreFields ? '- Close' : '+ Add More'}
+                    </Button>
+                  </div>
+                  {phoneError && <p className="text-xs text-destructive">{phoneError}</p>}
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="cPhone">Client Phone *</Label>
-                <Input
-                  id="cPhone"
-                  placeholder="e.g. 017XXXXXXXX"
-                  value={clientPhone}
-                  onChange={(e) => {
-                    setClientPhone(e.target.value);
-                    if (e.target.value) validatePhone(e.target.value);
-                  }}
-                  required
-                />
-                {phoneError && <p className="text-xs text-destructive">{phoneError}</p>}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="cAddr">Client Address *</Label>
-                <Input
-                  id="cAddr"
-                  placeholder="e.g. Banani, Dhaka"
-                  value={clientAddress}
-                  onChange={(e) => setClientAddress(e.target.value)}
-                  required
-                />
-              </div>
+
+              {showMoreFields && (
+                <div className="space-y-4 pt-4 border-t border-dashed border-gray-200">
+                  {/* Row 1: Email and Address */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Customer Email */}
+                    <div className="space-y-2">
+                      <Label htmlFor="cEmail">Email</Label>
+                      <Input
+                        id="cEmail"
+                        type="email"
+                        placeholder="e.g. client@example.com"
+                        value={clientEmail}
+                        onChange={(e) => setClientEmail(e.target.value)}
+                      />
+                    </div>
+
+                    {/* Customer Street Address */}
+                    <div className="space-y-2">
+                      <Label htmlFor="cAddr">{t("bills.client_address")}</Label>
+                      <Input
+                        id="cAddr"
+                        placeholder="e.g. Banani, Dhaka"
+                        value={clientAddress}
+                        onChange={(e) => setClientAddress(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Row 2: Location Fields */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {/* Division */}
+                    <div className="space-y-2">
+                      <Label className="text-sm font-semibold">{t("settings.division")}</Label>
+                      <Select
+                        value={clientDivision}
+                        onValueChange={(val) => {
+                          setClientDivision(val || '');
+                          setClientDistrict('');
+                          setClientThana('');
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder={t("settings.select_division") as string} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {divisions.map((div) => (
+                            <SelectItem key={div} value={div}>
+                              {div}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* District */}
+                    <div className="space-y-2">
+                      <Label className="text-sm font-semibold">{t("settings.district")}</Label>
+                      <Select
+                        disabled={!clientDivision}
+                        value={clientDistrict}
+                        onValueChange={(val) => {
+                          setClientDistrict(val || '');
+                          setClientThana('');
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder={t("settings.select_district") as string} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(bdDivisions[clientDivision] || []).map((dist) => (
+                            <SelectItem key={dist} value={dist}>
+                              {dist}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Thana */}
+                    <div className="space-y-2">
+                      <Label className="text-sm font-semibold">{t("settings.thana")}</Label>
+                      <Select
+                        disabled={!clientDistrict}
+                        value={clientThana}
+                        onValueChange={(val) => setClientThana(val || '')}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder={t("settings.select_thana") as string} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(bdLocations[clientDistrict] || []).map((th) => (
+                            <SelectItem key={th} value={th}>
+                              {th}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Area */}
+                    <div className="space-y-2">
+                      <Label className="text-sm font-semibold">Area</Label>
+                      <Select
+                        value={clientArea}
+                        onValueChange={(val) => setClientArea(val || '')}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select Area" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {areas
+                            .filter((a) => {
+                              if (clientDivision && a.division !== clientDivision) return false;
+                              if (clientDistrict && a.district && a.district !== clientDistrict) return false;
+                              if (clientThana && a.thana && a.thana !== clientThana) return false;
+                              return true;
+                            })
+                            .map((area) => (
+                              <SelectItem key={area._id} value={area.name}>
+                                {area.name}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Product Picker */}
             <div className="flex items-center justify-between">
-              <Label className="text-lg font-semibold">Items List</Label>
+              <Label className="text-lg font-semibold">{t("chalans.items_list")}</Label>
               <div className="flex items-center gap-2">
                 <Button
                   type="button"
@@ -764,10 +1094,10 @@ function ClientChalansContent() {
                   size="sm"
                   onClick={() => setProductPickerOpen(true)}
                 >
-                  <Plus className="mr-1 h-3.5 w-3.5" /> Select Products
+                  <Plus className="mr-1 h-3.5 w-3.5" /> {t("bills.select_products")}
                 </Button>
                 <Button type="button" variant="outline" size="sm" onClick={handleAddItemRow} className="font-bold">
-                  <Plus className="h-3 w-3 mr-1" /> Add Custom Item
+                  <Plus className="h-3 w-3 mr-1" /> {t("bills.add_custom_item")}
                 </Button>
               </div>
             </div>
@@ -778,7 +1108,7 @@ function ClientChalansContent() {
                 <div key={index} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 border p-2 sm:p-0 sm:border-none rounded-md">
                   <div className="flex-1">
                     <Input
-                      placeholder="Item name / Description"
+                      placeholder={t("bills.item_description") as string}
                       value={item.name}
                       onChange={(e) => handleItemChange(index, 'name', e.target.value)}
                       required
@@ -788,7 +1118,7 @@ function ClientChalansContent() {
                     <div className="flex-1 sm:w-32">
                       <Input
                         type="number"
-                        placeholder="Qty"
+                        placeholder={t("bills.qty") as string}
                         min="1"
                         value={item.quantity}
                         onChange={(e) => handleItemChange(index, 'quantity', e.target.value)}
@@ -811,11 +1141,11 @@ function ClientChalansContent() {
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setIsCreateOpen(false)}>
-                Cancel
+                {t("bills.cancel")}
               </Button>
               <Button type="submit" disabled={formLoading} className="bg-primary text-primary-foreground">
                 {formLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {editingChalan ? 'Update Challan' : 'Generate Challan'}
+                {editingChalan ? t("chalans.update_chalan") : t("chalans.generate_chalan")}
               </Button>
             </DialogFooter>
           </form>
@@ -824,27 +1154,27 @@ function ClientChalansContent() {
 
       {/* Product Selection Dialog */}
       <Dialog open={productPickerOpen} onOpenChange={setProductPickerOpen}>
-        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl w-[95vw] sm:w-full max-h-[90vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
-            <DialogTitle>Select Products</DialogTitle>
+            <DialogTitle>{t("chalans.select_products_title")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="relative">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search products..."
+                placeholder={t("chalans.search_products") as string}
                 className="pl-8"
                 value={productSearchTerm}
                 onChange={(e) => setProductSearchTerm(e.target.value)}
               />
             </div>
-            <div className="border rounded-md overflow-hidden max-h-[50vh] overflow-y-auto">
-              <Table>
+            <div className="border rounded-md max-h-[45vh] sm:max-h-[55vh] overflow-y-auto overflow-x-auto w-full">
+              <Table className="min-w-[600px] sm:min-w-0">
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-12">Select</TableHead>
-                    <TableHead>Product</TableHead>
-                    <TableHead>Options / Variants</TableHead>
+                    <TableHead>{t("chalans.product")}</TableHead>
+                    <TableHead>{t("chalans.options_variants")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -884,7 +1214,7 @@ function ClientChalansContent() {
                                 })}
                               </div>
                             ) : (
-                              <span className="text-xs text-muted-foreground">Standard Item</span>
+                              <span className="text-xs text-muted-foreground">{t("chalans.standard_item")}</span>
                             )}
                           </TableCell>
                         </TableRow>
@@ -893,11 +1223,11 @@ function ClientChalansContent() {
                 </TableBody>
               </Table>
             </div>
-            <div className="flex items-center justify-between border-t pt-4">
-              <span className="text-sm text-muted-foreground">{selectedCount} items selected</span>
-              <div className="space-x-2">
-                <Button variant="outline" size="sm" onClick={() => setProductPickerOpen(false)}>Cancel</Button>
-                <Button size="sm" onClick={handleAddSelectedProducts} className="bg-primary text-primary-foreground">Add Selected</Button>
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-4 border-t mt-2">
+              <span className="text-sm text-muted-foreground font-medium">{selectedCount} {t("chalans.items_selected")}</span>
+              <div className="flex gap-2 w-full sm:w-auto justify-end">
+                <Button type="button" variant="outline" className="flex-1 sm:flex-none" onClick={() => setProductPickerOpen(false)}>{t("bills.cancel")}</Button>
+                <Button type="button" className="flex-1 sm:flex-none bg-primary text-primary-foreground" onClick={handleAddSelectedProducts}>{t("chalans.add_selected")}</Button>
               </div>
             </div>
           </div>
@@ -908,19 +1238,19 @@ function ClientChalansContent() {
       <Dialog open={!!selectedChalan} onOpenChange={(open) => { if (!open) setSelectedChalan(null); }}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Delivery Challan Details — {selectedChalan?.invoiceNo}</DialogTitle>
+            <DialogTitle>{t("chalans.chalan_details")} — {selectedChalan?.invoiceNo}</DialogTitle>
           </DialogHeader>
           {selectedChalan && (
             <div className="space-y-6">
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <h4 className="font-semibold text-muted-foreground mb-1 uppercase tracking-wider text-xs">Deliver To</h4>
+                  <h4 className="font-semibold text-muted-foreground mb-1 uppercase tracking-wider text-xs">{t("chalans.deliver_to")}</h4>
                   <p className="font-medium text-base">{selectedChalan.clientName}</p>
                   <p className="flex items-center gap-1.5 mt-1 text-muted-foreground"><Phone className="h-3.5 w-3.5" /> {selectedChalan.clientPhone}</p>
                   <p className="flex items-center gap-1.5 mt-1 text-muted-foreground"><MapPin className="h-3.5 w-3.5" /> {selectedChalan.clientAddress}</p>
                 </div>
                 <div>
-                  <h4 className="font-semibold text-muted-foreground mb-1 uppercase tracking-wider text-xs">Document Info</h4>
+                  <h4 className="font-semibold text-muted-foreground mb-1 uppercase tracking-wider text-xs">{t("chalans.document_info")}</h4>
                   <p className="flex items-center gap-1.5 font-medium"><Hash className="h-3.5 w-3.5 text-primary" /> {selectedChalan.invoiceNo}</p>
                   <p className="flex items-center gap-1.5 mt-1 text-muted-foreground"><CalendarDays className="h-3.5 w-3.5" /> {format(new Date(selectedChalan.date), 'dd MMM yyyy')}</p>
                 </div>
@@ -930,8 +1260,8 @@ function ClientChalansContent() {
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted hover:bg-muted">
-                      <TableHead>Description</TableHead>
-                      <TableHead className="text-center w-24">Quantity Delivered</TableHead>
+                      <TableHead>{t("chalans.description")}</TableHead>
+                      <TableHead className="text-center w-24">{t("chalans.quantity_delivered")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -950,7 +1280,7 @@ function ClientChalansContent() {
                   variant="outline"
                   onClick={() => generateBillPDF(selectedChalan, settings, 'print')}
                 >
-                  <Printer className="mr-2 h-4 w-4" /> Print Challan
+                  <Printer className="mr-2 h-4 w-4" /> {t("chalans.print_chalan")}
                 </Button>
                 <Button
                   className="bg-primary text-primary-foreground"
@@ -960,7 +1290,7 @@ function ClientChalansContent() {
                     handleConvertToBill(ch);
                   }}
                 >
-                  <ArrowRight className="mr-2 h-4 w-4" /> Convert to Final Bill
+                  <ArrowRight className="mr-2 h-4 w-4" /> {t("chalans.convert_final_bill")}
                 </Button>
               </DialogFooter>
             </div>
@@ -973,7 +1303,7 @@ function ClientChalansContent() {
 
 export default function ClientChalansPage() {
   return (
-    <Suspense fallback={<AdminTableSkeleton rowCount={7} columnCount={5} titleWidth="w-56" showStats={true} />}>
+    <Suspense fallback={<AdminTableSkeleton rowCount={6} columnCount={5} titleWidth="w-48" />}>
       <ClientChalansContent />
     </Suspense>
   );

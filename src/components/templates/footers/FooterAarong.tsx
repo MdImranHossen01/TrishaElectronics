@@ -19,6 +19,8 @@ import DeveloperLogo from '@/components/ui/developerlogo';
 import { useSettings } from '@/components/SettingsProvider';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { LanguageToggle } from '@/components/layout/LanguageToggle';
 
 const socialIconMap: Record<string, any> = {
   facebook: SocialIcons.Facebook || Circle,
@@ -41,6 +43,7 @@ const socialLabels: Record<string, string> = {
 };
 
 export default function FooterAarong() {
+  const { t } = useLanguage();
   const currentYear = new Date().getFullYear();
   const settings = useSettings();
   const socialLinks = settings?.socialLinks || {};
@@ -116,22 +119,22 @@ export default function FooterAarong() {
           <div className="flex flex-col md:flex-row items-center gap-4 p-4">
             <Truck className="h-8 w-8 text-primary" />
             <div>
-              <h4 className="text-xs font-black uppercase tracking-widest text-foreground">Secure & Fast Delivery</h4>
-              <p className="text-xs text-muted-foreground mt-1">Delivery inside Dhaka in 24-48 hours, outside Dhaka in 3-5 days.</p>
+              <h4 className="text-xs font-black uppercase tracking-widest text-foreground">{t('store.footer.secure_delivery')}</h4>
+              <p className="text-xs text-muted-foreground mt-1">{t('store.footer.secure_delivery_desc')}</p>
             </div>
           </div>
           <div className="flex flex-col md:flex-row items-center gap-4 p-4 border-y md:border-y-0 md:border-x border-border/60">
             <RotateCcw className="h-8 w-8 text-primary" />
             <div>
-              <h4 className="text-xs font-black uppercase tracking-widest text-foreground">Easy Return Policy</h4>
-              <p className="text-xs text-muted-foreground mt-1">Return within 7 days in original condition if there are sizing issues.</p>
+              <h4 className="text-xs font-black uppercase tracking-widest text-foreground">{t('store.footer.easy_return')}</h4>
+              <p className="text-xs text-muted-foreground mt-1">{t('store.footer.easy_return_desc')}</p>
             </div>
           </div>
           <div className="flex flex-col md:flex-row items-center gap-4 p-4">
             <ShieldCheck className="h-8 w-8 text-primary" />
             <div>
-              <h4 className="text-xs font-black uppercase tracking-widest text-foreground">100% Authentic Quality</h4>
-              <p className="text-xs text-muted-foreground mt-1">Curated fabrics and authentic designs inspired by local heritage.</p>
+              <h4 className="text-xs font-black uppercase tracking-widest text-foreground">{t('store.footer.authentic_quality')}</h4>
+              <p className="text-xs text-muted-foreground mt-1">{t('store.footer.authentic_quality_desc')}</p>
             </div>
           </div>
         </div>
@@ -144,8 +147,11 @@ export default function FooterAarong() {
           {/* Logo & Contact details */}
           <div className="space-y-6">
             <Logo />
+            <div className="mt-1 mb-2">
+               <LanguageToggle />
+            </div>
             <p className="text-xs text-muted-foreground leading-relaxed max-w-sm">
-              Discover premium clothing line inspired by authentic heritage, fine craftsmanship, and contemporary style.
+              {t('store.footer.description')}
             </p>
             <div className="space-y-3 pt-2 text-xs">
               {settings?.contact?.address && (
@@ -175,38 +181,38 @@ export default function FooterAarong() {
 
           {/* Quick Links */}
           <div className="space-y-4">
-            <h4 className="text-xs font-black uppercase tracking-[0.2em] text-foreground">Customer Care</h4>
+            <h4 className="text-xs font-black uppercase tracking-[0.2em] text-foreground">{t('store.footer.quick_links')}</h4>
             <ul className="space-y-2.5 text-xs">
               <li>
-                <Link href="/about" className="text-muted-foreground hover:text-primary transition-all uppercase tracking-wider font-semibold">About Us</Link>
+                <Link href="/about" className="text-muted-foreground hover:text-primary transition-all uppercase tracking-wider font-semibold">{t('store.nav.about') || 'About Us'}</Link>
               </li>
               <li>
-                <Link href="/contact" className="text-muted-foreground hover:text-primary transition-all uppercase tracking-wider font-semibold">Contact Us</Link>
+                <Link href="/contact" className="text-muted-foreground hover:text-primary transition-all uppercase tracking-wider font-semibold">{t('store.nav.contact') || 'Contact Us'}</Link>
               </li>
               <li>
-                <Link href="/track-order" className="text-muted-foreground hover:text-primary transition-all uppercase tracking-wider font-semibold">Track Order</Link>
+                <Link href="/track-order" className="text-muted-foreground hover:text-primary transition-all uppercase tracking-wider font-semibold">{t('store.nav.track_order') || 'Track Order'}</Link>
               </li>
               <li>
-                <Link href="/shop" className="text-muted-foreground hover:text-primary transition-all uppercase tracking-wider font-semibold">Browse Shop</Link>
+                <Link href="/shop" className="text-muted-foreground hover:text-primary transition-all uppercase tracking-wider font-semibold">{t('store.nav.shop') || 'Browse Shop'}</Link>
               </li>
               <li>
-                <Link href="/blog" className="text-muted-foreground hover:text-primary transition-all uppercase tracking-wider font-semibold">Our Blog</Link>
+                <Link href="/blog" className="text-muted-foreground hover:text-primary transition-all uppercase tracking-wider font-semibold">{t('store.nav.blogs') || 'Our Blog'}</Link>
               </li>
             </ul>
           </div>
 
           {/* Policies & App */}
           <div className="space-y-4">
-            <h4 className="text-xs font-black uppercase tracking-[0.2em] text-foreground">Policies & Info</h4>
+            <h4 className="text-xs font-black uppercase tracking-[0.2em] text-foreground">{t('store.footer.information')}</h4>
             <ul className="space-y-2.5 text-xs mb-6">
               <li>
-                <Link href="/privacy" className="text-muted-foreground hover:text-primary transition-all uppercase tracking-wider font-semibold">Privacy Policy</Link>
+                <Link href="/privacy" className="text-muted-foreground hover:text-primary transition-all uppercase tracking-wider font-semibold">{t('store.footer.privacy')}</Link>
               </li>
               <li>
-                <Link href="/terms" className="text-muted-foreground hover:text-primary transition-all uppercase tracking-wider font-semibold">Terms & Conditions</Link>
+                <Link href="/terms" className="text-muted-foreground hover:text-primary transition-all uppercase tracking-wider font-semibold">{t('store.footer.terms')}</Link>
               </li>
               <li>
-                <Link href="/contact" className="text-muted-foreground hover:text-primary transition-all uppercase tracking-wider font-semibold">Support Center</Link>
+                <Link href="/contact" className="text-muted-foreground hover:text-primary transition-all uppercase tracking-wider font-semibold">{t('store.footer.contact_support')}</Link>
               </li>
             </ul>
 
@@ -227,14 +233,14 @@ export default function FooterAarong() {
 
           {/* Newsletter signup */}
           <div className="space-y-4">
-            <h4 className="text-xs font-black uppercase tracking-[0.2em] text-foreground">Keep in touch</h4>
+            <h4 className="text-xs font-black uppercase tracking-[0.2em] text-foreground">{t('store.footer.keep_in_touch') || 'Keep in touch'}</h4>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Subscribe to stay updated with exclusive collections, seasonal sales, and brand stories.
+              {t('store.footer.newsletter_desc') || 'Subscribe to stay updated with exclusive collections, seasonal sales, and brand stories.'}
             </p>
             <form onSubmit={handleNewsletterSubmit} className="relative flex items-center mt-4">
               <input
                 type="email"
-                placeholder="Your email address"
+                placeholder={t('store.footer.email_placeholder') as string || 'Your email address'}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -284,7 +290,7 @@ export default function FooterAarong() {
       <div className="border-t border-border/50 py-8 bg-muted/10">
         <div className="container mx-auto px-4 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-4 text-xs text-muted-foreground">
           <p className="text-center md:text-left">
-            © {currentYear} {settings?.brandName || 'Trishna Electronics'}. All Rights Reserved.
+            © {currentYear} {settings?.brandName || 'Omor Auto Corner'}. {t('store.footer.all_rights_reserved')}
           </p>
           <div className="flex items-center gap-2">
             <span className="opacity-80">Designed & Developed by</span>

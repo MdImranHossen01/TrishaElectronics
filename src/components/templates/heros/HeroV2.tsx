@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, ChevronDown } from 'lucide-react';
 import useEmblaCarousel from 'embla-carousel-react';
 import Autoplay from 'embla-carousel-autoplay';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface Banner {
   _id?: string;
@@ -28,6 +29,7 @@ interface HeroSliderProps {
 const AUTOPLAY_DELAY = 6000;
 
 export default function HeroV2({ banners }: HeroSliderProps) {
+  const { t } = useLanguage();
   const [activeIndex, setActiveIndex] = useState(0);
   const slides = banners && banners.length > 0 ? banners : [];
 
@@ -134,7 +136,7 @@ export default function HeroV2({ banners }: HeroSliderProps) {
                         href={banner.primaryBtnLink || banner.link || '/shop'}
                         className="group inline-flex items-center gap-1.5 px-3.5 py-1.5 sm:px-12 sm:py-5 bg-primary text-white font-black rounded-full hover:bg-white hover:text-black transition-all text-[8px] sm:text-base uppercase tracking-widest shadow-2xl"
                       >
-                        {banner.primaryBtnText || 'Shop Now'}
+                        {banner.primaryBtnText || (t('store.hero.shop_now') as string) || 'Shop Now'}
                         <ArrowRight className="h-3 w-3 sm:h-5 sm:w-5 transition-transform group-hover:translate-x-2" />
                       </Link>
 

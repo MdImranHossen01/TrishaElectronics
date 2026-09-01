@@ -3,6 +3,7 @@ import CredentialsProvider from 'next-auth/providers/credentials';
 import connectToDatabase from './lib/db';
 import User from './models/User';
 import bcrypt from 'bcryptjs';
+import { normalizePhoneNumber } from './lib/utils';
 
 import authConfig from './auth.config';
 
@@ -17,21 +18,31 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) {
-          throw new Error('Please provide both email and password.');
+        const inputIdentifier = (credentials?.email as string || '').trim();
+        if (!inputIdentifier) {
+          throw new Error('Please provide email or phone number.');
         }
+
+        const isEmail = inputIdentifier.includes('@');
+        const query = isEmail 
+          ? { email: inputIdentifier.toLowerCase() } 
+          : { phone: normalizePhoneNumber(inputIdentifier) };
 
         await connectToDatabase();
-        const user = await User.findOne({ email: credentials.email }).select('+password');
+        const user = await User.findOne(query).select('+password');
 
-        if (!user || !user.password) {
-          throw new Error('No user found with this email on this store.');
+        if (!user) {
+          return null;
         }
 
-        const isPasswordValid = await bcrypt.compare(credentials.password as string, user.password);
-
-        if (!isPasswordValid) {
-          throw new Error('Invalid credentials.');
+        if (user.password) {
+          if (!credentials?.password) {
+            return null;
+          }
+          const isPasswordValid = await bcrypt.compare(credentials.password as string, user.password);
+          if (!isPasswordValid) {
+            return null;
+          }
         }
 
         return {
