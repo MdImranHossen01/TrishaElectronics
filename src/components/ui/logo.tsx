@@ -20,7 +20,7 @@ interface LogoProps {
 export function Logo({ className, imageClassName, textClassName, showText = true, onClick, sizes, src, href = "/" }: LogoProps) {
   const { brandName, logoUrl } = useSettings();
 
-  const finalBrandName = brandName || "Trishna Electronics";
+  const finalBrandName = brandName || process.env.NEXT_PUBLIC_STORE_NAME || "Store";
   const finalLogoUrl = src || logoUrl || "/logo.webp";
 
   return (

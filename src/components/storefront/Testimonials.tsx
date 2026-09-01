@@ -14,29 +14,29 @@ import { useLanguage } from "@/contexts/LanguageContext";
 const fallbackReviews = [
   {
     name: "Ariful Islam",
-    role: "Verified Buyer",
-    content: "এখান থেকে ঘরের জন্য সেগুন কাঠের দরজা নিয়েছিলাম। কাঠের সিজনিং চমৎকার এবং নকশা নিখুঁত হয়েছে। অনলাইন অর্ডারে প্রথমে কিছুটা চিন্তিত ছিলাম, কিন্তু তাদের ডেলিভারি ও কাজের মান আমায় সন্তুষ্ট করেছে।",
+    role: "Professional Photographer",
+    content: "Bought my Sony Alpha mirrorless camera and a 24-70mm GM lens from here. Authentic product, fast delivery, and the after-sales support with official warranty gave me complete peace of mind!",
     image: "https://i.pravatar.cc/80?u=1",
     rating: 5
   },
   {
     name: "Sadia Afrin",
-    role: "Regular Customer",
-    content: "দারুণ কাস্টমার সার্ভিস! সঠিক মাপ ও কাঠের ধরন বেছে নিতে তারা অনেক সাহায্য করেছেন। চেকআউট থেকে শুরু করে সঠিক সময়ে বাড়িতে এসে দরজা পৌঁছে দেওয়া—পুরো প্রক্রিয়াটি খুব সহজ ছিল।",
+    role: "Content Creator & Vlogger",
+    content: "Outstanding customer service! They guided me to choose the perfect vlogging kit and wireless mic setup within my budget. Packaging was ultra-secure and the shipment arrived super fast.",
     image: "https://i.pravatar.cc/80?u=2",
     rating: 5
   },
   {
     name: "Tanvir Ahmed",
-    role: "Verified Buyer",
-    content: "আমি তাদের গামারি কাঠের ল্যামিনেটেড দরজা অর্ডার করেছিলাম। দরজার ফিনিশিং এবং পলিশের কাজ অসাধারণ। ট্রান্সপোর্টে যাতে কোনো ক্ষতি না হয় সেজন্য প্যাকেজিং খুবই মজবুত ছিল।",
+    role: "Cinematographer",
+    content: "Ordered a DJI gimbal stabilizer and studio lighting gear. The build quality is genuine, prices are the best in the market, and their technical recommendations were spot on!",
     image: "https://i.pravatar.cc/80?u=3",
     rating: 5
   },
   {
     name: "Nusrat Jahan",
     role: "Verified Buyer",
-    content: "বাজারে যাচাই করে দেখেছি, অন্যান্য দোকানের তুলনায় এখানে কাঠের মান ও দামের সামঞ্জস্য খুবই ভালো। আমাদের নতুন ফ্লাটের সবকটি দরজা এখান থেকেই বানিয়েছি এবং সবাই ডিজাইনগুলোর প্রশংসা করছে।",
+    content: "I compared prices across multiple gear shops before purchasing my Canon DSLR setup. Their authentic gear assurance, competitive pricing, and friendly team made this my go-to camera store.",
     image: "https://i.pravatar.cc/80?u=4",
     rating: 5
   }

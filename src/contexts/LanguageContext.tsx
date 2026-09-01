@@ -17,9 +17,7 @@ const translations = {
     "store.home.new_arrivals": "New Arrivals",
     "store.home.trending_now": "Trending Now",
     "store.home.featured_collections": "Featured Collections",
-    "store.home.flash_sale": "Flash Sale",
-
-    "store.footer.description": "Your ultimate destination for quality doors and hardware. We provide the best products with top-notch customer service.",
+    "store.footer.description": "Your ultimate destination for genuine cameras, lenses, and photography gear. We provide authentic products with top-notch customer service.",
     "store.footer.shop_all": "Shop All",
     "store.footer.new_arrivals": "New Arrivals",
     "store.footer.order_tracking": "Order Tracking",
@@ -1723,7 +1721,7 @@ const translations = {
     "store.home.featured_collections": "ফিচার্ড কালেকশন",
     "store.home.flash_sale": "ফ্ল্যাশ সেল",
 
-    "store.footer.description": "উন্নত মানের দরজা এবং হার্ডওয়্যারের জন্য আপনার বিশ্বস্ত প্রতিষ্ঠান। আমরা সেরা পণ্যের পাশাপাশি নিশ্চিত করি সর্বোচ্চ কাস্টমার সার্ভিস।",
+    "store.footer.description": "অরিজিনাল ক্যামেরা, লেন্স এবং ফটোগ্রাফি অ্যাকসেসরিজের জন্য আপনার বিশ্বস্ত প্রতিষ্ঠান। আমরা সেরা পণ্যের পাশাপাশি নিশ্চিত করি সর্বোচ্চ কাস্টমার সার্ভিস।",
     "store.footer.shop_all": "সব প্রোডাক্ট",
     "store.footer.new_arrivals": "নতুন কালেকশন",
     "store.footer.order_tracking": "অর্ডার ট্র্যাকিং",

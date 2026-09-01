@@ -48,8 +48,8 @@ export async function GET() {
           tiktok: '',
           whatsapp: ''
         },
-        marqueeText: "চিটাগাং ডোর-এ আপনাকে স্বাগতম!",
-        metaTitle: process.env.NEXT_PUBLIC_STORE_NAME || "চিটাগাং ডোর",
+        marqueeText: `${process.env.NEXT_PUBLIC_STORE_NAME || "আমাদের স্টোর"}-এ আপনাকে স্বাগতম!`,
+        metaTitle: process.env.NEXT_PUBLIC_STORE_NAME || "Store",
         metaDescription: "The most popular online shop in Bangladesh.",
         logoUrl: "/logo.webp",
         freeDeliveryThreshold: 0,

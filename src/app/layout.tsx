@@ -102,21 +102,21 @@ export async function generateMetadata(): Promise<Metadata> {
       appleWebApp: {
         capable: true,
         statusBarStyle: 'default',
-        title: settings.brandName || "চিটাগাং ডোর",
+        title: settings.brandName || process.env.NEXT_PUBLIC_STORE_NAME || "Store",
       },
       formatDetection: {
         telephone: false,
       },
       openGraph: {
-        title: settings.metaTitle || settings.brandName || "চিটাগাং ডোর",
+        title: settings.metaTitle || settings.brandName || process.env.NEXT_PUBLIC_STORE_NAME || "Store",
         description: settings.metaDescription || settings.brandName || "Your ultimate destination for quality products.",
         url: baseUrl,
-        siteName: settings.brandName || "চিটাগাং ডোর",
+        siteName: settings.brandName || process.env.NEXT_PUBLIC_STORE_NAME || "Store",
         type: 'website',
       },
       twitter: {
         card: 'summary_large_image',
-        title: settings.metaTitle || settings.brandName || "চিটাগাং ডোর",
+        title: settings.metaTitle || settings.brandName || process.env.NEXT_PUBLIC_STORE_NAME || "Store",
         description: settings.metaDescription || settings.brandName || "Your ultimate destination for quality products.",
       },
       verification: {
@@ -133,7 +133,7 @@ export async function generateMetadata(): Promise<Metadata> {
     };
   } catch (error) {
     return {
-      title: "চিটাগাং ডোর",
+      title: process.env.NEXT_PUBLIC_STORE_NAME || "Store",
       description: "Your ultimate destination for quality products.",
     };
   }
