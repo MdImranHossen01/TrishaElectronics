@@ -314,10 +314,10 @@ export async function GET(req: NextRequest) {
     ordersData.forEach((item: any) => {
       const dateStr = item._id.date;
       if (!mergedData[dateStr]) return;
-
+      
       const showroomId = item._id.showroom ? item._id.showroom.toString() : null;
       const showroomName = showroomId ? (showroomMap[showroomId] || 'Unknown Showroom') : 'Direct/Online';
-
+      
       const revenue = item.revenue || 0;
       const orders = item.orders || 0;
 
@@ -401,6 +401,10 @@ export async function GET(req: NextRequest) {
     const LedgerAccount = (await import('@/models/LedgerAccount')).default;
     const LedgerTransaction = (await import('@/models/LedgerTransaction')).default;
     const ledgerAccounts = await LedgerAccount.find().lean() as any[];
+    
+    // Fetch Loan Providers
+    const LoanProvider = (await import('@/models/LoanProvider')).default;
+    const loanProviders = await LoanProvider.find({}).sort({ name: 1 }).lean() as any[];
 
     const cashAccount = ledgerAccounts.find((a: any) => a.code === 'CASH');
     const apAccount = ledgerAccounts.find((a: any) => a.code === 'AP');
@@ -409,7 +413,7 @@ export async function GET(req: NextRequest) {
 
     let cashBalance = cashAccount ? cashAccount.currentBalance : 0;
     let supplierPayable = apAccount ? apAccount.currentBalance : 0;
-
+    
     const bankBalancesList = bankAccounts.map(a => ({ id: String(a._id), name: a.name, balance: a.currentBalance }));
     const mfsBalancesList = mfsAccounts.map(a => ({ id: String(a._id), name: a.name, balance: a.currentBalance }));
 
@@ -445,12 +449,12 @@ export async function GET(req: NextRequest) {
         const apRes = txMap.get(String(apAccount._id));
         supplierPayable = apRes ? apRes.creditSum - apRes.debitSum : 0; // AP is a liability
       }
-
+      
       bankBalancesList.forEach(b => {
         const res = txMap.get(b.id);
         b.balance = res ? res.debitSum - res.creditSum : 0;
       });
-
+      
       mfsBalancesList.forEach(m => {
         const res = txMap.get(m.id);
         m.balance = res ? res.debitSum - res.creditSum : 0;
@@ -463,7 +467,7 @@ export async function GET(req: NextRequest) {
     // Calculate account payable correctly from SupplierBill instead of just AP ledger balance, and calculate Matured Supplier Bills
     const accountReceivable = totalWholesalerDue + totalBillDue;
     const maturedReceivable = Math.min(maturedReceivableRaw + maturedBillDueRaw, accountReceivable);
-
+    
     const SupplierBill = (await import('@/models/SupplierBill')).default;
     const dueSupplierBills = await SupplierBill.find({ status: 'Due', ...(isShowroomFiltered ? { showroom: showroomObjId } : {}) }).lean() as any[];
     supplierPayable = dueSupplierBills.reduce((sum: number, b: any) => sum + (b.dueAmount || 0), 0);
@@ -485,9 +489,9 @@ export async function GET(req: NextRequest) {
           const loanStartDate = new Date(l.date);
           const currentYear = todayDate.getFullYear();
           const currentMonth = todayDate.getMonth();
-
+          
           let passedInstallments = 0;
-
+          
           // Count passed installments (months since start date where current date is >= installmentDayOfMonth)
           // A simple approximation: diff in months
           let diffMonths = (currentYear - loanStartDate.getFullYear()) * 12 + (currentMonth - loanStartDate.getMonth());
@@ -624,7 +628,8 @@ export async function GET(req: NextRequest) {
         expiredProductsCount,
         pendingLeavesCount,
         isShowroomFiltered: !!isShowroomFiltered,
-        ledgerAccounts: ledgerAccounts || []
+        ledgerAccounts: ledgerAccounts || [],
+        loanProviders: loanProviders || []
       },
       recentOrders,
       lowStockProducts,

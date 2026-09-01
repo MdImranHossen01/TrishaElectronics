@@ -170,7 +170,7 @@ export function DashboardView({ activeTab }: { activeTab: 'cards' | 'report' | '
   const [showroomsList, setShowroomsList] = useState<{ _id: string; name: string }[]>([]);
 
   // Date filter state
-
+  
   // Add Balance State
   const [isAddBalanceOpen, setIsAddBalanceOpen] = useState(false);
   const [addBalanceTargetType, setAddBalanceTargetType] = useState<'Cash' | 'Bank' | 'MFS'>('Cash');
@@ -178,6 +178,7 @@ export function DashboardView({ activeTab }: { activeTab: 'cards' | 'report' | '
   const [fundSourceType, setFundSourceType] = useState('Income');
   const [sourceAccountId, setSourceAccountId] = useState('');
   // Loan Specific
+  const [lenderId, setLenderId] = useState('');
   const [lenderName, setLenderName] = useState('');
   const [loanAmount, setLoanAmount] = useState<number | ''>('');
   const [repaymentType, setRepaymentType] = useState<'One-time' | 'Installment'>('One-time');
@@ -192,7 +193,7 @@ export function DashboardView({ activeTab }: { activeTab: 'cards' | 'report' | '
     e.preventDefault();
     e.stopPropagation();
     setAddBalanceTargetType(type);
-
+    
     // Auto select target if Cash
     if (type === 'Cash') {
       const cashAcc = stats?.ledgerAccounts?.find((a: any) => a.code === 'CASH');
@@ -201,9 +202,10 @@ export function DashboardView({ activeTab }: { activeTab: 'cards' | 'report' | '
     } else {
       setTargetAccountId('');
     }
-
+    
     setFundSourceType('Income');
     setSourceAccountId('');
+    setLenderId('');
     setLenderName('');
     setLoanAmount('');
     setRepaymentType('One-time');
@@ -221,7 +223,7 @@ export function DashboardView({ activeTab }: { activeTab: 'cards' | 'report' | '
       toast.error('Please select a target account');
       return;
     }
-
+    
     setSubmittingBalance(true);
     try {
       const res = await fetch('/api/admin/dashboard/add-balance', {
@@ -231,6 +233,7 @@ export function DashboardView({ activeTab }: { activeTab: 'cards' | 'report' | '
           targetAccountId,
           sourceType: fundSourceType,
           sourceAccountId,
+          lenderId,
           lenderName,
           amount: loanAmount || 0,
           repaymentType,
@@ -241,7 +244,7 @@ export function DashboardView({ activeTab }: { activeTab: 'cards' | 'report' | '
           installmentDayOfMonth: installmentDayOfMonth || 1
         })
       });
-
+      
       if (res.ok) {
         toast.success('Balance added successfully');
         setIsAddBalanceOpen(false);
@@ -256,7 +259,7 @@ export function DashboardView({ activeTab }: { activeTab: 'cards' | 'report' | '
       setSubmittingBalance(false);
     }
   };
-  const [dateRange, setDateRange] = useState({
+const [dateRange, setDateRange] = useState({
     from: format(subDays(new Date(), 30), 'yyyy-MM-dd'),
     to: format(new Date(), 'yyyy-MM-dd'),
   });
@@ -537,8 +540,8 @@ export function DashboardView({ activeTab }: { activeTab: 'cards' | 'report' | '
 
       {/* Collapsible Mobile Filters Wrapper */}
       <div className={`grid transition-all duration-300 ease-in-out md:hidden w-full ${showMobileFilters
-        ? 'grid-rows-[1fr] opacity-100 !mt-[1px] visible'
-        : 'grid-rows-[0fr] opacity-0 invisible h-0 !mt-0 hidden'
+          ? 'grid-rows-[1fr] opacity-100 !mt-[1px] visible'
+          : 'grid-rows-[0fr] opacity-0 invisible h-0 !mt-0 hidden'
         }`}>
         <div className="overflow-hidden w-full">
           <div className="bg-muted/30 p-3 rounded-lg border flex flex-col gap-3">
@@ -673,7 +676,7 @@ export function DashboardView({ activeTab }: { activeTab: 'cards' | 'report' | '
               <span className="text-sm font-bold text-zinc-800 leading-tight mt-auto">
                 {t("dashboard.cash_balance")}
               </span>
-
+            
               <Button size="sm" variant="outline" className="mt-2 h-7 px-4 text-xs bg-primary text-primary-foreground hover:bg-primary/90 mx-auto flex items-center justify-center" onClick={(e) => openAddBalance(e, 'Cash')}>
                 <Plus className="h-3 w-3 mr-1" /> {t("dashboard.add_balance") || "Add Balance"}
               </Button>
@@ -721,7 +724,7 @@ export function DashboardView({ activeTab }: { activeTab: 'cards' | 'report' | '
               <span className="text-sm font-bold text-zinc-800 leading-tight mt-auto">
                 {t("dashboard.bank_balance")}
               </span>
-
+            
               <Button size="sm" variant="outline" className="mt-2 h-7 px-4 text-xs bg-primary text-primary-foreground hover:bg-primary/90 mx-auto flex items-center justify-center" onClick={(e) => openAddBalance(e, 'Bank')}>
                 <Plus className="h-3 w-3 mr-1" /> {t("dashboard.add_balance") || "Add Balance"}
               </Button>
@@ -779,7 +782,7 @@ export function DashboardView({ activeTab }: { activeTab: 'cards' | 'report' | '
               <span className="text-sm font-bold text-zinc-800 leading-tight mt-auto">
                 {t("dashboard.mfs_balance") || "MFS Balance"}
               </span>
-
+            
               <Button size="sm" variant="outline" className="mt-2 h-7 px-4 text-xs bg-primary text-primary-foreground hover:bg-primary/90 mx-auto flex items-center justify-center" onClick={(e) => openAddBalance(e, 'MFS')}>
                 <Plus className="h-3 w-3 mr-1" /> {t("dashboard.add_balance") || "Add Balance"}
               </Button>
@@ -1088,9 +1091,9 @@ export function DashboardView({ activeTab }: { activeTab: 'cards' | 'report' | '
                   >
                     <span className="text-[9px] sm:text-xs text-muted-foreground group-data-[active=true]:text-white/80 whitespace-nowrap">
                       {key === 'revenue' ? (t("dashboard.revenue") || 'Revenue') :
-                        key === 'orders' ? (t("dashboard.total_sales") || 'Total Sales') :
-                          key === 'expense' ? (t("dashboard.expense") || 'Expense') :
-                            (t("dashboard.net_income") || 'Net Income')}
+                       key === 'orders' ? (t("dashboard.total_sales") || 'Total Sales') :
+                       key === 'expense' ? (t("dashboard.expense") || 'Expense') :
+                       (t("dashboard.net_income") || 'Net Income')}
                     </span>
                     <span className="text-xs sm:text-base md:text-2xl leading-none font-bold">
                       {key === 'orders' ? total[key].toLocaleString() : `৳${total[key].toLocaleString()}`}
@@ -1408,165 +1411,183 @@ export function DashboardView({ activeTab }: { activeTab: 'cards' | 'report' | '
             </CardContent>
           </Card>
         </div>
-
-        {/* Add Balance Modal */}
-        <Dialog open={isAddBalanceOpen} onOpenChange={setIsAddBalanceOpen}>
-          <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Add Balance</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleAddBalanceSubmit} className="space-y-4 pt-2">
-              <div className="space-y-1.5">
-                <Label>Target Account</Label>
-                {addBalanceTargetType === 'Cash' ? (
-                  <div className="p-2 bg-slate-50 border rounded text-sm text-slate-600">Cash Account</div>
-                ) : (
-                  <select
-                    value={targetAccountId}
-                    onChange={e => setTargetAccountId(e.target.value)}
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    required
-                  >
-                    <option value="">-- Select {addBalanceTargetType} Account --</option>
-                    {stats?.ledgerAccounts?.filter((a: any) => a.accountCategory === addBalanceTargetType).map((a: any) => (
-                      <option key={a._id} value={a._id}>{a.name}</option>
-                    ))}
-                  </select>
-                )}
-              </div>
-
-              <div className="space-y-1.5">
-                <Label>Source of Fund</Label>
+  
+      {/* Add Balance Modal */}
+      <Dialog open={isAddBalanceOpen} onOpenChange={setIsAddBalanceOpen}>
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Add Balance</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleAddBalanceSubmit} className="space-y-4 pt-2">
+            <div className="space-y-1.5">
+              <Label>Target Account</Label>
+              {addBalanceTargetType === 'Cash' ? (
+                <div className="p-2 bg-slate-50 border rounded text-sm text-slate-600">Cash Account</div>
+              ) : (
                 <select
-                  value={fundSourceType}
-                  onChange={e => setFundSourceType(e.target.value)}
+                  value={targetAccountId}
+                  onChange={e => setTargetAccountId(e.target.value)}
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                   required
                 >
-                  <option value="Income">Direct Income / Owner Equity</option>
-                  <option value="Bank">Transfer from Bank</option>
-                  <option value="MFS">Transfer from MFS</option>
-                  {addBalanceTargetType !== 'Cash' && <option value="Cash">Transfer from Cash</option>}
-                  <option value="Loan">Business Loan</option>
+                  <option value="">-- Select {addBalanceTargetType} Account --</option>
+                  {stats?.ledgerAccounts?.filter((a: any) => a.accountCategory === addBalanceTargetType).map((a: any) => (
+                    <option key={a._id} value={a._id}>{a.name}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Source of Fund</Label>
+              <select
+                value={fundSourceType}
+                onChange={e => setFundSourceType(e.target.value)}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                required
+              >
+                <option value="Income">Direct Income / Owner Equity</option>
+                <option value="Bank">Transfer from Bank</option>
+                <option value="MFS">Transfer from MFS</option>
+                {addBalanceTargetType !== 'Cash' && <option value="Cash">Transfer from Cash</option>}
+                <option value="Loan">Business Loan</option>
+              </select>
+            </div>
+
+            {(fundSourceType === 'Bank' || fundSourceType === 'MFS' || fundSourceType === 'Cash') && (
+              <div className="space-y-1.5">
+                <Label>Source {fundSourceType} Account</Label>
+                <select
+                  value={sourceAccountId}
+                  onChange={e => setSourceAccountId(e.target.value)}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  required
+                >
+                  <option value="">-- Select Source Account --</option>
+                  {stats?.ledgerAccounts
+                    ?.filter((a: any) => 
+                      String(a._id) !== String(targetAccountId) && 
+                      (a.accountCategory === fundSourceType || (fundSourceType === 'Cash' && a.code === 'CASH'))
+                    )
+                    .map((a: any) => (
+                      <option key={a._id} value={a._id}>{a.name}</option>
+                    ))}
                 </select>
               </div>
+            )}
 
-              {(fundSourceType === 'Bank' || fundSourceType === 'MFS' || fundSourceType === 'Cash') && (
+            {fundSourceType !== 'Loan' && (
+              <div className="space-y-1.5">
+                <Label>Amount (৳)</Label>
+                <Input type="number" required min="1" value={loanAmount || ''} onChange={e => setLoanAmount(Number(e.target.value))} />
+              </div>
+            )}
+
+            {fundSourceType === 'Loan' && (
+              <div className="space-y-4 border-t pt-4">
+                <div className="font-semibold text-primary">Loan Details</div>
+                
                 <div className="space-y-1.5">
-                  <Label>Source {fundSourceType} Account</Label>
+                  <Label>Loan Provider (Lender)</Label>
                   <select
-                    value={sourceAccountId}
-                    onChange={e => setSourceAccountId(e.target.value)}
+                    value={lenderId}
+                    onChange={e => {
+                      const selId = e.target.value;
+                      setLenderId(selId);
+                      const p = stats?.loanProviders?.find((lp: any) => String(lp._id) === String(selId));
+                      if (p) setLenderName(p.name);
+                      else setLenderName('');
+                    }}
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     required
                   >
-                    <option value="">-- Select Source Account --</option>
-                    {stats?.ledgerAccounts
-                      ?.filter((a: any) =>
-                        String(a._id) !== String(targetAccountId) &&
-                        (a.accountCategory === fundSourceType || (fundSourceType === 'Cash' && a.code === 'CASH'))
-                      )
-                      .map((a: any) => (
-                        <option key={a._id} value={a._id}>{a.name}</option>
-                      ))}
+                    <option value="">-- Select Loan Provider --</option>
+                    {stats?.loanProviders?.map((lp: any) => (
+                      <option key={lp._id} value={lp._id}>
+                        {lp.name} {lp.phone ? `(${lp.phone})` : ''}
+                      </option>
+                    ))}
                   </select>
                 </div>
-              )}
-
-              {fundSourceType !== 'Loan' && (
+                
                 <div className="space-y-1.5">
-                  <Label>Amount (৳)</Label>
+                  <Label>Amount Received (৳)</Label>
                   <Input type="number" required min="1" value={loanAmount || ''} onChange={e => setLoanAmount(Number(e.target.value))} />
                 </div>
-              )}
 
-              {fundSourceType === 'Loan' && (
-                <div className="space-y-4 border-t pt-4">
-                  <div className="font-semibold text-primary">Loan Details</div>
+                <div className="space-y-1.5">
+                  <Label>Repayment Type</Label>
+                  <select
+                    value={repaymentType}
+                    onChange={(e: any) => setRepaymentType(e.target.value)}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <option value="One-time">One-time</option>
+                    <option value="Installment">Installment</option>
+                  </select>
+                </div>
 
-                  <div className="space-y-1.5">
-                    <Label>Lender Name</Label>
-                    <Input required value={lenderName} onChange={e => setLenderName(e.target.value)} />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label>Amount Received (৳)</Label>
-                    <Input type="number" required min="1" value={loanAmount || ''} onChange={e => setLoanAmount(Number(e.target.value))} />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label>Repayment Type</Label>
-                    <select
-                      value={repaymentType}
-                      onChange={(e: any) => setRepaymentType(e.target.value)}
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <option value="One-time">One-time</option>
-                      <option value="Installment">Installment</option>
-                    </select>
-                  </div>
-
-                  {repaymentType === 'One-time' && (
-                    <>
-                      <div className="space-y-1.5">
-                        <Label>Expected Repayment Date</Label>
-                        <Input type="date" required value={expectedRepaymentDate} onChange={e => setExpectedRepaymentDate(e.target.value)} />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label>Total Repayment Amount (৳)</Label>
-                        <Input type="number" required min={loanAmount ? Number(loanAmount) : 1} value={totalRepaymentAmount || ''} onChange={e => setTotalRepaymentAmount(Number(e.target.value))} />
-                        {Number(totalRepaymentAmount) > Number(loanAmount) && (
-                          <p className="text-xs text-rose-500 mt-1">Interest: ৳{(Number(totalRepaymentAmount) - Number(loanAmount)).toLocaleString()}</p>
-                        )}
-                      </div>
-                    </>
-                  )}
-
-                  {repaymentType === 'Installment' && (
-                    <div className="space-y-3 bg-slate-50 p-3 rounded-md">
-                      <div className="space-y-1.5">
-                        <Label>Number of Installments</Label>
-                        <Input type="number" required min="1" value={installmentCount || ''} onChange={e => {
-                          setInstallmentCount(Number(e.target.value));
-                          if (e.target.value && installmentAmount) {
-                            setTotalRepaymentAmount(Number(e.target.value) * Number(installmentAmount));
-                          }
-                        }} />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label>Installment Amount (৳)</Label>
-                        <Input type="number" required min="1" value={installmentAmount || ''} onChange={e => {
-                          setInstallmentAmount(Number(e.target.value));
-                          if (e.target.value && installmentCount) {
-                            setTotalRepaymentAmount(Number(e.target.value) * Number(installmentCount));
-                          }
-                        }} />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label>Monthly Installment Date (1-31)</Label>
-                        <Input type="number" required min="1" max="31" value={installmentDayOfMonth || ''} onChange={e => setInstallmentDayOfMonth(Number(e.target.value))} />
-                      </div>
-                      {Number(totalRepaymentAmount) > 0 && (
-                        <div className="pt-2 border-t font-medium">
-                          Total Repayment: ৳{Number(totalRepaymentAmount).toLocaleString()}
-                          {Number(totalRepaymentAmount) > Number(loanAmount) && (
-                            <span className="text-rose-500 ml-2">(Interest: ৳{(Number(totalRepaymentAmount) - Number(loanAmount)).toLocaleString()})</span>
-                          )}
-                        </div>
+                {repaymentType === 'One-time' && (
+                  <>
+                    <div className="space-y-1.5">
+                      <Label>Expected Repayment Date</Label>
+                      <Input type="date" required value={expectedRepaymentDate} onChange={e => setExpectedRepaymentDate(e.target.value)} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Total Repayment Amount (৳)</Label>
+                      <Input type="number" required min={loanAmount ? Number(loanAmount) : 1} value={totalRepaymentAmount || ''} onChange={e => setTotalRepaymentAmount(Number(e.target.value))} />
+                      {Number(totalRepaymentAmount) > Number(loanAmount) && (
+                        <p className="text-xs text-rose-500 mt-1">Interest: ৳{(Number(totalRepaymentAmount) - Number(loanAmount)).toLocaleString()}</p>
                       )}
                     </div>
-                  )}
-                </div>
-              )}
+                  </>
+                )}
 
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setIsAddBalanceOpen(false)}>Cancel</Button>
-                <Button type="submit" disabled={submittingBalance}>{submittingBalance ? 'Processing...' : 'Confirm'}</Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
-      </div>
+                {repaymentType === 'Installment' && (
+                  <div className="space-y-3 bg-slate-50 p-3 rounded-md">
+                    <div className="space-y-1.5">
+                      <Label>Number of Installments</Label>
+                      <Input type="number" required min="1" value={installmentCount || ''} onChange={e => {
+                        setInstallmentCount(Number(e.target.value));
+                        if (e.target.value && installmentAmount) {
+                          setTotalRepaymentAmount(Number(e.target.value) * Number(installmentAmount));
+                        }
+                      }} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Installment Amount (৳)</Label>
+                      <Input type="number" required min="1" value={installmentAmount || ''} onChange={e => {
+                        setInstallmentAmount(Number(e.target.value));
+                        if (e.target.value && installmentCount) {
+                          setTotalRepaymentAmount(Number(e.target.value) * Number(installmentCount));
+                        }
+                      }} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Monthly Installment Date (1-31)</Label>
+                      <Input type="number" required min="1" max="31" value={installmentDayOfMonth || ''} onChange={e => setInstallmentDayOfMonth(Number(e.target.value))} />
+                    </div>
+                    {Number(totalRepaymentAmount) > 0 && (
+                      <div className="pt-2 border-t font-medium">
+                        Total Repayment: ৳{Number(totalRepaymentAmount).toLocaleString()}
+                        {Number(totalRepaymentAmount) > Number(loanAmount) && (
+                          <span className="text-rose-500 ml-2">(Interest: ৳{(Number(totalRepaymentAmount) - Number(loanAmount)).toLocaleString()})</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setIsAddBalanceOpen(false)}>Cancel</Button>
+              <Button type="submit" disabled={submittingBalance}>{submittingBalance ? 'Processing...' : 'Confirm'}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
     </div>
   );
 }
