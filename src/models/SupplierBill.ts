@@ -55,6 +55,9 @@ SupplierBillSchema.pre('save', function (this: any) {
   this.status = this.dueAmount === 0 ? 'Paid' : 'Due';
 });
 
+SupplierBillSchema.index({ status: 1 });
+SupplierBillSchema.index({ date: -1 });
+
 const SupplierBill: Model<ISupplierBill> = mongoose.models.SupplierBill || mongoose.model<ISupplierBill>('SupplierBill', SupplierBillSchema);
 
 export default SupplierBill;

@@ -136,6 +136,12 @@ const OrderSchema: Schema<IOrder> = new Schema(
   { timestamps: true }
 );
 
+// Indexes for fast dashboard and report aggregation
+OrderSchema.index({ status: 1, createdAt: -1, deletedAt: 1, showroom: 1 });
+OrderSchema.index({ paymentMethod: 1, paymentStatus: 1, status: 1, deletedAt: 1 });
+OrderSchema.index({ user: 1, createdAt: -1, deletedAt: 1 });
+OrderSchema.index({ createdAt: -1, deletedAt: 1 });
+
 const Order: Model<IOrder> = mongoose.models.Order || mongoose.model<IOrder>('Order', OrderSchema);
 
 export default Order;

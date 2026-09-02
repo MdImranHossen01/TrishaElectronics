@@ -53,6 +53,10 @@ const ExpenseSchema: Schema<IExpense> = new Schema(
   { timestamps: true }
 );
 
+// Indexes for fast dashboard and report aggregation
+ExpenseSchema.index({ date: -1, status: 1, type: 1, showroom: 1 });
+ExpenseSchema.index({ type: 1, status: 1, date: -1 });
+
 if (mongoose.models.Expense) {
   delete mongoose.models.Expense;
 }
