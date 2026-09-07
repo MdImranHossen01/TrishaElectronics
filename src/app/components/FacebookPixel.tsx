@@ -60,6 +60,7 @@ export default function FacebookPixel({
             s.parentNode.insertBefore(t,s)}(window, document,'script',
             'https://connect.facebook.net/en_US/fbevents.js');
             fbq('dataProcessingOptions', []);
+            fbq('set', 'autoConfig', false, '${sanitizedPixelId}');
             fbq('init', '${sanitizedPixelId}');
           `,
         }}
