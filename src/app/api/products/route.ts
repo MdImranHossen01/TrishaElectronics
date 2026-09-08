@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { revalidateTag, revalidatePath } from 'next/cache';
 import connectToDatabase from '@/lib/db';
 import Product from '@/models/Product';
+import '@/models/Brand'; // Register Brand model for populate
+import '@/models/Category'; // Register Category model for populate
 import { auth } from '@/auth';
 import { slugify } from '@/lib/slugify';
 import { generateUniqueSlug } from '@/lib/slugify-server';

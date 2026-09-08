@@ -1,5 +1,9 @@
 import mongoose from 'mongoose';
 
+// Disable strict populate globally so that populated paths (e.g. categories, brand)
+// work even when the model's schema may be cached differently across hot-reloads.
+mongoose.set('strictPopulate', false);
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let cached = (global as any).mongoose;
 
