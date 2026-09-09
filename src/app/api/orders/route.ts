@@ -313,9 +313,20 @@ export async function POST(req: NextRequest) {
         if (!product) throw new Error('Product not found during price verification');
 
         const hasVariant = !!(item.color || item.size);
-        let itemPrice = isWholesalerUser
-          ? (product.wholesaleSalePrice ?? product.wholesalePrice ?? product.salePrice ?? product.price)
-          : (product.salePrice ?? product.price);
+        let itemPrice = product.price;
+        if (isWholesalerUser) {
+          itemPrice = (product.wholesaleSalePrice && product.wholesaleSalePrice > 0)
+            ? product.wholesaleSalePrice
+            : (product.wholesalePrice && product.wholesalePrice > 0)
+              ? product.wholesalePrice
+              : (product.salePrice && product.salePrice > 0)
+                ? product.salePrice
+                : product.price;
+        } else {
+          itemPrice = (product.salePrice && product.salePrice > 0)
+            ? product.salePrice
+            : product.price;
+        }
         let itemPurchasePrice = product.purchasePrice ?? 0;
 
         if (hasVariant) {
@@ -324,9 +335,23 @@ export async function POST(req: NextRequest) {
             String(v.size || '').trim() === String(item.size || '').trim()
           );
           if (variant) {
-            itemPrice = isWholesalerUser
-              ? ((variant.wholesaleSalePrice ?? variant.wholesalePrice) ?? (variant.salePrice ?? variant.price) ?? (product.wholesaleSalePrice ?? product.wholesalePrice ?? product.salePrice ?? product.price))
-              : ((variant.salePrice ?? variant.price) ?? (product.salePrice ?? product.price));
+            if (isWholesalerUser) {
+              itemPrice = (variant.wholesaleSalePrice && variant.wholesaleSalePrice > 0)
+                ? variant.wholesaleSalePrice
+                : (variant.wholesalePrice && variant.wholesalePrice > 0)
+                  ? variant.wholesalePrice
+                  : (variant.salePrice && variant.salePrice > 0)
+                    ? variant.salePrice
+                    : (variant.price && variant.price > 0)
+                      ? variant.price
+                      : itemPrice;
+            } else {
+              itemPrice = (variant.salePrice && variant.salePrice > 0)
+                ? variant.salePrice
+                : (variant.price && variant.price > 0)
+                  ? variant.price
+                  : itemPrice;
+            }
             itemPurchasePrice = variant.purchasePrice ?? product.purchasePrice ?? 0;
           }
         }
@@ -334,8 +359,8 @@ export async function POST(req: NextRequest) {
         serverComputedTotal += itemPrice * item.quantity;
 
         // Find the matched deduction to get batchesUsed
-        const matchedDeduction = successfulDeductions.find(d => 
-          d.productId === product._id.toString() && 
+        const matchedDeduction = successfulDeductions.find(d =>
+          d.productId === product._id.toString() &&
           (!hasVariant || d.variantId === (product.variants?.find((v: any) =>
             String(v.color || '').trim() === String(item.color || '').trim() &&
             String(v.size || '').trim() === String(item.size || '').trim()
@@ -624,7 +649,7 @@ export async function GET(req: NextRequest) {
             { email: { $regex: search, $options: 'i' } }
           ]
         }).select('_id');
-        
+
         const searchConditions: any[] = [
           { "shippingAddress.fullName": { $regex: search, $options: 'i' } },
           { "shippingAddress.phone": { $regex: search, $options: 'i' } }
@@ -652,7 +677,7 @@ export async function GET(req: NextRequest) {
     }
 
     const totalCount = await Order.countDocuments(query);
-    
+
     // Get counts for each status to display in tabs
     let counts = {
       all: 0,
@@ -721,7 +746,7 @@ export async function GET(req: NextRequest) {
       };
       counts.due = await Order.countDocuments(dueQuery);
     }
-    
+
     let ordersQuery = Order.find(query).sort({ createdAt: -1 });
 
     if (fetchAll && isAdmin) {
@@ -751,9 +776,9 @@ export async function GET(req: NextRequest) {
           return order.items.every((item: any) => {
             return other.items.some((otherItem: any) => {
               return String(otherItem.product) === String(item.product) &&
-                     String(otherItem.color || '') === String(item.color || '') &&
-                     String(otherItem.size || '') === String(item.size || '') &&
-                     otherItem.quantity === item.quantity;
+                String(otherItem.color || '') === String(item.color || '') &&
+                String(otherItem.size || '') === String(item.size || '') &&
+                otherItem.quantity === item.quantity;
             });
           });
         });
