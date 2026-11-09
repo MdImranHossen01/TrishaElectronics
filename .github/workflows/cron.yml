@@ -11,12 +11,12 @@ jobs:
   sync-courier-status:
     runs-on: ubuntu-latest
     steps:
-      - name: Sync Courier Delivery Status from Steadfast
+      - name: Sync Courier Delivery Status (Steadfast, Pathao & RedX)
         run: |
           response=$(curl -s -o /dev/null -w "%{http_code}" \
             -X GET \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "https://cdidoorind.com/api/cron/sync-courier-status")
+            "https://www.trishnaelectronics.com/api/cron/sync-courier-status")
           echo "Response HTTP status: $response"
           if [ "$response" != "200" ]; then
             echo "❌ Courier sync failed with HTTP $response"
@@ -33,7 +33,7 @@ jobs:
           response=$(curl -s -o /dev/null -w "%{http_code}" \
             -X GET \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "https://cdidoorind.com/api/cron/auto-attendance")
+            "https://www.trishnaelectronics.com/api/cron/auto-attendance")
           echo "Response HTTP status: $response"
           if [ "$response" != "200" ]; then
             echo "❌ Auto attendance failed with HTTP $response"
