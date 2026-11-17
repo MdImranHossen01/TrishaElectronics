@@ -1,6 +1,5 @@
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
-import { Marquee } from '@/components/layout/Marquee';
 import { getCachedSettings, getCachedCategories, getCachedBrands } from '@/lib/data-fetching';
 import { headers } from 'next/headers';
 import { ScrollToTop } from '@/components/layout/ScrollToTop';
@@ -27,9 +26,6 @@ export default async function PublicLayout({ children }: { children: React.React
     console.error('Failed to fetch settings/categories/brands:', error);
   }
 
-  const marqueeText = settings?.marqueeText !== undefined
-    ? settings.marqueeText
-    : `Welcome to ${settings?.brandName || process.env.NEXT_PUBLIC_STORE_NAME || 'our store'}! Free shipping available.`;
   const ui = {
     layout: settings?.uiTemplates?.layout || 'v1',
     navbar: settings?.uiTemplates?.navbar || 'v1',
@@ -38,7 +34,6 @@ export default async function PublicLayout({ children }: { children: React.React
 
   return (
     <>
-      <Marquee marqueeText={marqueeText} />
       <Navbar style={ui.navbar} initialCategories={initialCategories} initialBrands={initialBrands} />
       <main className="flex-1">{children}</main>
       <div className="pb-16 md:pb-0">

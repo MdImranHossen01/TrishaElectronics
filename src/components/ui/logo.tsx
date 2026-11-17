@@ -30,7 +30,7 @@ export function formatBrandText(text: string, baseClassName?: string, bazClassNa
       </>
     );
   }
-  return <span className={baseClassName}>{upper}</span>;
+  return <span className={baseClassName}>{text}</span>;
 }
 
 export function Logo({ className, imageClassName, textClassName, showText = true, onClick, sizes, src, href = "/", children }: LogoProps) {

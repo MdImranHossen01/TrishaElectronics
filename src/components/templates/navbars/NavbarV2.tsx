@@ -206,7 +206,7 @@ export default function NavbarV2() {
 
             <Link href="/" className={`text-lg md:text-xl font-black tracking-tight hover:scale-105 transition-all flex items-center gap-2 whitespace-nowrap shrink-0 group ${!isHomePage || isScrolled ? 'text-foreground' : 'text-white'}`}>
               <Image src="/logo.webp" width={34} height={34} alt="Logo" className="object-contain shrink-0" />
-              {formatBrandText(settings?.brandName || process.env.NEXT_PUBLIC_STORE_NAME || 'Store')}
+              <span>{settings?.brandName || process.env.NEXT_PUBLIC_STORE_NAME || 'Trishna Electronics'}</span>
             </Link>
           </div>
 
