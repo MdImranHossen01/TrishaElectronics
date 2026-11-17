@@ -14,9 +14,11 @@ import { auth } from '@/auth';
  * If courier shows "Delivered" or "Partial Delivered":
  *   1. Order status is updated to "Delivered"
  *   2. If unpaid (COD), paymentStatus is updated to "Paid"
+ *   3. ResellerOrder status and commission are automatically synchronized/cleared
+ *   4. Reseller wallet balance is credited with their earned commission
  * 
  * Can be triggered via:
- *   - External Cron with Bearer CRON_SECRET or ?key=CRON_SECRET
+ *   - Vercel Cron or External Cron with Bearer CRON_SECRET or ?key=CRON_SECRET
  *   - Admin Panel with authenticated session
  */
 async function handleSyncCourierStatus(req: NextRequest) {
@@ -57,7 +59,7 @@ async function handleSyncCourierStatus(req: NextRequest) {
       return NextResponse.json({ message: 'Global settings not found' }, { status: 404 });
     }
 
-    // 1. Steadfast credentials
+    // Steadfast credentials
     const steadfastApiKey = settingsDoc.courierConfig?.steadfast?.apiKey;
     const steadfastSecretKey = settingsDoc.courierConfig?.steadfast?.secretKey;
     const isSteadfastConfigured = Boolean(steadfastApiKey && steadfastSecretKey);
@@ -65,8 +67,8 @@ async function handleSyncCourierStatus(req: NextRequest) {
       ? { apiKey: steadfastApiKey!, secretKey: steadfastSecretKey! }
       : null;
 
-    // 2. Pathao credentials
-    const pathaoConfigData = settingsDoc.courierConfig?.pathao as any;
+    // Pathao credentials
+    const pathaoConfigData = settingsDoc.courierConfig?.pathao;
     const isPathaoConfigured = Boolean(pathaoConfigData?.clientId && pathaoConfigData?.clientSecret);
     const pathaoProvider = isPathaoConfigured
       ? new PathaoProvider({
@@ -79,11 +81,11 @@ async function handleSyncCourierStatus(req: NextRequest) {
         })
       : null;
 
-    // 3. RedX credentials
+    // RedX credentials
     const redxApiKey = settingsDoc.courierConfig?.redx?.apiKey;
     const isRedxConfigured = Boolean(redxApiKey);
     const redxConfig = isRedxConfigured
-      ? { apiKey: redxApiKey!, isSandbox: (settingsDoc.courierConfig?.redx as any)?.isSandbox }
+      ? { apiKey: redxApiKey!, isSandbox: settingsDoc.courierConfig?.redx?.isSandbox }
       : null;
 
     if (!isSteadfastConfigured && !isPathaoConfigured && !isRedxConfigured) {
@@ -98,7 +100,7 @@ async function handleSyncCourierStatus(req: NextRequest) {
       'shippingDetails.consignmentId': { $exists: true, $ne: null },
       status: { $nin: ['Delivered', 'Cancelled'] },
       deletedAt: null,
-    }).select('_id shortId status shippingDetails paymentStatus internalNote');
+    }).select('_id shortId status shippingDetails paymentStatus');
 
     if (pendingOrders.length === 0) {
       return NextResponse.json({
@@ -177,6 +179,7 @@ async function handleSyncCourierStatus(req: NextRequest) {
 
           pathaoCount++;
           const statusData = await pathaoProvider.getOrderStatus(consignmentId);
+          // Pathao returns order_status (e.g. 'Delivered', 'Partial Delivered', 'Pickup Cancel', 'Return', 'Cancelled', 'In Transit')
           courierStatus =
             statusData?.order_status ||
             statusData?.order_status_slug ||
@@ -247,6 +250,17 @@ async function handleSyncCourierStatus(req: NextRequest) {
           const courierNameLabel = order.shippingDetails?.courierName || 'Courier';
           const cancelMsg = `[Courier Auto-Cancel] Delivery not completed by ${courierNameLabel}. Courier Status: "${courierStatus}". Auto-marked as Cancelled.`;
           updateFields.internalNote = order.internalNote ? `${order.internalNote} | ${cancelMsg}` : cancelMsg;
+          updateFields.systemNote = cancelMsg;
+
+          // Auto-restore product stock for courier cancelled order
+          try {
+            const { restoreStockForOrder } = await import('@/lib/stockHelper');
+            await restoreStockForOrder({
+              orderId: order._id,
+            });
+          } catch (stockErr) {
+            console.error(`[Courier Sync] Error restoring stock for order ${order._id}:`, stockErr);
+          }
 
           cancelledCount++;
           results.push({
@@ -267,8 +281,34 @@ async function handleSyncCourierStatus(req: NextRequest) {
           });
         }
 
+        // Update Mother Order
         await Order.updateOne({ _id: order._id }, { $set: updateFields });
 
+        // Update Child Reseller Orders
+        const mongoose = await import('mongoose');
+        const ResellerOrder = mongoose.models.ResellerOrder || mongoose.model('ResellerOrder');
+        await ResellerOrder.updateMany(
+          { motherOrderId: order._id },
+          {
+            $set: {
+              'shippingDetails.courierStatus': courierStatus,
+              ...(updateFields.status ? { status: updateFields.status } : {}),
+              ...(updateFields.paymentStatus ? { paymentStatus: updateFields.paymentStatus } : {}),
+              ...(updateFields.internalNote ? { internalNote: updateFields.internalNote } : {}),
+              ...(updateFields.systemNote ? { systemNote: updateFields.systemNote } : {}),
+            },
+          }
+        );
+
+        // Synchronize Reseller Commission and Wallet Balance atomically
+        if (updateFields.status || updateFields.paymentStatus) {
+          const { syncResellerCommissionForMotherOrder } = await import('@/lib/resellerCommissionSync');
+          await syncResellerCommissionForMotherOrder({
+            motherOrderId: order._id,
+            newStatus: updateFields.status,
+            newPaymentStatus: updateFields.paymentStatus,
+          });
+        }
       } catch (err: any) {
         errorCount++;
         results.push({

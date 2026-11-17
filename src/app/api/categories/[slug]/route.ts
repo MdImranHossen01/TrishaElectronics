@@ -1,12 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidateTag, revalidatePath } from 'next/cache';
-import { purgeCloudflareCache } from '@/lib/cloudflareCache';
 import mongoose from 'mongoose';
 import connectToDatabase from '@/lib/db';
 import Category from '@/models/Category';
 import Product from '@/models/Product';
 import { auth } from '@/auth';
+import { purgeCloudflareCache } from '@/lib/cloudflareCache';
 
 // GET a single category
 export async function GET(
@@ -39,7 +39,7 @@ export async function PUT(
     const { slug } = await params;
     const session = await auth();
 
-    if (!session || !session.user || !(['admin', 'super_admin', 'manager'].includes((session.user as any)?.role))) {
+    if (!session || !session.user || !(['admin', 'super_admin', 'manager', 'moderator'].includes((session.user as any)?.role))) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
@@ -92,7 +92,7 @@ export async function DELETE(
     const { slug } = await params;
     const authSession = await auth();
 
-    if (!authSession || !authSession.user || !(['admin', 'super_admin', 'manager'].includes((authSession.user as any)?.role))) {
+    if (!authSession || !authSession.user || !(['admin', 'super_admin', 'manager', 'moderator'].includes((authSession.user as any)?.role))) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
@@ -132,6 +132,15 @@ export async function DELETE(
         purgeCloudflareCache().catch(() => {});
       } catch (e) {
         console.error('Revalidation error:', e);
+      }
+
+      if (category.image) {
+        try {
+          const { deleteFromR2 } = await import('@/lib/r2');
+          await deleteFromR2(category.image);
+        } catch (r2Err) {
+          console.error('Failed to delete category image from Cloudflare R2:', r2Err);
+        }
       }
 
       return NextResponse.json({ message: 'Category deleted successfully' });

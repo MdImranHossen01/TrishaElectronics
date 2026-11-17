@@ -13,14 +13,11 @@ import {
   ChevronRight,
   Eye,
   Globe,
-  CreditCard,
   BarChart3,
-  Truck,
   Settings2,
   Code,
   X,
-  Database,
-  Landmark
+  Database
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -31,12 +28,11 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from"@/components/ui/select";
 import { ImageUpload } from '@/components/ui/image-upload';
-import { AdminSystemDesignSkeleton } from '@/components/admin/AdminSkeletons';
 import { R2MediaCleaner } from '@/components/admin/R2MediaCleaner';
 
-const TEMPLATE_OPTIONS = ['v1', 'v2', 'v3', 'v4', 'v5', 'v6'];
+const TEMPLATE_OPTIONS = ['v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7'];
 const THEME_OPTIONS = ['default', 'emerald', 'black', 'caffeine', 'claude', 'elegant', 'marvel', 'material', 'midnight', 'nature', 'perplexity', 'slack', 'summer', 'sunset', 'valorant', 'supabase', 'amber', 'catppuccin', 'clay', 'cyberpunk', 'darkmatter', 'ocean', 'quantum', 't3', 'tangerine', 'vintage', 'green', 'red', 'rose', 'orange', 'blue', 'yellow', 'violet'];
 
 const TEMPLATE_CONFIG = [
@@ -144,7 +140,11 @@ export default function SuperConfigPage() {
     });
   };
 
-  if (loading) return <AdminSystemDesignSkeleton />;
+  if (loading) return (
+    <div className="flex items-center justify-center min-h-[60vh]">
+      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-primary" />
+    </div>
+  );
 
   const ui = settings?.uiTemplates || {};
 
@@ -172,7 +172,7 @@ export default function SuperConfigPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Brand Identity */}
-        <Card className="lg:col-span-2 border-none shadow-2xl bg-white/80 backdrop-blur-xl overflow-hidden">
+        <Card className="lg:col-span-3 border-none shadow-2xl bg-white/80 backdrop-blur-xl overflow-hidden">
           <CardHeader className="bg-gradient-to-r from-orange-500 to-red-600 text-white p-5 md:p-8">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-white/20 rounded-lg shrink-0">
@@ -231,68 +231,6 @@ export default function SuperConfigPage() {
                 </Select>
               </div>
             </div>
-          </CardContent>
-        </Card>
-
-        {/* SaaS Subscription Control */}
-        <Card className="lg:col-span-1 border-2 border-red-500/20 shadow-none overflow-hidden rounded-3xl bg-white/50 backdrop-blur-sm">
-          <CardHeader className="bg-red-500/5 border-b">
-              <CardTitle className="flex items-center gap-2 text-red-700">
-                <CreditCard className="h-5 w-5" /> Subscription Control
-              </CardTitle>
-          </CardHeader>
-          <CardContent className="p-6 space-y-6">
-              <div className="space-y-2">
-                <Label htmlFor="sub-expiry" className="font-bold text-xs text-gray-600">Expiry Date & Time</Label>
-                <input 
-                  id="sub-expiry" 
-                  type="datetime-local" 
-                  value={(() => {
-                    if (!settings?.saasSubscription?.expiryDate) return '';
-                    const date = new Date(settings.saasSubscription.expiryDate);
-                    const year = date.getFullYear();
-                    const month = String(date.getMonth() + 1).padStart(2, '0');
-                    const day = String(date.getDate()).padStart(2, '0');
-                    const hours = String(date.getHours()).padStart(2, '0');
-                    const minutes = String(date.getMinutes()).padStart(2, '0');
-                    return `${year}-${month}-${day}T${hours}:${minutes}`;
-                  })()}
-                  onChange={(e) => {
-                    const localDate = new Date(e.target.value);
-                    setSettings({
-                      ...(settings ?? {}), 
-                      saasSubscription: {
-                        ...(settings?.saasSubscription || {}),
-                        expiryDate: localDate.toISOString()
-                      }
-                    });
-                  }} 
-                  className="w-full h-12 rounded-xl border-2 bg-white px-4 text-sm focus:border-red-500 outline-none transition-all" 
-                />
-                <p className="text-[10px] text-muted-foreground italic">Set when the tenant's access will automatically expire.</p>
-              </div>
-              <div className="space-y-2">
-                <Label className="font-bold text-xs text-gray-600">Access Status</Label>
-                <Select 
-                  value={settings?.saasSubscription?.status || 'Active'} 
-                  onValueChange={(v) => setSettings({
-                    ...settings, 
-                    saasSubscription: {
-                      ...(settings?.saasSubscription || {}),
-                      status: v
-                    }
-                  })}
-                >
-                  <SelectTrigger className="h-12 rounded-xl border-2 bg-white focus:border-red-500 transition-all">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-xl">
-                    <SelectItem value="Active">Active (Live)</SelectItem>
-                    <SelectItem value="Expired">Expired (Blocked)</SelectItem>
-                    <SelectItem value="Suspended">Suspended (Manual Block)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
           </CardContent>
         </Card>
       </div>
@@ -385,419 +323,25 @@ export default function SuperConfigPage() {
               </CardTitle>
            </CardHeader>
            <CardContent className="p-6 space-y-6">
-               <div className="space-y-2">
-                <Label htmlFor="gemini-api-key" className="font-bold text-xs">Gemini API Key</Label>
-                <input id="gemini-api-key" type="text" value={settings?.aiConfig?.geminiApiKey || ''} onChange={(e) => setSettings({...settings, aiConfig: {...(settings?.aiConfig || {}), geminiApiKey: e.target.value}})} className="w-full h-12 rounded-xl border px-4 text-sm" />
-              </div>
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                 <div className="space-y-2">
+                   <Label htmlFor="gemini-api-key" className="font-bold text-xs">Gemini API Key</Label>
+                   <input id="gemini-api-key" type="text" placeholder="AIzaSy... (কমা দিয়ে একাধিক কি যোগ করতে পারেন)" value={settings?.aiConfig?.geminiApiKey || ''} onChange={(e) => setSettings({...settings, aiConfig: {...(settings?.aiConfig || {}), geminiApiKey: e.target.value}})} className="w-full h-12 rounded-xl border px-4 text-sm" />
+                   <p className="text-[11px] text-muted-foreground">গুগল জেমিনির প্রাইমারি এপিআই কি। একাধিক কি দিলে স্বয়ংক্রিয়ভাবে লোড-ব্যালেন্স হবে।</p>
+                 </div>
+                 <div className="space-y-2">
+                   <Label htmlFor="openrouter-api-key" className="font-bold text-xs">OpenRouter API Key (Fallback)</Label>
+                   <input id="openrouter-api-key" type="text" placeholder="sk-or-v1-..." value={settings?.aiConfig?.openRouterApiKey || ''} onChange={(e) => setSettings({...settings, aiConfig: {...(settings?.aiConfig || {}), openRouterApiKey: e.target.value}})} className="w-full h-12 rounded-xl border px-4 text-sm" />
+                   <p className="text-[11px] text-muted-foreground">জেমিনির কোটা শেষ বা ওভারলোড হলে স্বয়ংক্রিয়ভাবে OpenRouter থেকে রেসপন্স আনবে।</p>
+                 </div>
+               </div>
            </CardContent>
         </Card>
 
-         {/* 4. Courier Logistics */}
-        <Card className="lg:col-span-3 border-2 border-orange-500/20 shadow-none overflow-hidden rounded-3xl">
-           <CardHeader className="bg-orange-500/5 border-b">
-              <CardTitle className="flex items-center gap-2">
-                 <Truck className="h-5 w-5 text-orange-600" /> Courier & Shipping Rules
-              </CardTitle>
-           </CardHeader>
-           <CardContent className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="md:col-span-1 space-y-4">
-                  <div className="space-y-2">
-                    <Label className="font-bold">Active Provider</Label>
-                    <Select value={settings?.courierConfig?.activeProvider || 'none'} onValueChange={(v) => setSettings({...settings, courierConfig: {...(settings?.courierConfig || {}), activeProvider: v}})}>
-                      <SelectTrigger className="h-12 rounded-xl"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">None</SelectItem>
-                        <SelectItem value="steadfast">Steadfast</SelectItem>
-                        <SelectItem value="pathao">Pathao</SelectItem>
-                        <SelectItem value="redx">RedX</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="inside-dhaka" className="font-bold">Inside Dhaka (TK)</Label>
-                    <input id="inside-dhaka" type="number" value={settings?.deliveryChargeInsideDhaka || 0} onChange={(e) => setSettings({...settings, deliveryChargeInsideDhaka: Number(e.target.value)})} className="w-full h-12 rounded-xl border px-4" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="outside-dhaka" className="font-bold">Outside Dhaka (TK)</Label>
-                    <input id="outside-dhaka" type="number" value={settings?.deliveryChargeOutsideDhaka || 0} onChange={(e) => setSettings({...settings, deliveryChargeOutsideDhaka: Number(e.target.value)})} className="w-full h-12 rounded-xl border px-4" />
-                  </div>
-              </div>
 
-              <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 bg-muted/20 p-4 rounded-2xl border">
-                 <div className="md:col-span-2 font-black text-xs uppercase opacity-50 mb-2">Provider Credentials</div>
-                  <div className="space-y-2">
-                    <Label htmlFor="steadfast-api-key" className="font-bold text-xs">Steadfast API Key</Label>
-                    <input id="steadfast-api-key" type="text" value={settings?.courierConfig?.steadfast?.apiKey || ''} onChange={(e) => setSettings({...settings, courierConfig: {...(settings?.courierConfig || {}), steadfast: {...(settings?.courierConfig?.steadfast || {}), apiKey: e.target.value}}})} className="w-full h-10 rounded-lg border px-3 text-xs" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="steadfast-secret-key" className="font-bold text-xs">Steadfast Secret Key</Label>
-                    <input id="steadfast-secret-key" type="text" value={settings?.courierConfig?.steadfast?.secretKey || ''} onChange={(e) => setSettings({...settings, courierConfig: {...(settings?.courierConfig || {}), steadfast: {...(settings?.courierConfig?.steadfast || {}), secretKey: e.target.value}}})} className="w-full h-10 rounded-lg border px-3 text-xs" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="pathao-store-id" className="font-bold text-xs">Pathao Store ID</Label>
-                    <input id="pathao-store-id" value={settings?.courierConfig?.pathao?.storeId || ''} onChange={(e) => setSettings({...settings, courierConfig: {...(settings?.courierConfig || {}), pathao: {...(settings?.courierConfig?.pathao || {}), storeId: e.target.value}}})} className="w-full h-10 rounded-lg border px-3 text-xs" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="redx-api-key" className="font-bold text-xs">RedX API Key</Label>
-                    <input id="redx-api-key" type="text" value={settings?.courierConfig?.redx?.apiKey || ''} onChange={(e) => setSettings({...settings, courierConfig: {...(settings?.courierConfig || {}), redx: {...(settings?.courierConfig?.redx || {}), apiKey: e.target.value}}})} className="w-full h-10 rounded-lg border px-3 text-xs" />
-                  </div>
-              </div>
-           </CardContent>
-        </Card>
 
-        {/* 5. Payment Gateway Configuration */}
-        <Card className="lg:col-span-3 border-2 border-blue-500/20 shadow-none overflow-hidden rounded-3xl">
-           <CardHeader className="bg-blue-500/5 border-b">
-              <CardTitle className="flex items-center gap-2">
-                 <CreditCard className="h-5 w-5 text-blue-600" /> Payment Gateway (SSLCommerz)
-              </CardTitle>
-           </CardHeader>
-           <CardContent className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="md:col-span-1 space-y-4">
-                  <div className="space-y-2">
-                    <Label className="font-bold">Active Payment Method</Label>
-                    <Select 
-                      value={settings?.paymentConfig?.activeMethod || 'none'} 
-                      onValueChange={(v) => setSettings({
-                        ...settings, 
-                        paymentConfig: {
-                          ...(settings?.paymentConfig || {}), 
-                          activeMethod: v
-                        }
-                      })}
-                    >
-                      <SelectTrigger className="h-12 rounded-xl"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">None (Cash on Delivery Only)</SelectItem>
-                        <SelectItem value="sslcommerz">SSLCommerz</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex items-center space-x-2 pt-4">
-                    <input 
-                      type="checkbox" 
-                      id="is-sandbox"
-                      checked={settings?.paymentConfig?.sslcommerz?.isSandbox ?? true}
-                      onChange={(e) => setSettings({
-                        ...settings, 
-                        paymentConfig: {
-                          ...(settings?.paymentConfig || {}),
-                          sslcommerz: {
-                            ...(settings?.paymentConfig?.sslcommerz || {}),
-                            isSandbox: e.target.checked
-                          }
-                        }
-                      })}
-                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <Label htmlFor="is-sandbox" className="font-bold text-sm">Enable Sandbox Mode</Label>
-                  </div>
-              </div>
 
-              <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 bg-muted/20 p-4 rounded-2xl border">
-                 <div className="md:col-span-2 font-black text-xs uppercase opacity-50 mb-2">SSLCommerz Credentials</div>
-                  <div className="space-y-2">
-                    <Label htmlFor="ssl-store-id" className="font-bold text-xs">Store ID</Label>
-                    <input 
-                      id="ssl-store-id" 
-                      value={settings?.paymentConfig?.sslcommerz?.storeId || ''} 
-                      onChange={(e) => setSettings({
-                        ...settings, 
-                        paymentConfig: {
-                          ...(settings?.paymentConfig || {}),
-                          sslcommerz: {
-                            ...(settings?.paymentConfig?.sslcommerz || {}),
-                            storeId: e.target.value
-                          }
-                        }
-                      })} 
-                      className="w-full h-10 rounded-lg border px-3 text-xs" 
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="ssl-store-passwd" className="font-bold text-xs">Store Password</Label>
-                    <input 
-                      id="ssl-store-passwd" type="text"
-                      value={settings?.paymentConfig?.sslcommerz?.storePassword || ''} 
-                      onChange={(e) => setSettings({
-                        ...settings, 
-                        paymentConfig: {
-                          ...(settings?.paymentConfig || {}),
-                          sslcommerz: {
-                            ...(settings?.paymentConfig?.sslcommerz || {}),
-                            storePassword: e.target.value
-                          }
-                        }
-                      })} 
-                      className="w-full h-10 rounded-lg border px-3 text-xs" 
-                      placeholder="Enter Password"
-                    />
-                  </div>
-              </div>
-           </CardContent>
-        </Card>
 
-        {/* 6. Manual Payment Configuration */}
-        <Card className="lg:col-span-3 border-2 border-pink-500/20 shadow-none overflow-hidden rounded-3xl">
-           <CardHeader className="bg-pink-500/5 border-b">
-              <CardTitle className="flex items-center gap-2">
-                 <CreditCard className="h-5 w-5 text-pink-600" /> Manual Payment (Mobile Banking)
-              </CardTitle>
-           </CardHeader>
-           <CardContent className="p-6 space-y-8">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                {['bkash', 'nagad', 'rocket'].map((method) => (
-                  <div key={method} className="space-y-4 p-4 rounded-2xl border bg-muted/10">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Image src={`/assets/${method}logo.webp`} alt={method} width={24} height={24} className="h-6 w-6 object-contain" />
-                        <Label className="font-bold capitalize">{method}</Label>
-                      </div>
-                      <input 
-                        type="checkbox" 
-                        checked={settings?.manualPaymentConfig?.[method]?.active ?? false}
-                        onChange={(e) => setSettings({
-                          ...settings,
-                          manualPaymentConfig: {
-                            ...(settings?.manualPaymentConfig || {}),
-                            [method]: {
-                              ...(settings?.manualPaymentConfig?.[method] || {}),
-                              active: e.target.checked
-                            }
-                          }
-                        })}
-                        className="h-4 w-4"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-[10px] uppercase opacity-60">Number</Label>
-                      <input 
-                        type="text"
-                        value={settings?.manualPaymentConfig?.[method]?.number || ''}
-                        onChange={(e) => setSettings({
-                          ...settings,
-                          manualPaymentConfig: {
-                            ...(settings?.manualPaymentConfig || {}),
-                            [method]: {
-                              ...(settings?.manualPaymentConfig?.[method] || {}),
-                              number: e.target.value
-                            }
-                          }
-                        })}
-                        placeholder="017XXXXXXXX"
-                        className="w-full h-10 rounded-lg border px-3 text-sm"
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Bangla QR Section */}
-              <div className="p-6 rounded-3xl border-2 border-dashed border-primary/20 bg-primary/5 space-y-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-primary/10 rounded-xl">
-                      <Globe className="w-6 h-6 text-primary" />
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-lg">Bangla QR (Universal Pay)</h4>
-                      <p className="text-xs text-muted-foreground">Accept payment from any bank app via Bangla QR</p>
-                    </div>
-                  </div>
-                  <input 
-                    type="checkbox" 
-                    checked={settings?.manualPaymentConfig?.banglaQr?.active ?? false}
-                    onChange={(e) => setSettings({
-                      ...settings,
-                      manualPaymentConfig: {
-                        ...(settings?.manualPaymentConfig || {}),
-                        banglaQr: {
-                          ...(settings?.manualPaymentConfig?.banglaQr || {}),
-                          active: e.target.checked
-                        }
-                      }
-                    })}
-                    className="h-5 w-5 rounded-md border-primary text-primary focus:ring-primary"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-                  <div className="space-y-3">
-                    <Label className="text-sm font-semibold text-gray-700">Upload Bangla QR</Label>
-                    <div className="flex items-center gap-4">
-                      {settings?.manualPaymentConfig?.banglaQr?.qrCode && (
-                        <div className="h-16 w-16 rounded-xl border bg-white p-1 flex items-center justify-center overflow-hidden shrink-0 shadow-sm relative group">
-                          <Image src={settings.manualPaymentConfig.banglaQr.qrCode} alt="QR" width={64} height={64} className="max-h-full max-w-full object-contain" />
-                          <button 
-                            onClick={() => setSettings({
-                              ...settings,
-                              manualPaymentConfig: {
-                                ...(settings?.manualPaymentConfig || {}),
-                                banglaQr: {
-                                  ...(settings?.manualPaymentConfig?.banglaQr || {}),
-                                  qrCode: ''
-                                }
-                              }
-                            })}
-                            className="absolute inset-0 bg-red-500/80 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-lg"
-                          >
-                            <X className="h-4 w-4" />
-                          </button>
-                        </div>
-                      )}
-                      <div className="flex-1">
-                        <ImageUpload 
-                          onUpload={(url) => setSettings({
-                            ...settings,
-                            manualPaymentConfig: {
-                              ...(settings?.manualPaymentConfig || {}),
-                              banglaQr: {
-                                ...(settings?.manualPaymentConfig?.banglaQr || {}),
-                                qrCode: url
-                              }
-                            }
-                          })} 
-                          className="h-16 rounded-xl border-2 border-dashed border-primary/20 hover:border-primary transition-all bg-white"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  <div className="p-4 bg-white/50 rounded-2xl border border-primary/10">
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      <strong>Tip:</strong> You can download your Bangla QR from your bank app and upload it here.
-                    </p>
-                  </div>
-                </div>
-              </div>
-              {/* Bank Transfer Section */}
-              <div className="p-6 rounded-3xl border bg-muted/5 space-y-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-primary/10 rounded-xl">
-                      <Landmark className="w-6 h-6 text-primary" />
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-lg">Bank Transfer Details</h4>
-                      <p className="text-xs text-muted-foreground">Receive payments directly to your business bank account</p>
-                    </div>
-                  </div>
-                  <input 
-                    type="checkbox" 
-                    checked={settings?.manualPaymentConfig?.bank?.active ?? false}
-                    onChange={(e) => setSettings({
-                      ...settings,
-                      manualPaymentConfig: {
-                        ...(settings?.manualPaymentConfig || {}),
-                        bank: {
-                          ...(settings?.manualPaymentConfig?.bank || {}),
-                          active: e.target.checked
-                        }
-                      }
-                    })}
-                    className="h-5 w-5 rounded-md border-primary text-primary focus:ring-primary"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label className="text-xs font-semibold text-gray-700">Bank Name</Label>
-                    <input 
-                      type="text"
-                      value={settings?.manualPaymentConfig?.bank?.bankName || ''}
-                      onChange={(e) => setSettings({
-                        ...settings,
-                        manualPaymentConfig: {
-                          ...(settings?.manualPaymentConfig || {}),
-                          bank: {
-                            ...(settings?.manualPaymentConfig?.bank || {}),
-                            bankName: e.target.value
-                          }
-                        }
-                      })}
-                      placeholder="e.g. Islami Bank Bangladesh PLC"
-                      className="w-full h-10 rounded-lg border px-3 text-sm"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-xs font-semibold text-gray-700">Account Number</Label>
-                    <input 
-                      type="text"
-                      value={settings?.manualPaymentConfig?.bank?.accountNumber || ''}
-                      onChange={(e) => setSettings({
-                        ...settings,
-                        manualPaymentConfig: {
-                          ...(settings?.manualPaymentConfig || {}),
-                          bank: {
-                            ...(settings?.manualPaymentConfig?.bank || {}),
-                            accountNumber: e.target.value
-                          }
-                        }
-                      })}
-                      placeholder="e.g. 20501234567890123"
-                      className="w-full h-10 rounded-lg border px-3 text-sm"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-xs font-semibold text-gray-700">Routing Number (Optional)</Label>
-                    <input 
-                      type="text"
-                      value={settings?.manualPaymentConfig?.bank?.routingNumber || ''}
-                      onChange={(e) => setSettings({
-                        ...settings,
-                        manualPaymentConfig: {
-                          ...(settings?.manualPaymentConfig || {}),
-                          bank: {
-                            ...(settings?.manualPaymentConfig?.bank || {}),
-                            routingNumber: e.target.value
-                          }
-                        }
-                      })}
-                      placeholder="e.g. 125271429"
-                      className="w-full h-10 rounded-lg border px-3 text-sm"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-xs font-semibold text-gray-700">Branch Name (Optional)</Label>
-                    <input 
-                      type="text"
-                      value={settings?.manualPaymentConfig?.bank?.branchName || ''}
-                      onChange={(e) => setSettings({
-                        ...settings,
-                        manualPaymentConfig: {
-                          ...(settings?.manualPaymentConfig || {}),
-                          bank: {
-                            ...(settings?.manualPaymentConfig?.bank || {}),
-                            branchName: e.target.value
-                          }
-                        }
-                      })}
-                      placeholder="e.g. Motijheel Branch"
-                      className="w-full h-10 rounded-lg border px-3 text-sm"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label className="font-bold">Payment Instructions</Label>
-                <textarea 
-                  value={settings?.manualPaymentConfig?.instructions || ''}
-                  onChange={(e) => setSettings({
-                    ...settings,
-                    manualPaymentConfig: {
-                      ...(settings?.manualPaymentConfig || {}),
-                      instructions: e.target.value
-                    }
-                  })}
-                  className="w-full h-24 rounded-xl border p-4 text-sm resize-none"
-                  placeholder="Instructions for the user..."
-                />
-              </div>
-           </CardContent>
-        </Card>
 
         {/* Design Templates */}
         <Card className="lg:col-span-3 border-2 border-primary/10 shadow-none overflow-hidden rounded-3xl">
@@ -812,7 +356,7 @@ export default function SuperConfigPage() {
                  <div key={template.id} className="space-y-2">
                    <Label className="font-bold text-[10px] uppercase tracking-wider opacity-60">{template.label}</Label>
                    <Select 
-                     value={ui[template.id] ?? 'v1'} 
+                     value={ui[template.id] === 'aarong' ? (template.id === 'productCard' ? 'v7' : 'v6') : (ui[template.id] ?? 'v1')} 
                      onValueChange={(v) => updateTemplate(template.id, v)}
                    >
                      <SelectTrigger className="h-12 rounded-xl bg-background border-2 border-muted hover:border-primary/50 transition-colors">
@@ -821,7 +365,7 @@ export default function SuperConfigPage() {
                      <SelectContent className="rounded-xl">
                        {TEMPLATE_OPTIONS.map(o => (
                          <SelectItem key={o} value={o} className="rounded-lg">
-                           Version {o.toUpperCase()}
+                           {`Version ${o.toUpperCase()}`}
                          </SelectItem>
                        ))}
                      </SelectContent>
@@ -850,41 +394,7 @@ export default function SuperConfigPage() {
                 </div>
            </CardContent>
         </Card>
-
-        {/* Super Admin Note Section */}
-        <Card className="lg:col-span-3 w-full border-none shadow-2xl bg-white/80 backdrop-blur-xl overflow-hidden rounded-3xl">
-          <CardHeader className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white p-5 md:p-8">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-white/20 rounded-lg shrink-0">
-                <Database className="w-5 h-5 md:w-6 md:h-6" />
-              </div>
-              <div>
-                <CardTitle className="text-xl md:text-2xl font-bold leading-tight">Super Admin Note</CardTitle>
-                <CardDescription className="text-indigo-100 text-xs md:text-sm mt-1">
-                  Save project credentials, API keys, and system notes securely.
-                </CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="p-5 md:p-8">
-            <div className="space-y-3">
-              <Label className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                Credentials & System Notes
-              </Label>
-              <textarea
-                value={settings?.superAdminNote || ''}
-                onChange={(e) => setSettings({
-                  ...(settings ?? {}),
-                  superAdminNote: e.target.value
-                })}
-                placeholder="Enter database URLs, credentials, courier secrets, or private dev notes..."
-                className="w-full min-h-[200px] p-4 rounded-xl border-2 border-gray-100 bg-gray-50 focus:border-indigo-500 focus:bg-white outline-none transition-all resize-y font-mono text-sm shadow-inner"
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-              {/* Cloudflare R2 Storage & Media Cleaner */}
+        {/* Cloudflare R2 Storage & Media Cleaner */}
         <div className="lg:col-span-3">
           <R2MediaCleaner />
         </div>

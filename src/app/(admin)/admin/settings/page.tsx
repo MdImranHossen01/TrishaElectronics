@@ -5,6 +5,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
 import {
   Form,
   FormControl,
@@ -17,49 +18,10 @@ import {
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Loader2, Truck, CreditCard, Globe, X, BarChart3, MapPin } from 'lucide-react';
-import { AdminSettingsSkeleton } from '@/components/admin/AdminSkeletons';
+import { Loader2, CreditCard, Globe, X, BarChart3, Truck } from 'lucide-react';
 import { toast } from 'sonner';
 import { ImageUpload } from '@/components/ui/image-upload';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { useLanguage } from '@/contexts/LanguageContext';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import Swal from 'sweetalert2';
-
-
-
-const FONT_OPTIONS = [
-  { id: 'inter', label: 'Inter (Modern Sans)' },
-  { id: 'poppins', label: 'Poppins (Round Sans)' },
-  { id: 'roboto', label: 'Roboto (Clean Sans)' },
-  { id: 'montserrat', label: 'Montserrat (Elegant Sans)' },
-  { id: 'playfair', label: 'Playfair Display (Serif)' },
-  { id: 'lora', label: 'Lora (Classic Serif)' },
-  { id: 'outfit', label: 'Outfit (Contemporary Sans)' },
-  { id: 'urbanist', label: 'Urbanist (Geometric Sans)' },
-  { id: 'manrope', label: 'Manrope (Modern Humanist)' },
-  { id: 'open-sans', label: 'Open Sans (Neutral Sans)' },
-  { id: 'lato', label: 'Lato (Friendly Sans)' },
-  { id: 'oswald', label: 'Oswald (Strong/Logo)' },
-  { id: 'raleway', label: 'Raleway (Elegant Sans)' },
-  { id: 'nunito', label: 'Nunito (Soft Round)' },
-  { id: 'ubuntu', label: 'Ubuntu (Technical Sans)' },
-  { id: 'merriweather', label: 'Merriweather (Bold Serif)' },
-  { id: 'kanit', label: 'Kanit (Modern Thai/Bold)' },
-  { id: 'quicksand', label: 'Quicksand (Playful Round)' },
-  { id: 'josefin-sans', label: 'Josefin Sans (Geometric/Logo)' },
-  { id: 'syne', label: 'Syne (Artistic/Trendy)' },
-  { id: 'space-grotesk', label: 'Space Grotesk (Futuristic/Tech)' },
-  { id: 'orbitron', label: 'Orbitron (Futuristic)' },
-  { id: 'jost', label: 'Jost (Sporty/Clean)' },
-  { id: 'geist', label: 'Geist (Next.js Default)' },
-];
+import { PasswordChangeForm } from '@/components/user/PasswordChangeForm';
 
 const settingsSchema = z.object({
   brandName: z.string().min(2, 'Brand Name is required'),
@@ -78,6 +40,7 @@ const settingsSchema = z.object({
     whatsapp: z.string().nullish().transform(v => v ?? ''),
   }),
   marqueeText: z.string().nullish().transform(val => val ?? ''),
+  platformCommissionRate: z.number().min(0, 'Commission cannot be negative').max(100, 'Cannot exceed 100%').optional(),
   metaTitle: z.string().nullish().transform(val => val ?? ''),
   metaDescription: z.string().nullish().transform(val => val ?? ''),
   subscriptionConfig: z.object({
@@ -123,13 +86,6 @@ const settingsSchema = z.object({
       active: z.boolean().default(false),
     }).nullable().optional(),
     instructions: z.string().nullish().transform(val => val ?? ''),
-    bank: z.object({
-      bankName: z.string().default(''),
-      accountNumber: z.string().default(''),
-      routingNumber: z.string().default(''),
-      branchName: z.string().default(''),
-      active: z.boolean().default(false),
-    }).nullable().optional(),
   }).optional(),
   courierConfig: z.object({
     activeProvider: z.string().default('none'),
@@ -150,19 +106,13 @@ const settingsSchema = z.object({
   metaPixelId: z.string().nullish().transform(val => val ?? ''),
   facebookAccessToken: z.string().nullish().transform(val => val ?? ''),
   facebookTestEventCode: z.string().nullish().transform(val => val ?? ''),
-  aiConfig: z.object({
-    geminiApiKey: z.string().nullish().transform(val => val ?? ''),
-  }).optional(),
 });
 
 type SettingsFormValues = z.infer<typeof settingsSchema>;
 
 export default function SettingsPage() {
-  const { t } = useLanguage();
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-
-
 
   const form = useForm<SettingsFormValues>({
     resolver: zodResolver(settingsSchema) as any,
@@ -179,6 +129,7 @@ export default function SettingsPage() {
         whatsapp: ''
       },
       marqueeText: '',
+      platformCommissionRate: 10,
       metaTitle: '',
       metaDescription: '',
       subscriptionConfig: {
@@ -209,7 +160,6 @@ export default function SettingsPage() {
         rocket: { number: '', qrCode: '', active: false },
         banglaQr: { qrCode: '', active: false },
         instructions: '',
-        bank: { bankName: '', accountNumber: '', routingNumber: '', branchName: '', active: false },
       },
       courierConfig: {
         activeProvider: 'none',
@@ -221,9 +171,6 @@ export default function SettingsPage() {
       metaPixelId: '',
       facebookAccessToken: '',
       facebookTestEventCode: '',
-      aiConfig: {
-        geminiApiKey: '',
-      },
     },
   });
 
@@ -247,6 +194,7 @@ export default function SettingsPage() {
                   address: result.data.contact?.address || '',
                 },
                 marqueeText: result.data.marqueeText || '',
+                platformCommissionRate: result.data.platformCommissionRate ?? 10,
                 socialLinks: {
                   facebook: result.data.socialLinks?.facebook || '',
                   twitter: result.data.socialLinks?.twitter || '',
@@ -301,13 +249,6 @@ export default function SettingsPage() {
                     active: result.data.manualPaymentConfig?.banglaQr?.active ?? false,
                   },
                   instructions: result.data.manualPaymentConfig?.instructions || '',
-                  bank: {
-                    bankName: result.data.manualPaymentConfig?.bank?.bankName || '',
-                    accountNumber: result.data.manualPaymentConfig?.bank?.accountNumber || '',
-                    routingNumber: result.data.manualPaymentConfig?.bank?.routingNumber || '',
-                    branchName: result.data.manualPaymentConfig?.bank?.branchName || '',
-                    active: result.data.manualPaymentConfig?.bank?.active ?? false,
-                  },
                 },
                 courierConfig: {
                   activeProvider: result.data.courierConfig?.activeProvider || 'none',
@@ -328,9 +269,6 @@ export default function SettingsPage() {
                 metaPixelId: result.data.metaPixelId || '',
                 facebookAccessToken: result.data.facebookAccessToken || '',
                 facebookTestEventCode: result.data.facebookTestEventCode || '',
-                aiConfig: {
-                  geminiApiKey: result.data.aiConfig?.geminiApiKey || '',
-                },
               };
               form.reset(sanitizedData);
             }
@@ -382,26 +320,29 @@ export default function SettingsPage() {
   };
 
   if (loading) {
-    return <AdminSettingsSkeleton />;
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
   }
 
   return (
-    <div className="flex-1 space-y-4 px-[1px] pt-[1px] pb-4 md:p-8">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 w-full px-[1px] md:px-0 mb-[1px] md:mb-0">
-        <h1 className="hidden md:block text-2xl font-bold tracking-tight">{t("settings.title")}</h1>
-        <Button type="submit" form="settings-form" disabled={submitting} className="w-full md:w-auto">
+    <div className="flex-1 space-y-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold tracking-tight">Global Settings</h1>
+        <Button type="submit" form="settings-form" disabled={submitting}>
           {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          {t("settings.save_changes")}
+          Save Changes
         </Button>
       </div>
 
       <Tabs defaultValue="general" className="w-full">
-        <TabsList className="grid w-full grid-cols-5 lg:w-[600px]">
-          <TabsTrigger value="general">{t("settings.tab_general")}</TabsTrigger>
-          <TabsTrigger value="contact">{t("settings.tab_contact")}</TabsTrigger>
-          <TabsTrigger value="social">{t("settings.tab_social")}</TabsTrigger>
-          <TabsTrigger value="appearance">{t("settings.tab_appearance")}</TabsTrigger>
-          <TabsTrigger value="ai">{t("settings.tab_ai_api")}</TabsTrigger>
+        <TabsList className="grid w-full grid-cols-4 lg:w-[500px]">
+          <TabsTrigger value="general">General</TabsTrigger>
+          <TabsTrigger value="contact">Contact</TabsTrigger>
+          <TabsTrigger value="social">Social</TabsTrigger>
+          <TabsTrigger value="security">Security</TabsTrigger>
         </TabsList>
 
         <Form {...form}>
@@ -409,8 +350,8 @@ export default function SettingsPage() {
             <TabsContent value="general" className="space-y-4">
               <Card>
                 <CardHeader>
-                  <CardTitle>{t("settings.branding")}</CardTitle>
-                  <CardDescription>{t("settings.branding_desc")}</CardDescription>
+                  <CardTitle>Branding</CardTitle>
+                  <CardDescription>Manage your store's identity and visibility.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <FormField
@@ -418,9 +359,9 @@ export default function SettingsPage() {
                     name="brandName"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="text-sm font-semibold text-gray-700">{t("settings.brand_name")}</FormLabel>
+                        <FormLabel className="text-sm font-semibold text-gray-700">Brand Name</FormLabel>
                         <FormControl>
-                          <Input placeholder={process.env.NEXT_PUBLIC_STORE_NAME || "Store"} {...field} className="h-12 rounded-xl bg-gray-50 border-2 border-gray-100 focus:border-primary transition-all" />
+                          <Input placeholder="Store Name" {...field} className="h-12 rounded-xl bg-gray-50 border-2 border-gray-100 focus:border-primary transition-all" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -432,7 +373,7 @@ export default function SettingsPage() {
                     name="logoUrl"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="text-sm font-semibold text-gray-700">{t("settings.store_logo")}</FormLabel>
+                        <FormLabel className="text-sm font-semibold text-gray-700">Store Logo</FormLabel>
                         <FormControl>
                           <ImageUpload
                             value={field.value}
@@ -441,7 +382,7 @@ export default function SettingsPage() {
                             aspect="square"
                           />
                         </FormControl>
-                        <FormDescription>{t("settings.logo_desc")}</FormDescription>
+                        <FormDescription>Professional high-resolution logo (PNG, JPG, or WEBP)</FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -453,16 +394,102 @@ export default function SettingsPage() {
                       name="marqueeText"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>{t("settings.marquee_text")}</FormLabel>
+                          <FormLabel>Marquee/Ticker Text</FormLabel>
                           <FormControl>
-                            <Input placeholder={t("settings.marquee_placeholder") as string} {...field} />
+                            <Input placeholder="Announcements, offers, promotions..." {...field} />
                           </FormControl>
-                          <FormDescription>{t("settings.marquee_desc")}</FormDescription>
+                          <FormDescription>This text will display as a scrolling marquee at the top of the site.</FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
                   )}
+
+
+                  {/* Delivery Charges & Free Delivery Threshold */}
+                  <div className="border-t border-gray-100 pt-5 mt-2 space-y-4">
+                    <div className="space-y-1">
+                      <Label className="text-sm font-bold flex items-center gap-2 text-gray-800">
+                        <Truck className="h-4 w-4 text-primary" /> Delivery Charges & Free Delivery Threshold
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        Configure standard delivery charges and minimum order amount for automatic free delivery across the store. Set 0 to disable free delivery.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <FormField
+                        control={form.control}
+                        name="deliveryChargeInsideDhaka"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs font-semibold text-gray-700">Inside Dhaka Delivery (৳)</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                min={0}
+                                placeholder="60"
+                                {...field}
+                                value={field.value ?? 60}
+                                onChange={e => field.onChange(e.target.value === '' ? '' : Number(e.target.value))}
+                                className="h-11 rounded-xl bg-gray-50 border-2 border-gray-100 focus:border-primary font-semibold"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="deliveryChargeOutsideDhaka"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs font-semibold text-gray-700">Outside Dhaka Delivery (৳)</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                min={0}
+                                placeholder="120"
+                                {...field}
+                                value={field.value ?? 120}
+                                onChange={e => field.onChange(e.target.value === '' ? '' : Number(e.target.value))}
+                                className="h-11 rounded-xl bg-gray-50 border-2 border-gray-100 focus:border-primary font-semibold"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="freeDeliveryThreshold"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+                              Free Delivery Threshold (৳)
+                            </FormLabel>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                min={0}
+                                placeholder="0 (0 = Disabled)"
+                                {...field}
+                                value={field.value ?? 0}
+                                onChange={e => field.onChange(e.target.value === '' ? '' : Number(e.target.value))}
+                                className="h-11 rounded-xl bg-emerald-50/60 border-2 border-emerald-200 focus:border-emerald-500 font-bold text-emerald-800"
+                              />
+                            </FormControl>
+                            <FormDescription className="text-[11px] text-emerald-600/80">
+                              Order value ≥ this amount triggers FREE shipping.
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <FormField
@@ -470,11 +497,11 @@ export default function SettingsPage() {
                       name="metaTitle"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>{t("settings.meta_title")}</FormLabel>
+                          <FormLabel>Global Meta Title</FormLabel>
                           <FormControl>
-                            <Input placeholder={`${process.env.NEXT_PUBLIC_STORE_NAME || "Store"} | Best Ecommerce in BD`} {...field} />
+                            <Input placeholder="Store Name | Online Ecommerce" {...field} />
                           </FormControl>
-                          <FormDescription>{t("settings.meta_title_desc")}</FormDescription>
+                          <FormDescription>Used as the primary browser title for the home page.</FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -484,11 +511,11 @@ export default function SettingsPage() {
                       name="metaDescription"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>{t("settings.meta_desc")}</FormLabel>
+                          <FormLabel>Global Meta Description</FormLabel>
                           <FormControl>
-                            <Input placeholder={`Shop the best products at ${process.env.NEXT_PUBLIC_STORE_NAME || "Store"}...`} {...field} />
+                            <Input placeholder="Shop the best products at our store..." {...field} />
                           </FormControl>
-                          <FormDescription>{t("settings.meta_desc_help")}</FormDescription>
+                          <FormDescription>Used for search engine snippets and social sharing.</FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -501,8 +528,8 @@ export default function SettingsPage() {
             <TabsContent value="contact" className="space-y-4">
               <Card>
                 <CardHeader>
-                  <CardTitle>{t("settings.contact_info")}</CardTitle>
-                  <CardDescription>{t("settings.contact_info_desc")}</CardDescription>
+                  <CardTitle>Contact Information</CardTitle>
+                  <CardDescription>Update how customers can reach you.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <FormField
@@ -510,7 +537,7 @@ export default function SettingsPage() {
                     name="contact.email"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{t("settings.contact_email")}</FormLabel>
+                        <FormLabel>Contact Email</FormLabel>
                         <FormControl>
                           <Input placeholder="support@shop.com" {...field} />
                         </FormControl>
@@ -523,7 +550,7 @@ export default function SettingsPage() {
                     name="contact.phone"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{t("settings.contact_phone")}</FormLabel>
+                        <FormLabel>Contact Phone</FormLabel>
                         <FormControl>
                           <Input placeholder="+880 1234567890" {...field} />
                         </FormControl>
@@ -536,7 +563,7 @@ export default function SettingsPage() {
                     name="contact.address"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{t("settings.store_address")}</FormLabel>
+                        <FormLabel>Store Address</FormLabel>
                         <FormControl>
                           <Input placeholder="Building name, Street, City" {...field} />
                         </FormControl>
@@ -551,8 +578,8 @@ export default function SettingsPage() {
             <TabsContent value="social" className="space-y-4">
               <Card>
                 <CardHeader>
-                  <CardTitle>{t("settings.social_media")}</CardTitle>
-                  <CardDescription>{t("settings.social_media_desc")}</CardDescription>
+                  <CardTitle>Social Media Links</CardTitle>
+                  <CardDescription>Add links to your social media profiles.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -651,183 +678,20 @@ export default function SettingsPage() {
                 </CardContent>
               </Card>
             </TabsContent>
-
-            <TabsContent value="appearance" className="space-y-4">
-              <Card className="border-2 border-primary/10 shadow-none overflow-hidden rounded-3xl">
-                <CardHeader className="bg-primary/5 border-b">
-                  <CardTitle>{t("settings.brand_aesthetics")}</CardTitle>
-                  <CardDescription>{t("settings.brand_aesthetics_desc")}</CardDescription>
-                </CardHeader>
-                <CardContent className="px-0 py-4 md:p-6">
-                  <FormField
-                    control={form.control}
-                    name="uiTemplates.theme"
-                    render={({ field }) => (
-                      <FormItem className="space-y-4">
-                        <FormLabel className="text-base font-bold">{t("settings.theme_preset")}</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger className="h-14 rounded-2xl bg-background border-2 border-muted hover:border-primary/50 transition-all text-lg font-medium">
-                              <SelectValue placeholder={t("settings.select_theme")} />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent className="rounded-2xl p-2 max-h-[400px]">
-                            {[
-                              { id: 'default', label: 'Default (System)', color: 'bg-slate-500' },
-                              { id: 'black', label: 'Black and White Theme', color: 'bg-black' },
-                              { id: 'caffeine', label: 'Caffeine Theme', color: 'bg-[#6F4E37]' },
-                              { id: 'claude', label: 'Claude Theme', color: 'bg-[#D97757]' },
-                              { id: 'elegant', label: 'Elegant Luxury Theme', color: 'bg-[#D4AF37]' },
-                              { id: 'marvel', label: 'Marvel Theme', color: 'bg-[#ED1D24]' },
-                              { id: 'material', label: 'Material Design Theme', color: 'bg-[#6200EE]' },
-                              { id: 'midnight', label: 'Midnight Bloom Theme', color: 'bg-[#2D1B69]' },
-                              { id: 'nature', label: 'Nature Theme', color: 'bg-[#2E7D32]' },
-                              { id: 'perplexity', label: 'Perplexity Theme', color: 'bg-[#202124]' },
-                              { id: 'slack', label: 'Slack Theme', color: 'bg-[#4A154B]' },
-                              { id: 'summer', label: 'Summer Theme', color: 'bg-[#FFD700]' },
-                              { id: 'sunset', label: 'Sunset Theme', color: 'bg-[#FD5E53]' },
-                              { id: 'valorant', label: 'Valorant Theme', color: 'bg-[#FF4655]' },
-                              { id: 'supabase', label: 'Supabase Theme', color: 'bg-[#3ECF8E]' },
-                              { id: 'amber', label: 'Amber Minimal Theme', color: 'bg-[#FFBF00]' },
-                              { id: 'catppuccin', label: 'Catppuccin Theme', color: 'bg-[#CBA6F7]' },
-                              { id: 'clay', label: 'Claymorphism Theme', color: 'bg-[#91A6FF]' },
-                              { id: 'cyberpunk', label: 'Cyberpunk Theme', color: 'bg-[#FF00FF]' },
-                              { id: 'darkmatter', label: 'Dark Matter Theme', color: 'bg-[#000000]' },
-                              { id: 'ocean', label: 'Ocean Breeze Theme', color: 'bg-[#0077BE]' },
-                              { id: 'quantum', label: 'Quantum Rose Theme', color: 'bg-[#FF1493]' },
-                              { id: 't3', label: 'T3 Chat Theme', color: 'bg-[#E02424]' },
-                              { id: 'tangerine', label: 'Tangerine Theme', color: 'bg-[#F28500]' },
-                              { id: 'vintage', label: 'Vintage Paper Theme', color: 'bg-[#F5F5DC]' },
-                              { id: 'green', label: 'Green Theme', color: 'bg-green-500' },
-                              { id: 'red', label: 'Red Theme', color: 'bg-red-500' },
-                              { id: 'rose', label: 'Rose Theme', color: 'bg-rose-500' },
-                              { id: 'orange', label: 'Orange Theme', color: 'bg-orange-500' },
-                              { id: 'blue', label: 'Blue Theme', color: 'bg-blue-500' },
-                              { id: 'yellow', label: 'Yellow Theme', color: 'bg-yellow-500' },
-                              { id: 'violet', label: 'Violet Theme', color: 'bg-violet-500' }
-                            ].map((t) => (
-                              <SelectItem key={t.id} value={t.id} className="rounded-xl h-12">
-                                <div className="flex items-center gap-3">
-                                  <div className={`h-4 w-4 rounded-full ${t.color} border border-black/10`} />
-                                  <span className="font-medium">{t.label}</span>
-                                </div>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormDescription className="text-sm">
-                          {t("settings.theme_desc")}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  {/* Logo Font Selection */}
-                  <FormField
-                    control={form.control}
-                    name="uiTemplates.logoFont"
-                    render={({ field }) => (
-                      <FormItem className="space-y-4 mt-6">
-                        <FormLabel className="text-base font-bold">{t("settings.logo_typography")}</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger className="h-14 rounded-2xl bg-background border-2 border-muted hover:border-primary/50 transition-all text-lg font-medium">
-                              <SelectValue placeholder={t("settings.select_logo_font")} />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent className="rounded-2xl p-2 max-h-[300px]">
-                            {FONT_OPTIONS.map((f) => (
-                              <SelectItem key={f.id} value={f.id} className="rounded-xl h-12">
-                                <span className="font-medium">{f.label}</span>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormDescription className="text-sm">
-                          {t("settings.logo_font_desc")}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  {/* Body Font Selection */}
-                  <FormField
-                    control={form.control}
-                    name="uiTemplates.bodyFont"
-                    render={({ field }) => (
-                      <FormItem className="space-y-4 mt-6">
-                        <FormLabel className="text-base font-bold">{t("settings.body_typography")}</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger className="h-14 rounded-2xl bg-background border-2 border-muted hover:border-primary/50 transition-all text-lg font-medium">
-                              <SelectValue placeholder={t("settings.select_body_font")} />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent className="rounded-2xl p-2 max-h-[300px]">
-                            {FONT_OPTIONS.map((f) => (
-                              <SelectItem key={f.id} value={f.id} className="rounded-xl h-12">
-                                <span className="font-medium">{f.label}</span>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormDescription className="text-sm">
-                          {t("settings.body_font_desc")}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <div className="mt-8 p-6 rounded-3xl bg-muted/30 border-2 border-dashed border-muted flex flex-col items-center justify-center text-center space-y-4">
-                    <div className="h-12 w-12 rounded-full bg-background flex items-center justify-center">
-                      <Truck className="h-6 w-6 text-muted-foreground" />
-                    </div>
-                    <div>
-                      <h4 className="font-bold">{t("settings.live_preview")}</h4>
-                      <p className="text-xs text-muted-foreground max-w-[250px] mx-auto">
-                        {t("settings.live_preview_desc")}
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="ai" className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>{t("settings.ai_api_settings")}</CardTitle>
-                  <CardDescription>{t("settings.ai_api_settings_desc")}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4 max-w-md">
-                  <FormField
-                    control={form.control}
-                    name="aiConfig.geminiApiKey"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-sm font-semibold text-gray-700">Gemini API Key</FormLabel>
-                        <FormControl>
-                          <Input 
-                            placeholder="Enter Gemini API Key..." 
-                            type="text" 
-                            {...field} 
-                            className="h-12 rounded-xl bg-gray-50 border-2 border-gray-100 focus:border-primary transition-all" 
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </CardContent>
-              </Card>
-            </TabsContent>
           </form>
         </Form>
 
-
+        <TabsContent value="security" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Security Settings</CardTitle>
+              <CardDescription>Update your password and manage account security.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 max-w-md">
+              <PasswordChangeForm hideHeader={true} />
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
     </div>
   );

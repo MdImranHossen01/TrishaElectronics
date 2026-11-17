@@ -9,10 +9,11 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { ShoppingCart } from 'lucide-react';
-import { useState, useMemo, useEffect } from 'react';
-import { useAppDispatch } from '@/store/hooks';
+import { useState, useMemo, useEffect, useRef } from 'react';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { addToCart } from '@/store/slices/cartSlice';
 import { toast } from 'sonner';
+import { validateAndAddToCart } from '@/lib/cart-seller';
 import Image from 'next/image';
 
 interface QuickAddModalProps {
@@ -23,6 +24,7 @@ interface QuickAddModalProps {
 
 export function QuickAddModal({ product, isOpen, onClose }: QuickAddModalProps) {
   const dispatch = useAppDispatch();
+  const cartItems = useAppSelector((state) => state.cart.items);
   const [selectedColor, setSelectedColor] = useState<string | null>(null);
   const [selectedSize, setSelectedSize] = useState<string | null>(null);
 
@@ -37,9 +39,11 @@ export function QuickAddModal({ product, isOpen, onClose }: QuickAddModalProps) 
     [product.variants]
   );
 
+  const prevIsOpenRef = useRef(false);
+
   const availableSizes = useMemo(() =>
     (product.variants || [])
-      .filter((v: any) => !selectedColor || v.color === selectedColor)
+      .filter((v: any) => !selectedColor || String(v.color || '').trim().toLowerCase() === String(selectedColor).trim().toLowerCase())
       .map((v: any) => v.size)
       .filter(Boolean) as string[],
     [product.variants, selectedColor]
@@ -48,41 +52,48 @@ export function QuickAddModal({ product, isOpen, onClose }: QuickAddModalProps) 
   const activeVariant = useMemo(() =>
     (product.variants || []).find(
       (v: any) =>
-        (v.color || null) === (selectedColor || null) &&
-        (v.size || null) === (selectedSize || null)
+        String(v.color || '').trim().toLowerCase() === String(selectedColor || '').trim().toLowerCase() &&
+        String(v.size || '').trim().toLowerCase() === String(selectedSize || '').trim().toLowerCase()
     ),
     [product.variants, selectedColor, selectedSize]
   );
 
-  // Reset state when modal opens or product changes — done safely via useEffect
   useEffect(() => {
-    if (isOpen) {
-      const initialColor = uniqueColors[0] || null;
+    if (isOpen && !prevIsOpenRef.current) {
+      const defaultVar = product.variants && product.variants.length > 0 ? product.variants[0] : null;
+      const initialColor = defaultVar?.color || uniqueColors[0] || null;
       setSelectedColor(initialColor);
 
       const initialSizes = (product.variants || [])
-        .filter((v: any) => !initialColor || v.color === initialColor)
+        .filter((v: any) => !initialColor || String(v.color || '').trim().toLowerCase() === String(initialColor).trim().toLowerCase())
         .map((v: any) => v.size)
         .filter(Boolean);
-      const initialSize = initialSizes[0] || null;
+      const initialSize = defaultVar?.size || initialSizes[0] || null;
       setSelectedSize(initialSize);
-    } else {
-      setSelectedColor(null);
-      setSelectedSize(null);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, product?._id]);
+    prevIsOpenRef.current = isOpen;
+  }, [isOpen, product._id]);
 
-  // Fix selectedSize if out of available sizes — done via useEffect
   useEffect(() => {
-    if (!isOpen) return;
-    if (selectedSize == null || !availableSizes.includes(selectedSize)) {
-      setSelectedSize(availableSizes[0] || null);
+    if (selectedSize && availableSizes.length > 0) {
+      const match = availableSizes.some(s => String(s).trim().toLowerCase() === String(selectedSize).trim().toLowerCase());
+      if (!match) {
+        setSelectedSize(availableSizes[0] || null);
+      }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [availableSizes]);
+  }, [selectedColor, availableSizes]);
 
-  const handleAddToCart = (e: React.MouseEvent) => {
+  const hasVariants = Boolean(product.variants && product.variants.length > 0);
+  const displayPrice = Number(activeVariant?.price || product.price || 0);
+  const rawActiveSale = activeVariant?.salePrice !== undefined && activeVariant?.salePrice !== null ? Number(activeVariant.salePrice) : undefined;
+  const rawProdSale = product.salePrice !== undefined && product.salePrice !== null ? Number(product.salePrice) : undefined;
+  const effectiveSale = hasVariants
+    ? (rawActiveSale !== undefined && rawActiveSale > 0 && rawActiveSale < displayPrice ? rawActiveSale : undefined)
+    : (rawProdSale !== undefined && rawProdSale > 0 && rawProdSale < displayPrice ? rawProdSale : undefined);
+  const hasDiscount = effectiveSale !== undefined;
+  const finalPrice = hasDiscount ? effectiveSale! : displayPrice;
+
+  const handleAddToCart = async (e: React.MouseEvent) => {
     e.preventDefault();
     if (uniqueColors.length > 0 && !selectedColor) {
       toast.error('Please select a color');
@@ -93,21 +104,28 @@ export function QuickAddModal({ product, isOpen, onClose }: QuickAddModalProps) 
       return;
     }
 
-    const displayPrice = activeVariant?.price || product.price;
-    const displaySalePrice = activeVariant?.salePrice || product.salePrice;
-
-    dispatch(addToCart({
-      productId: product._id,
+    const itemToAdd = {
+      productId: (product as any).productId || product._id,
+      resellerProductId: (product as any).productId ? product._id : undefined,
       name: product.name,
-      price: (displaySalePrice !== undefined && displaySalePrice !== null) ? displaySalePrice : displayPrice,
+      price: finalPrice,
       basePrice: displayPrice,
       quantity: 1,
       image: activeVariant?.image || product.images?.[0],
       color: selectedColor || undefined,
-      size: selectedSize || undefined
-    }));
-    toast.success(`${product.name} added to cart`);
-    onClose();
+      size: selectedSize || undefined,
+      uploadedBy: product.uploadedBy ? String(product.uploadedBy) : null,
+    };
+
+    await validateAndAddToCart({
+      cartItems,
+      newItem: itemToAdd,
+      dispatch,
+      onSuccess: () => {
+        toast.success(`${product.name} added to cart`);
+        onClose();
+      }
+    });
   };
 
   return (
@@ -134,11 +152,11 @@ export function QuickAddModal({ product, isOpen, onClose }: QuickAddModalProps) 
             <h4 className="font-semibold line-clamp-1">{product.name}</h4>
             <div className="flex items-center gap-2 mt-1">
               <span className="font-bold text-primary">
-                ৳{Math.round(activeVariant?.salePrice ?? activeVariant?.price ?? product.salePrice ?? product.price)}
+                ৳{Math.round(finalPrice)}
               </span>
-              {(activeVariant?.salePrice ?? product.salePrice) != null && (
+              {hasDiscount && (
                 <span className="text-xs line-through text-muted-foreground">
-                  ৳{Math.round(activeVariant?.price ?? product.price)}
+                  ৳{Math.round(displayPrice)}
                 </span>
               )}
             </div>

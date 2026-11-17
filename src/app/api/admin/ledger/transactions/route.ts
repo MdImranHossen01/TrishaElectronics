@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
+import mongoose from 'mongoose';
 import connectToDatabase from '@/lib/db';
 import LedgerTransaction from '@/models/LedgerTransaction';
 import { logLedgerTransaction, seedLedgerAccounts } from '@/lib/ledgerHelper';
@@ -12,11 +13,56 @@ export async function GET(req: NextRequest) {
     }
 
     await connectToDatabase();
-    await seedLedgerAccounts();
 
-    const transactions = await LedgerTransaction.find()
+    const { searchParams } = new URL(req.url);
+    const accountId = searchParams.get('accountId');
+    const shouldSync = searchParams.get('sync') === 'true';
+
+    // Only run heavy full reconciliation when explicitly requested (e.g. sync button)
+    if (shouldSync) {
+      await seedLedgerAccounts();
+      const { backfillPayoutsToLedger, cleanOrphanLedgerTransactions, syncBillsToLedger, syncOrdersToLedger, syncPayablesToLedger } = await import('@/lib/ledgerHelper');
+      await cleanOrphanLedgerTransactions();
+      await backfillPayoutsToLedger();
+      await Promise.all([
+        (async () => {
+          await syncBillsToLedger(true);
+          await syncOrdersToLedger(true);
+        })(),
+        syncPayablesToLedger(true)
+      ]);
+    } else {
+      const { syncOrdersToLedger, syncPayablesToLedger } = await import('@/lib/ledgerHelper');
+      await Promise.all([
+        syncOrdersToLedger(),
+        syncPayablesToLedger()
+      ]);
+    }
+
+    const queryFilter: any = {
+      $or: [{ resellerId: null }, { resellerId: { $exists: false } }]
+    };
+    if (accountId && mongoose.Types.ObjectId.isValid(accountId)) {
+      queryFilter.account = new mongoose.Types.ObjectId(accountId);
+    }
+
+    const transactions = await LedgerTransaction.find(queryFilter)
       .populate('account')
-      .sort({ date: -1, createdAt: -1 });
+      .sort({ date: -1, createdAt: -1 })
+      .limit(accountId ? 200 : 500)
+      .lean();
+
+    // Strict secondary sort: transactions falling on the same calendar day are ordered with the newest createdAt/ID first
+    transactions.sort((a: any, b: any) => {
+      const dateA = a.date ? new Date(a.date).toISOString().slice(0, 10) : '';
+      const dateB = b.date ? new Date(b.date).toISOString().slice(0, 10) : '';
+      if (dateA !== dateB) {
+        return dateB.localeCompare(dateA);
+      }
+      const createdA = a.createdAt ? new Date(a.createdAt).getTime() : (a._id ? parseInt(a._id.toString().substring(0, 8), 16) * 1000 : 0);
+      const createdB = b.createdAt ? new Date(b.createdAt).getTime() : (b._id ? parseInt(b._id.toString().substring(0, 8), 16) * 1000 : 0);
+      return createdB - createdA;
+    });
 
     return NextResponse.json(transactions);
   } catch (error: any) {
@@ -50,14 +96,38 @@ export async function POST(req: NextRequest) {
     await connectToDatabase();
     await seedLedgerAccounts();
 
-    const txDate = date ? new Date(date) : new Date();
+    let txDate = new Date();
+    if (date) {
+      const parsed = new Date(date);
+      const now = new Date();
+      if (parsed.toDateString() === now.toDateString()) {
+        txDate = now;
+      } else {
+        txDate = parsed;
+      }
+    }
 
     if (entryType === 'transfer') {
       if (!fromAccountCode || !toAccountCode) {
         return NextResponse.json({ message: 'From and To accounts are required for transfers' }, { status: 400 });
       }
 
-      const transferId = crypto.randomUUID();
+      if (['AR', 'AP'].includes(fromAccountCode) || ['AR', 'AP'].includes(toAccountCode)) {
+        return NextResponse.json({ message: 'Accounts Payable and Accounts Receivable cannot be used for fund transfers' }, { status: 400 });
+      }
+
+      const LedgerAccount = (await import('@/models/LedgerAccount')).default;
+      const sourceAccount = await LedgerAccount.findOne({ code: fromAccountCode });
+      if (!sourceAccount || (sourceAccount.currentBalance || 0) <= 0) {
+        return NextResponse.json({ 
+          message: `Cannot transfer from ${fromAccountCode} because its balance is zero or negative (৳${Math.round(sourceAccount?.currentBalance || 0).toLocaleString()}).` 
+        }, { status: 400 });
+      }
+      if (amount > (sourceAccount.currentBalance || 0)) {
+        return NextResponse.json({ 
+          message: `Insufficient balance in ${fromAccountCode}. Available: ৳${Math.round(sourceAccount.currentBalance || 0).toLocaleString()}` 
+        }, { status: 400 });
+      }
 
       // Credit the source account
       await logLedgerTransaction(
@@ -66,8 +136,7 @@ export async function POST(req: NextRequest) {
         amount,
         `Transfer to ${toAccountCode}: ${description}`,
         'manual-transfer',
-        txDate,
-        transferId
+        txDate
       );
 
       // Debit the destination account
@@ -77,8 +146,7 @@ export async function POST(req: NextRequest) {
         amount,
         `Transfer from ${fromAccountCode}: ${description}`,
         'manual-transfer',
-        txDate,
-        transferId
+        txDate
       );
     } else if (entryType === 'deposit') {
       if (!accountCode) {
@@ -96,6 +164,20 @@ export async function POST(req: NextRequest) {
       if (!accountCode) {
         return NextResponse.json({ message: 'Account code is required' }, { status: 400 });
       }
+
+      const LedgerAccount = (await import('@/models/LedgerAccount')).default;
+      const targetAccount = await LedgerAccount.findOne({ code: accountCode });
+      if (!targetAccount || (targetAccount.currentBalance || 0) <= 0) {
+        return NextResponse.json({ 
+          message: `Cannot withdraw from ${accountCode} because its balance is zero or negative (৳${Math.round(targetAccount?.currentBalance || 0).toLocaleString()}).` 
+        }, { status: 400 });
+      }
+      if (amount > (targetAccount.currentBalance || 0)) {
+        return NextResponse.json({ 
+          message: `Insufficient balance in ${accountCode}. Available: ৳${Math.round(targetAccount.currentBalance || 0).toLocaleString()}` 
+        }, { status: 400 });
+      }
+
       await logLedgerTransaction(
         accountCode,
         'credit',

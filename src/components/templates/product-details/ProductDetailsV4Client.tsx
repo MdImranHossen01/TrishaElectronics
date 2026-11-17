@@ -1,13 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
-import { useState, useMemo } from 'react';
-import { ShoppingCart, Heart, Minus, Plus, Star, MoreVertical, ShieldCheck, Clock, Share2, Tag, ShoppingBag } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { ShoppingCart, Heart, Minus, Plus, Star, MoreVertical, Edit, Trash2, Settings, ShieldCheck, Clock, Share2, Tag, ShoppingBag } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { addToCart } from '@/store/slices/cartSlice';
+import { useCart } from '@/hooks/use-cart';
 import { toggleWishlist } from '@/store/slices/wishlistSlice';
 import { toast } from 'sonner';
 import { useSession } from 'next-auth/react';
@@ -18,6 +18,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { useRouter } from 'next/navigation';
 import {
@@ -31,7 +32,6 @@ import {
 import { ProductImageGallery } from '@/components/storefront/ProductImageGallery';
 import { generateHtml } from '@/lib/server-html';
 import ShareDialog from '@/components/storefront/ShareDialog';
-import { useLanguage } from '@/contexts/LanguageContext';
 
 const CURRENCY_SYMBOL = '৳';
 
@@ -40,8 +40,8 @@ interface ProductDetailsV4ClientProps {
 }
 
 export default function ProductDetailsV4Client({ product }: ProductDetailsV4ClientProps) {
-  const { t } = useLanguage();
   const dispatch = useAppDispatch();
+  const { addItem, items } = useCart();
   const { data: session } = useSession();
   const wishlist = useAppSelector((state) => state.wishlist.items);
   const isInWishlist = wishlist.includes(product?._id);
@@ -49,18 +49,12 @@ export default function ProductDetailsV4Client({ product }: ProductDetailsV4Clie
   const isAdmin = (session?.user as any)?.role === 'admin';
 
   const [quantity, setQuantity] = useState(1);
-  const [selectedColor, setSelectedColor] = useState<string | null>(null);
-  const [selectedSize, setSelectedSize] = useState<string | null>(null);
+  const defaultVariant = product.variants && product.variants.length > 0 ? product.variants[0] : null;
+  const [selectedColor, setSelectedColor] = useState<string | null>(defaultVariant?.color || null);
+  const [selectedSize, setSelectedSize] = useState<string | null>(defaultVariant?.size || null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
-
-  const [prevProductId, setPrevProductId] = useState<string | null>(null);
-  if (product?._id !== prevProductId) {
-    setPrevProductId(product?._id);
-    setSelectedColor(null);
-    setSelectedSize(null);
-  }
 
   const uniqueColors = useMemo(() =>
     Array.from(new Set((product.variants || []).map((v: any) => v.color))).filter(Boolean) as string[],
@@ -72,27 +66,29 @@ export default function ProductDetailsV4Client({ product }: ProductDetailsV4Clie
     [product.variants]
   );
 
-  const currentColor = selectedColor !== null ? selectedColor : (uniqueColors[0] || null);
+  const effectiveColor = (selectedColor && uniqueColors.includes(selectedColor))
+    ? selectedColor
+    : (uniqueColors[0] || null);
 
   const availableSizes = useMemo(() =>
     (product.variants || [])
-      .filter((v: any) => !currentColor || v.color === currentColor)
+      .filter((v: any) => !effectiveColor || v.color === effectiveColor)
       .map((v: any) => v.size)
       .filter(Boolean) as string[],
-    [product.variants, currentColor]
+    [product.variants, effectiveColor]
   );
 
-  const currentSize = (selectedSize !== null && availableSizes.includes(selectedSize))
+  const effectiveSize = (selectedSize && availableSizes.includes(selectedSize))
     ? selectedSize
     : (availableSizes[0] || null);
 
   const activeVariant = useMemo(() =>
     (product.variants || []).find(
       (v: any) =>
-        (v.color || null) === (currentColor || null) &&
-        (v.size || null) === (currentSize || null)
+        (v.color || null) === (effectiveColor || null) &&
+        (v.size || null) === (effectiveSize || null)
     ),
-    [product.variants, currentColor, currentSize]
+    [product.variants, effectiveColor, effectiveSize]
   );
 
   const allImages = useMemo(() => {
@@ -108,20 +104,19 @@ export default function ProductDetailsV4Client({ product }: ProductDetailsV4Clie
     return product.images || [];
   }, [product.images, activeVariant]);
 
-  const defaultVariant = product.variants && product.variants.length > 0 ? product.variants[0] : null;
-  const hasVariants = (uniqueColors.length > 0 || uniqueSizes.length > 0);
+  const hasVariants = Boolean(product?.variants && product.variants.length > 0);
   const currentVariant = activeVariant || defaultVariant;
 
-  const displayPrice = hasVariants ? (currentVariant?.price ?? 0) : product.price;
-  const displaySalePrice = hasVariants ? currentVariant?.salePrice : product.salePrice;
+  const displayPrice = hasVariants ? (currentVariant?.price ?? 0) : (product.price ?? 0);
+  const rawSale = hasVariants
+    ? (currentVariant?.salePrice !== undefined && currentVariant?.salePrice !== null ? Number(currentVariant.salePrice) : undefined)
+    : (product.salePrice !== undefined && product.salePrice !== null ? Number(product.salePrice) : undefined);
+  const hasDiscount = Boolean(rawSale && displayPrice && Number(rawSale) > 0 && Number(rawSale) < Number(displayPrice));
+  const displaySalePrice = hasDiscount ? Number(rawSale) : undefined;
+  const finalPrice = hasDiscount ? displaySalePrice! : displayPrice;
   const displayStock = hasVariants ? (currentVariant?.stock ?? 0) : (product.stock ?? 0);
 
-  const activeQuantity = Math.max(1, Math.min(quantity, displayStock || 1));
-  if (quantity !== activeQuantity) {
-    setQuantity(activeQuantity);
-  }
-
-  const handleAddToCart = () => {
+  const handleAddToCart = async () => {
     if (displayStock <= 0) {
       toast.error('Item is currently unavailable');
       return false;
@@ -133,18 +128,25 @@ export default function ProductDetailsV4Client({ product }: ProductDetailsV4Clie
       return false;
     }
 
-    dispatch(addToCart({
+    const res = await addItem({
       productId: product._id,
       name: product.name,
-      price: displaySalePrice || displayPrice,
+      price: finalPrice,
       basePrice: displayPrice,
       quantity: quantity,
       image: activeVariant?.image || (product.variants && product.variants.length > 0 ? product.variants[0]?.image : product.images?.[0]),
-      color: currentColor || undefined,
-      size: currentSize || undefined
-    }));
-    toast.success(t('store.product.added_to_cart') as string || `Item added to your collection`);
-    return true;
+      color: effectiveColor || undefined,
+      size: effectiveSize || undefined,
+      uploadedBy: product.uploadedBy || (product.productId?.uploadedBy) || null,
+    });
+
+    if (res.success) {
+      toast.success(`Item added to your collection`);
+      return true;
+    } else {
+      toast.error(res.error);
+      return false;
+    }
   };
 
   const handleFavorite = async () => {
@@ -175,7 +177,21 @@ export default function ProductDetailsV4Client({ product }: ProductDetailsV4Clie
   };
 
   const handleBuyNow = async () => {
-    const success = handleAddToCart();
+    // Check if the item already exists in the cart
+    const existing = items.find(
+      (item: any) =>
+        item.productId === product._id &&
+        (item.color || '') === (effectiveColor || '') &&
+        (item.size || '') === (effectiveSize || '')
+    );
+
+    if (existing) {
+      toast.info('Already added to cart');
+      router.push('/checkout');
+      return;
+    }
+
+    const success = await handleAddToCart();
     if (success) {
       router.push('/checkout');
     }
@@ -210,7 +226,7 @@ export default function ProductDetailsV4Client({ product }: ProductDetailsV4Clie
       {/* Serenity Gallery */}
       <div className="space-y-6">
         <div className="bg-neutral-50 dark:bg-neutral-900 rounded-[3rem] p-6 shadow-sm">
-          <ProductImageGallery images={allImages} />
+          <ProductImageGallery images={allImages} videoUrl={product.videoUrl} title={product.name} />
         </div>
         <div className="flex items-center justify-center gap-12 pt-4">
           <div className="flex flex-col items-center gap-2">
@@ -239,7 +255,7 @@ export default function ProductDetailsV4Client({ product }: ProductDetailsV4Clie
         <div className="space-y-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-primary font-bold text-[10px] uppercase tracking-[0.3em]">
-              <Star className="h-3 w-3 fill-current" /> {t('store.product.boutique_selection') || 'Boutique Selection'}
+              <Star className="h-3 w-3 fill-current" /> Boutique Selection
             </div>
             {isAdmin && (
               <DropdownMenu>
@@ -249,7 +265,7 @@ export default function ProductDetailsV4Client({ product }: ProductDetailsV4Clie
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="rounded-2xl">
-                  <DropdownMenuItem onClick={() => router.push(`/admin/products/${product.slug}`)}>Edit Selection</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => router.push(`/admin/products/${product.slug}/edit`)}>Edit Selection</DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setShowDeleteModal(true)} className="text-destructive">Remove Selection</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -260,8 +276,8 @@ export default function ProductDetailsV4Client({ product }: ProductDetailsV4Clie
 
           <div className="flex items-center gap-6">
             <div className="flex items-baseline gap-3">
-              <span className="text-4xl font-black">{CURRENCY_SYMBOL}{displaySalePrice || displayPrice}</span>
-              {displaySalePrice && <span className="text-xl text-muted-foreground line-through opacity-40 font-medium">{CURRENCY_SYMBOL}{displayPrice}</span>}
+              <span className="text-4xl font-black">{CURRENCY_SYMBOL}{Math.round(finalPrice)}</span>
+              {hasDiscount && <span className="text-xl text-muted-foreground line-through opacity-40 font-medium">{CURRENCY_SYMBOL}{Math.round(displayPrice)}</span>}
             </div>
             {discount > 0 && <Badge variant="outline" className="rounded-full border-primary text-primary px-4 py-1 font-black text-[10px] uppercase tracking-widest">Saving {discount}%</Badge>}
           </div>
@@ -272,13 +288,13 @@ export default function ProductDetailsV4Client({ product }: ProductDetailsV4Clie
         <div className="space-y-8">
           {uniqueColors.length > 0 && (
             <div className="space-y-4">
-              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">{t('store.product.color') || 'Color Palette'}</span>
+              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Color Palette</span>
               <div className="flex flex-wrap gap-3">
                 {uniqueColors.map((color) => (
                   <button
                     key={color}
                     onClick={() => setSelectedColor(color)}
-                    className={`h-12 px-6 rounded-2xl border-2 transition-all font-bold text-xs uppercase tracking-widest ${currentColor === color ? 'border-primary bg-primary text-white shadow-xl shadow-primary/10' : 'border-neutral-100 dark:border-neutral-800 hover:border-primary/50'}`}
+                    className={`h-12 px-6 rounded-2xl border-2 transition-all font-bold text-xs uppercase tracking-widest ${effectiveColor === color ? 'border-primary bg-primary text-white shadow-xl shadow-primary/10' : 'border-neutral-100 dark:border-neutral-800 hover:border-primary/50'}`}
                   >
                     {color}
                   </button>
@@ -288,14 +304,14 @@ export default function ProductDetailsV4Client({ product }: ProductDetailsV4Clie
           )}
           {uniqueSizes.length > 0 && (
             <div className="space-y-4">
-              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">{t('store.product.size') || 'Size Profile'}</span>
+              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Size Profile</span>
               <div className="flex flex-wrap gap-2">
                 {uniqueSizes.map((size) => (
                   <button
                     key={size}
                     disabled={!availableSizes.includes(size)}
                     onClick={() => setSelectedSize(size)}
-                    className={`h-12 w-12 rounded-2xl border-2 flex items-center justify-center font-black text-xs transition-all ${currentSize === size ? 'border-primary bg-primary text-white shadow-lg' : 'border-neutral-100 dark:border-neutral-800 hover:border-primary/50'}`}
+                    className={`h-12 w-12 rounded-2xl border-2 flex items-center justify-center font-black text-xs transition-all ${effectiveSize === size ? 'border-primary bg-primary text-white shadow-lg' : 'border-neutral-100 dark:border-neutral-800 hover:border-primary/50'}`}
                   >
                     {size}
                   </button>
@@ -329,7 +345,7 @@ export default function ProductDetailsV4Client({ product }: ProductDetailsV4Clie
               disabled={displayStock <= 0}
               className="h-16 flex-1 rounded-[1.5rem] bg-primary text-white font-black text-lg uppercase tracking-widest shadow-2xl shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all"
             >
-              <ShoppingCart className="mr-3 h-5 w-5" /> {displayStock > 0 ? t('store.product.add_to_cart') || 'Add to Bag' : t('store.product.sold_out') || 'Sold Out'}
+              <ShoppingCart className="mr-3 h-5 w-5" /> {displayStock > 0 ? 'Add to Bag' : 'Sold Out'}
             </Button>
           </div>
           <Button
@@ -341,13 +357,13 @@ export default function ProductDetailsV4Client({ product }: ProductDetailsV4Clie
           </Button>
           <div className="flex justify-center gap-8 pt-4">
             <button onClick={handleFavorite} className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground hover:text-primary transition-colors">
-              <Heart className={`h-4 w-4 ${isInWishlist ? 'fill-primary text-primary' : ''}`} /> {t('store.product.save_for_later') || 'Save for Later'}
+              <Heart className={`h-4 w-4 ${isInWishlist ? 'fill-primary text-primary' : ''}`} /> Save for Later
             </button>
             <button
               onClick={() => setIsShareOpen(true)}
               className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground hover:text-primary transition-colors"
             >
-              <Share2 className="h-4 w-4" /> {t('store.product.share') || 'Share Collection'}
+              <Share2 className="h-4 w-4" /> Share Collection
             </button>
           </div>
         </div>
@@ -355,8 +371,8 @@ export default function ProductDetailsV4Client({ product }: ProductDetailsV4Clie
         <div className="pt-10">
           <Tabs defaultValue="description" className="w-full">
             <TabsList className="w-full justify-start gap-10 border-b rounded-none h-auto p-0 bg-transparent mb-8">
-              <TabsTrigger value="description" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-0 py-4 font-black uppercase text-[10px] tracking-widest text-muted-foreground data-[state=active]:text-foreground">{t('store.product.description') || 'About Piece'}</TabsTrigger>
-              <TabsTrigger value="reviews" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-0 py-4 font-black uppercase text-[10px] tracking-widest text-muted-foreground data-[state=active]:text-foreground">{t('store.product.reviews') || 'Client Feedback'} ({product.numReviews || 0})</TabsTrigger>
+              <TabsTrigger value="description" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-0 py-4 font-black uppercase text-[10px] tracking-widest text-muted-foreground data-[state=active]:text-foreground">About Piece</TabsTrigger>
+              <TabsTrigger value="reviews" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-0 py-4 font-black uppercase text-[10px] tracking-widest text-muted-foreground data-[state=active]:text-foreground">Client Feedback ({product.numReviews || 0})</TabsTrigger>
             </TabsList>
             <TabsContent value="description" className="animate-in fade-in duration-500">
                <div 

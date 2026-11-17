@@ -1,309 +1,316 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import Link from 'next/link';
+import * as React from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Search, Trash2, Edit, Users, Phone, Mail, MapPin } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Building, Plus, Loader2, RefreshCw, ArrowLeft, Phone, Mail, MapPin, Trash2, MoreHorizontal } from 'lucide-react';
+import Link from 'next/link';
+import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import Swal from 'sweetalert2';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 
 export default function LoanProvidersPage() {
   const [providers, setProviders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
 
-  // Edit Modal State
-  const [isEditOpen, setIsEditOpen] = useState(false);
-  const [editProvider, setEditProvider] = useState<any>(null);
-  const [editName, setEditName] = useState('');
-  const [editPhone, setEditPhone] = useState('');
-  const [editEmail, setEditEmail] = useState('');
-  const [editAddress, setEditAddress] = useState('');
-  const [editDescription, setEditDescription] = useState('');
-  const [formLoading, setFormLoading] = useState(false);
-
-  useEffect(() => {
-    fetchProviders();
-  }, []);
+  // New Provider Modal
+  const [modalOpen, setModalOpen] = useState(false);
+  const [form, setForm] = useState({
+    name: '',
+    phone: '',
+    email: '',
+    address: '',
+    description: ''
+  });
+  const [saving, setSaving] = useState(false);
 
   const fetchProviders = async () => {
+    setLoading(true);
     try {
-      setLoading(true);
       const res = await fetch('/api/admin/loans/providers');
       if (res.ok) {
-        const data = await res.json();
-        setProviders(data);
+        const json = await res.json();
+        setProviders(json.providers || []);
+      } else {
+        toast.error('Failed to load loan providers');
       }
     } catch (error) {
+      console.error('Failed to fetch providers:', error);
       toast.error('Failed to load loan providers');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDelete = async (id: string) => {
+  useEffect(() => {
+    fetchProviders();
+  }, []);
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.name.trim()) return;
+    setSaving(true);
+    try {
+      const res = await fetch('/api/admin/loans/providers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form)
+      });
+      if (res.ok) {
+        toast.success('Loan provider added successfully');
+        setModalOpen(false);
+        setForm({ name: '', phone: '', email: '', address: '', description: '' });
+        fetchProviders();
+      } else {
+        const err = await res.json();
+        toast.error(err.message || 'Failed to add provider');
+      }
+    } catch (error) {
+      toast.error('Error adding loan provider');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteProvider = async (provider: any) => {
+    const loansCount = provider.totalLoansCount || 0;
     const result = await Swal.fire({
-      title: 'Are you sure?',
-      text: "This will delete the loan provider. You can't delete providers with active loans.",
+      title: `Delete "${provider.name}"?`,
+      html: `<div class="text-xs text-left space-y-2">
+        <p class="font-bold text-rose-600">⚠️ Warning: Complete Provider & Loans Deletion!</p>
+        <p>Deleting this loan provider will permanently delete:</p>
+        <ul class="list-disc pl-4 space-y-1 text-muted-foreground">
+          <li>The loan provider profile.</li>
+          <li><b>All ${loansCount} associated loan(s)</b> and their payment history.</li>
+          <li>All linked <b>Ledger Transactions & Repayment entries</b>.</li>
+          <li>All affected accounts' balances (Cash, Bank, MFS) will be automatically recalculated and synced!</li>
+          <li>All reports, dashboards, and upcoming payables will be updated immediately.</li>
+        </ul>
+        <p class="font-semibold text-rose-500 pt-1">This action cannot be undone!</p>
+      </div>`,
       icon: 'warning',
       showCancelButton: true,
       confirmButtonColor: '#ef4444',
-      confirmButtonText: 'Yes, delete it!'
+      cancelButtonColor: '#6b7280',
+      confirmButtonText: 'Yes, Delete & Sync Everything!',
+      cancelButtonText: 'Cancel'
     });
 
     if (!result.isConfirmed) return;
 
     try {
-      const res = await fetch(`/api/admin/loans/providers/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/admin/loans/providers/${provider._id}`, { method: 'DELETE' });
+      const data = await res.json();
       if (res.ok) {
-        toast.success('Provider deleted successfully');
+        toast.success(data.message || 'Loan provider and all associated records deleted successfully');
         fetchProviders();
       } else {
-        const err = await res.json().catch(() => ({}));
-        toast.error(err.message || 'Failed to delete provider');
+        toast.error(data.message || 'Failed to delete loan provider');
       }
-    } catch (error) {
-      toast.error('Error deleting provider');
+    } catch (err) {
+      console.error('Delete provider error:', err);
+      toast.error('Failed to delete loan provider');
     }
   };
-
-  const handleEditClick = (provider: any) => {
-    setEditProvider(provider);
-    setEditName(provider.name);
-    setEditPhone(provider.phone || '');
-    setEditEmail(provider.email || '');
-    setEditAddress(provider.address || '');
-    setEditDescription(provider.description || '');
-    setIsEditOpen(true);
-  };
-
-  const handleEditSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editName) {
-      toast.error('Name is required');
-      return;
-    }
-
-    try {
-      setFormLoading(true);
-      const res = await fetch(`/api/admin/loans/providers/${editProvider._id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: editName,
-          phone: editPhone,
-          email: editEmail,
-          address: editAddress,
-          description: editDescription
-        })
-      });
-
-      if (res.ok) {
-        toast.success('Provider updated successfully');
-        setIsEditOpen(false);
-        fetchProviders();
-      } else {
-        const err = await res.json().catch(() => ({}));
-        toast.error(err.message || 'Failed to update provider');
-      }
-    } catch (error) {
-      toast.error('Error updating provider');
-    } finally {
-      setFormLoading(false);
-    }
-  };
-
-  const filteredProviders = providers.filter(p => 
-    p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (p.phone && p.phone.includes(searchTerm)) ||
-    (p.email && p.email.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
 
   return (
-    <div className="space-y-0 md:space-y-6 px-[1px] pt-[1px] pb-4 md:p-8 max-w-7xl mx-auto w-full max-w-full overflow-x-hidden">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-0 px-0 md:px-0">
-        <div className="hidden md:block">
-          <h1 className="text-3xl font-bold text-primary tracking-tight">Loan Providers</h1>
-          <p className="text-muted-foreground mt-1">Manage individuals and banks who provide business loans</p>
+    <div className="flex-1 space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b pb-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <Link href="/admin/loans" className="text-muted-foreground hover:text-foreground">
+              <ArrowLeft className="h-5 w-5" />
+            </Link>
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Loan Providers & Lenders</h1>
+          </div>
+          <p className="text-muted-foreground text-xs md:text-sm mt-1">
+            Directory of banks, financial institutions, and partners providing capital loans.
+          </p>
         </div>
-        <Link href="/admin/loans/providers/new" className="w-full sm:w-auto">
-          <Button className="w-full sm:w-auto rounded-none h-10 bg-primary hover:bg-primary/90 text-primary-foreground font-bold">
-            <Plus className="h-4 w-4 mr-2" /> Add New Provider
+
+        <div className="flex items-center gap-2">
+          <Button size="sm" onClick={() => setModalOpen(true)} className="gap-1.5 font-bold">
+            <Plus className="h-4 w-4" />
+            <span>Add Provider</span>
           </Button>
-        </Link>
+
+          <Button variant="outline" size="icon" onClick={fetchProviders} disabled={loading} className="h-9 w-9">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          </Button>
+        </div>
       </div>
 
-      <div className="px-0 md:px-0 !mt-[1px] md:!mt-6">
-        <Card className="border-t-4 border-t-primary shadow-md">
-          <CardHeader className="bg-slate-50/50 border-b pb-4">
-            <div className="flex flex-col sm:flex-row gap-4 justify-between items-center">
-              <CardTitle className="hidden md:flex text-lg font-semibold text-primary items-center gap-2">
-                <Users className="h-5 w-5" />
-                Providers List
-              </CardTitle>
-            <div className="relative w-full sm:w-72">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search provider..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9 bg-white"
-              />
-            </div>
-          </div>
+      {/* Providers Grid / Table */}
+      <Card className="shadow-xs overflow-hidden">
+        <CardHeader className="bg-muted/30 py-3 px-4 border-b flex flex-row items-center justify-between">
+          <CardTitle className="text-sm md:text-base font-bold flex items-center gap-2">
+            <Building className="h-4 w-4 text-primary" /> Registered Loan Providers
+          </CardTitle>
+          <Badge variant="outline" className="text-xs font-mono">{providers.length} Providers</Badge>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="hidden md:block">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Phone</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Address</TableHead>
-                  <TableHead>Notes</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs md:text-sm text-center border-collapse">
+              <thead>
+                <tr className="bg-muted/20 border-b text-muted-foreground font-semibold">
+                  <th className="p-3 text-left font-bold text-foreground">Provider Name</th>
+                  <th className="p-3 text-left font-bold text-foreground">Contact</th>
+                  <th className="p-3 text-left font-bold text-muted-foreground">Address</th>
+                  <th className="p-3 font-bold text-foreground">Total Loans</th>
+                  <th className="p-3 font-bold text-foreground">Total Borrowed</th>
+                  <th className="p-3 font-bold text-rose-600 text-right">Outstanding Balance</th>
+                  <th className="p-3 font-bold text-foreground text-center w-14">Action</th>
+                </tr>
+              </thead>
+              <tbody>
                 {loading ? (
-                  <TableRow><TableCell colSpan={6} className="text-center py-6">Loading...</TableCell></TableRow>
-                ) : filteredProviders.length === 0 ? (
-                  <TableRow><TableCell colSpan={6} className="text-center py-6 text-muted-foreground">No providers found</TableCell></TableRow>
-                ) : (
-                  filteredProviders.map((provider) => (
-                    <TableRow key={provider._id}>
-                      <TableCell className="font-semibold">{provider.name}</TableCell>
-                      <TableCell>
-                        {provider.phone ? (
-                          <span className="flex items-center gap-1"><Phone className="h-3 w-3 text-muted-foreground" /> {provider.phone}</span>
-                        ) : '-'}
-                      </TableCell>
-                      <TableCell>
-                        {provider.email ? (
-                          <span className="flex items-center gap-1"><Mail className="h-3 w-3 text-muted-foreground" /> {provider.email}</span>
-                        ) : '-'}
-                      </TableCell>
-                      <TableCell>
-                        {provider.address ? (
-                          <span className="flex items-center gap-1"><MapPin className="h-3 w-3 text-muted-foreground" /> {provider.address}</span>
-                        ) : '-'}
-                      </TableCell>
-                      <TableCell className="max-w-[200px] truncate">{provider.description || '-'}</TableCell>
-                      <TableCell className="text-right">
-                        <Button variant="ghost" size="icon" onClick={() => handleEditClick(provider)} className="text-primary hover:text-primary/80 mr-1">
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => handleDelete(provider._id)} className="text-rose-500 hover:text-rose-700">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
+                  <tr>
+                    <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                      <div className="flex items-center justify-center gap-2">
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                        <span>Loading providers...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : providers.length > 0 ? (
+                  providers.map((p: any) => (
+                    <tr key={p._id} className="border-b border-muted/30 hover:bg-muted/30 transition-colors">
+                      <td className="p-3 text-left">
+                        <div className="font-bold text-foreground flex items-center gap-1.5">
+                          <Building className="h-3.5 w-3.5 text-primary" />
+                          {p.name}
+                        </div>
+                        {p.description && <div className="text-[11px] text-muted-foreground">{p.description}</div>}
+                      </td>
+                      <td className="p-3 text-left">
+                        {p.phone && <div className="text-xs font-medium text-foreground">{p.phone}</div>}
+                        {p.email && <div className="text-[11px] text-muted-foreground">{p.email}</div>}
+                      </td>
+                      <td className="p-3 text-left text-muted-foreground text-xs">{p.address || '-'}</td>
+                      <td className="p-3 font-bold text-foreground">{p.totalLoansCount || 0}</td>
+                      <td className="p-3 font-medium text-foreground">৳{Math.round(p.totalLoanAmount || 0).toLocaleString()}</td>
+                      <td className="p-3 font-bold text-right text-rose-600">
+                        ৳{Math.round(p.totalDueAmount || 0).toLocaleString()}
+                      </td>
+                      <td className="p-3 text-center">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 p-0 hover:bg-muted/80 rounded-md">
+                              <MoreHorizontal className="h-4 w-4" />
+                              <span className="sr-only">Actions</span>
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-44 text-xs font-medium">
+                            <DropdownMenuItem
+                              onClick={() => handleDeleteProvider(p)}
+                              className="text-rose-600 focus:text-rose-700 font-semibold cursor-pointer gap-2"
+                            >
+                              <Trash2 className="h-3.5 w-3.5 text-rose-600" />
+                              <span>Delete Provider</span>
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </td>
+                    </tr>
                   ))
+                ) : (
+                  <tr>
+                    <td colSpan={7} className="p-6 text-center text-muted-foreground">No loan providers registered yet.</td>
+                  </tr>
                 )}
-              </TableBody>
-            </Table>
-          </div>
-
-          {/* Mobile View */}
-          <div className="block md:hidden space-y-3 p-4 bg-muted/10">
-            {loading ? (
-              <div className="text-center py-8 text-sm text-muted-foreground">Loading...</div>
-            ) : filteredProviders.length === 0 ? (
-              <div className="text-center py-8 text-sm text-muted-foreground">No providers found</div>
-            ) : (
-              filteredProviders.map((provider) => (
-                <div key={provider._id} className="p-4 mb-3 border border-border/50 rounded-xl bg-card shadow-sm flex flex-col gap-2.5 relative">
-                  {/* Top Row: Provider Name & Actions */}
-                  <div className="flex items-start justify-between gap-3">
-                    <p className="font-bold text-base text-foreground leading-snug">{provider.name}</p>
-                    <div className="flex items-center gap-1 shrink-0 -mr-1 -mt-1">
-                      <Button variant="ghost" size="icon" onClick={() => handleEditClick(provider)} className="text-primary hover:text-primary/80 h-9 w-9">
-                        <Edit className="h-4.5 w-4.5" />
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleDelete(provider._id)} className="text-rose-500 hover:text-rose-700 h-9 w-9">
-                        <Trash2 className="h-4.5 w-4.5" />
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* Contact Details */}
-                  <div className="space-y-2 text-sm md:text-xs border-t pt-2">
-                    {provider.phone && (
-                      <div className="flex justify-between items-center py-0.5">
-                        <span className="text-muted-foreground flex items-center gap-1"><Phone className="h-3.5 w-3.5 text-muted-foreground" /> Phone:</span>
-                        <span className="text-foreground font-semibold">{provider.phone}</span>
-                      </div>
-                    )}
-                    {provider.email && (
-                      <div className="flex justify-between items-center py-0.5 border-t border-border/30">
-                        <span className="text-muted-foreground flex items-center gap-1"><Mail className="h-3.5 w-3.5 text-muted-foreground" /> Email:</span>
-                        <span className="text-foreground font-medium">{provider.email}</span>
-                      </div>
-                    )}
-                    {provider.address && (
-                      <div className="flex flex-col gap-1 py-1 border-t border-border/30">
-                        <span className="text-muted-foreground flex items-center gap-1"><MapPin className="h-3.5 w-3.5 text-muted-foreground" /> Address:</span>
-                        <span className="text-foreground text-xs leading-relaxed">{provider.address}</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Notes */}
-                  {provider.description && (
-                    <div className="border-t border-dashed pt-2">
-                      <span className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider block mb-1">Notes:</span>
-                      <p className="text-xs text-muted-foreground leading-relaxed bg-muted/40 p-2 rounded border border-border/30">
-                        {provider.description}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              ))
-            )}
+              </tbody>
+            </table>
           </div>
         </CardContent>
       </Card>
-    </div>
 
-      {/* Edit Dialog */}
-      <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-        <DialogContent>
+      {/* Add Provider Modal */}
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Edit Loan Provider</DialogTitle>
+            <DialogTitle className="flex items-center gap-2 font-bold">
+              <Building className="h-5 w-5 text-primary" />
+              Add Loan Provider / Lender
+            </DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleEditSubmit} className="space-y-4">
-            <div>
-              <Label>Lender / Provider Name *</Label>
-              <Input required value={editName} onChange={e => setEditName(e.target.value)} />
+
+          <form onSubmit={handleCreate} className="space-y-3 py-2 text-xs">
+            <div className="space-y-1">
+              <Label className="text-xs">Provider / Institution Name *</Label>
+              <Input
+                required
+                placeholder="e.g. BRAC Bank / Eastern Bank / Private Partner"
+                value={form.name}
+                onChange={(e) => setForm(prev => ({ ...prev, name: e.target.value }))}
+                className="h-8 text-xs"
+              />
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Phone Number</Label>
-                <Input value={editPhone} onChange={e => setEditPhone(e.target.value)} />
+
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Phone Number</Label>
+                <Input
+                  placeholder="e.g. 01700000000"
+                  value={form.phone}
+                  onChange={(e) => setForm(prev => ({ ...prev, phone: e.target.value }))}
+                  className="h-8 text-xs font-mono"
+                />
               </div>
-              <div>
-                <Label>Email Address</Label>
-                <Input type="email" value={editEmail} onChange={e => setEditEmail(e.target.value)} />
+              <div className="space-y-1">
+                <Label className="text-xs">Email</Label>
+                <Input
+                  type="email"
+                  placeholder="e.g. loan@bank.com"
+                  value={form.email}
+                  onChange={(e) => setForm(prev => ({ ...prev, email: e.target.value }))}
+                  className="h-8 text-xs"
+                />
               </div>
             </div>
-            <div>
-              <Label>Address</Label>
-              <Input value={editAddress} onChange={e => setEditAddress(e.target.value)} />
+
+            <div className="space-y-1">
+              <Label className="text-xs">Address</Label>
+              <Input
+                placeholder="Office or branch address"
+                value={form.address}
+                onChange={(e) => setForm(prev => ({ ...prev, address: e.target.value }))}
+                className="h-8 text-xs"
+              />
             </div>
-            <div>
-              <Label>Notes / Description</Label>
-              <Textarea rows={3} value={editDescription} onChange={e => setEditDescription(e.target.value)} />
+
+            <div className="space-y-1">
+              <Label className="text-xs">Description / Terms Note</Label>
+              <Input
+                placeholder="Optional notes or relationship info"
+                value={form.description}
+                onChange={(e) => setForm(prev => ({ ...prev, description: e.target.value }))}
+                className="h-8 text-xs"
+              />
             </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setIsEditOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={formLoading}>{formLoading ? 'Saving...' : 'Save Changes'}</Button>
+
+            <DialogFooter className="pt-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setModalOpen(false)}>Cancel</Button>
+              <Button type="submit" size="sm" disabled={saving} className="font-bold">
+                {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+                Save Provider
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>

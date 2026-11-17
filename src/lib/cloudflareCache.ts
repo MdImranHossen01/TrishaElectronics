@@ -49,4 +49,3 @@ export async function purgeCloudflareCache(options?: CloudflarePurgeOptions): Pr
     console.error(`[Cloudflare Purge] Error triggering purge:`, error?.message || error);
   }
 }
-

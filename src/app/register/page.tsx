@@ -1,6 +1,5 @@
 'use client';
 
-import { useLanguage } from '@/contexts/LanguageContext';
 import { useState } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
@@ -54,11 +53,9 @@ const registerSchema = z.object({
   path: ["confirmPassword"],
 });
 
-export default function RegisterPage() {  const { t } = useLanguage();
-
+export default function RegisterPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
@@ -86,15 +83,10 @@ export default function RegisterPage() {  const { t } = useLanguage();
   async function onSubmit(values: z.infer<typeof registerSchema>) {
     setIsLoading(true);
     try {
-      const { normalizePhoneNumber } = await import('@/lib/utils');
-      const payload = {
-        ...values,
-        phone: normalizePhoneNumber(values.phone),
-      };
       const response = await fetch('/api/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(values),
       });
 
       let data;
@@ -108,9 +100,6 @@ export default function RegisterPage() {  const { t } = useLanguage();
 
       if (!response.ok) {
         toast.error(data.message || 'Registration failed');
-      } else if (data.upgraded) {
-        toast.success('Account upgraded! Your previous orders are preserved. Please log in.');
-        router.push('/login');
       } else {
         toast.success('Registered successfully! Please log in.');
         router.push('/login');
@@ -123,21 +112,10 @@ export default function RegisterPage() {  const { t } = useLanguage();
     }
   }
 
-  async function loginWithGoogle() {
-    setIsGoogleLoading(true);
-    try {
-      await signIn('google', { callbackUrl: '/dashboard' });
-    } catch (error) {
-      setIsGoogleLoading(false);
-      toast.error('Failed to log in with Google.');
-    }
-  }
-
   return (
-    <div className="relative min-h-screen">
-      {/* Register Form centered */}
-      <div className="flex flex-col p-6 md:p-10 bg-background min-h-screen items-center justify-center w-full">
-        <div className="flex justify-center mb-8">
+    <div className="relative min-h-screen flex items-center justify-center bg-background p-4">
+      <div className="flex flex-col p-6 md:p-8 bg-card border rounded-2xl shadow-sm w-full max-w-lg">
+        <div className="flex justify-center mb-6">
           <Logo />
         </div>
 
@@ -147,50 +125,15 @@ export default function RegisterPage() {  const { t } = useLanguage();
           transition={{ duration: 0.6, delay: 0.2 }}
           className="flex flex-1 items-center justify-center"
         >
-          <div className="w-full max-w-lg space-y-8 py-8">
+          <div className="w-full space-y-8 py-4">
             <div className="space-y-2 text-center">
-              <h1 className="text-3xl font-bold tracking-tight">{t('auth.register.title') || 'Create an account'}</h1>
+              <h1 className="text-3xl font-bold tracking-tight">Create an account</h1>
               <p className="text-sm text-muted-foreground">
                 Join us today and start your shopping journey
               </p>
             </div>
 
             <div className="grid gap-6">
-              <Button
-                variant="outline"
-                className="w-full h-11 transition-all hover:bg-muted/50 hover:border-primary/50 group"
-                onClick={loginWithGoogle}
-                disabled={isGoogleLoading || isLoading}
-              >
-                {isGoogleLoading ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <svg
-                    className="mr-2 h-4 w-4 group-hover:scale-110 transition-transform"
-                    aria-hidden="true"
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 488 512"
-                  >
-                    <path
-                      fill="currentColor"
-                      d="M488 261.8C488 403.3 391.1 504 248 504 110.8 504 0 393.2 0 256S110.8 8 248 8c66.8 0 123 24.5 166.3 64.9l-67.5 64.9C258.5 52.6 94.3 116.6 94.3 256c0 86.5 69.1 156.6 153.7 156.6 98.2 0 135-70.4 140.8-106.9H248v-85.3h236.1c2.3 12.7 3.9 24.9 3.9 41.4z"
-                    ></path>
-                  </svg>
-                )}
-                Continue with Google
-              </Button>
-
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t border-muted" />
-                </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-background px-4 text-muted-foreground">
-                    Or register with details
-                  </span>
-                </div>
-              </div>
-
               <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -199,7 +142,7 @@ export default function RegisterPage() {  const { t } = useLanguage();
                       name="name"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>{t('auth.register.full_name') || 'Full Name'}</FormLabel>
+                          <FormLabel>Full Name</FormLabel>
                           <FormControl>
                             <Input placeholder="John Doe" {...field} disabled={isLoading} className="h-11 focus-visible:ring-primary/20" />
                           </FormControl>
@@ -212,7 +155,7 @@ export default function RegisterPage() {  const { t } = useLanguage();
                       name="phone"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>{t('auth.register.mobile') || 'Mobile Number'}</FormLabel>
+                          <FormLabel>Mobile Number</FormLabel>
                           <FormControl>
                             <Input placeholder="017XXXXXXXX" {...field} disabled={isLoading} className="h-11 focus-visible:ring-primary/20" />
                           </FormControl>
@@ -227,7 +170,7 @@ export default function RegisterPage() {  const { t } = useLanguage();
                     name="email"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{t('auth.register.email') || 'Email Address'}</FormLabel>
+                        <FormLabel>Email Address</FormLabel>
                         <FormControl>
                           <Input placeholder="john@example.com" type="email" {...field} disabled={isLoading} className="h-11 focus-visible:ring-primary/20" />
                         </FormControl>
@@ -241,7 +184,7 @@ export default function RegisterPage() {  const { t } = useLanguage();
                     name="address"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{t('auth.register.address') || 'Address Line'}</FormLabel>
+                        <FormLabel>Address Line</FormLabel>
                         <FormControl>
                           <Input placeholder="House #, Road #, Area" {...field} disabled={isLoading} className="h-11 focus-visible:ring-primary/20" />
                         </FormControl>
@@ -256,7 +199,7 @@ export default function RegisterPage() {  const { t } = useLanguage();
                       name="division"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>{t('auth.register.division') || 'Division'}</FormLabel>
+                          <FormLabel>Division</FormLabel>
                           <Select
                             onValueChange={(value) => {
                               field.onChange(value);
@@ -288,7 +231,7 @@ export default function RegisterPage() {  const { t } = useLanguage();
                       name="district"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>{t('auth.register.district') || 'District'}</FormLabel>
+                          <FormLabel>District</FormLabel>
                           <Select
                             onValueChange={(value) => {
                               field.onChange(value);
@@ -319,7 +262,7 @@ export default function RegisterPage() {  const { t } = useLanguage();
                       name="thana"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>{t('auth.register.thana') || 'Thana'}</FormLabel>
+                          <FormLabel>Thana</FormLabel>
                           <Select
                             onValueChange={field.onChange}
                             value={field.value}
@@ -349,11 +292,11 @@ export default function RegisterPage() {  const { t } = useLanguage();
                     name="password"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{t('auth.login.password') || 'Password'}</FormLabel>
+                        <FormLabel>Password</FormLabel>
                         <FormControl>
                           <div className="relative">
                             <Input
-                              placeholder="Enter your password"
+                              placeholder="••••••••"
                               type={showPassword ? "text" : "password"}
                               {...field}
                               disabled={isLoading}
@@ -388,11 +331,11 @@ export default function RegisterPage() {  const { t } = useLanguage();
                     name="confirmPassword"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{t('auth.register.confirm_password') || 'Confirm Password'}</FormLabel>
+                        <FormLabel>Confirm Password</FormLabel>
                         <FormControl>
                           <div className="relative">
                             <Input
-                              placeholder="Confirm your password"
+                              placeholder="••••••••"
                               type={showConfirmPassword ? "text" : "password"}
                               {...field}
                               disabled={isLoading}
@@ -425,13 +368,13 @@ export default function RegisterPage() {  const { t } = useLanguage();
                   <Button
                     type="submit"
                     className="w-full h-11 text-base font-semibold transition-all hover:scale-[1.01] active:scale-[0.99] mt-6"
-                    disabled={isLoading || isGoogleLoading}
+                    disabled={isLoading}
                   >
                     {isLoading ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
                       <span className="flex items-center justify-center">
-                        {t('auth.register.create_account') || 'Create Account'} <ArrowRight className="ml-2 h-4 w-4" />
+                        Create Account <ArrowRight className="ml-2 h-4 w-4" />
                       </span>
                     )}
                   </Button>
@@ -440,7 +383,7 @@ export default function RegisterPage() {  const { t } = useLanguage();
             </div>
 
             <div className="text-center text-sm text-muted-foreground">
-              {t('auth.register.already_have') || 'Already have an account?'}{' '}
+              Already have an account?{' '}
               <Link href="/login" className="font-semibold text-primary hover:underline underline-offset-4">
                 Log in instead
               </Link>
@@ -448,16 +391,7 @@ export default function RegisterPage() {  const { t } = useLanguage();
           </div>
         </motion.div>
 
-        <div className="mt-auto pt-6 text-center text-xs text-muted-foreground">
-          By clicking register, you agree to our{' '}
-          <Link href="/terms" className="underline underline-offset-4 hover:text-primary">
-            Terms of Service
-          </Link>{' '}
-          and{' '}
-          <Link href="/privacy" className="underline underline-offset-4 hover:text-primary">
-            Privacy Policy
-          </Link>.
-        </div>
+
       </div>
     </div>
   );

@@ -1,16 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
 import User from '@/models/User';
-import { normalizePhoneNumber } from '@/lib/utils';
 
 
 export async function POST(req: NextRequest) {
   try {
     const { name, email, password, phone, address, division, district, thana } = await req.json();
 
-    if (!password || (!email && !phone)) {
+    if (!name || !email || !password || !phone) {
       return NextResponse.json(
-        { message: 'Password and either email or phone are required.' },
+        { message: 'Please provide all required fields.' },
         { status: 400 }
       );
     }
@@ -22,74 +21,31 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    await connectToDatabase();
+    const { normalizePhoneNumber } = await import('@/lib/utils');
+    const normalizedEmail = email.toLowerCase().trim();
+    const normalizedPhone = normalizePhoneNumber(phone) || phone;
 
-    const normalizedEmail = email ? email.toLowerCase().trim() : undefined;
-    const cleanPhone = phone ? normalizePhoneNumber(phone) : undefined;
+    const existingUser = await User.findOne({
+      $or: [
+        { email: normalizedEmail },
+        ...(normalizedPhone ? [{ phone: normalizedPhone }] : [])
+      ]
+    });
 
-    const query: any[] = [];
-    if (normalizedEmail) query.push({ email: normalizedEmail });
-    if (cleanPhone) query.push({ phone: cleanPhone });
-
-    if (query.length > 0) {
-      const existingUser = await User.findOne({ $or: query });
-
-      if (existingUser) {
-        // ── Account Upgrade / Merge ─────────────────────────────────────────
-        // If a guest account (fake email) exists with the same phone number,
-        // and the user is now registering with a real email → upgrade in place.
-        const guestDomain = process.env.NEXT_PUBLIC_GUEST_EMAIL_DOMAIN || 'guest.local';
-        const isGuestAccount =
-          existingUser.email?.endsWith(`@${guestDomain}`) ||
-          !existingUser.email;
-
-        const phoneMatches = cleanPhone && existingUser.phone === cleanPhone;
-        const realEmailConflict = normalizedEmail && existingUser.email === normalizedEmail;
-
-        if (phoneMatches && isGuestAccount && normalizedEmail && !realEmailConflict) {
-          // Upgrade guest account → real account (bcrypt manually — updateOne skips pre-save hook)
-          const bcrypt = (await import('bcryptjs')).default;
-          const hashedPassword = await bcrypt.hash(password, 12);
-
-          await User.updateOne(
-            { _id: existingUser._id },
-            {
-              $set: {
-                email: normalizedEmail,
-                password: hashedPassword,
-                ...(name ? { name } : {}),
-              },
-            }
-          );
-
-          return NextResponse.json(
-            {
-              message: 'Account upgraded successfully! Your previous order history has been preserved.',
-              userId: existingUser._id,
-              upgraded: true,
-            },
-            { status: 200 }
-          );
-        }
-        // ───────────────────────────────────────────────────────────────────
-
-        // Normal conflict: real account already exists with same email or phone
-        return NextResponse.json(
-          { message: 'User already exists with this email or phone number.' },
-          { status: 409 }
-        );
-      }
+    if (existingUser) {
+      return NextResponse.json(
+        { message: 'User already exists with this email or mobile number.' },
+        { status: 409 }
+      );
     }
 
-    const bcrypt = (await import('bcryptjs')).default;
-    const hashedPassword = await bcrypt.hash(password, 12);
-
     const user = await User.create({
-      name: name || cleanPhone || normalizedEmail || '',
+      name,
       email: normalizedEmail,
-      password: hashedPassword,
-      phone: cleanPhone,
+      password,
+      phone: normalizedPhone,
       addresses: [{
+
         street: address,
         division: division,
         state: district,
@@ -112,3 +68,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+

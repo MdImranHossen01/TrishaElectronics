@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect } from 'react';
-import { AlertTriangle, RotateCw, Home } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { AlertTriangle, RotateCw, Home, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 
@@ -12,18 +12,27 @@ export default function ErrorBoundary({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const [isAutoReloading, setIsAutoReloading] = useState(false);
+
   useEffect(() => {
     // Log the error to console
     console.error('Unhandled runtime error in public layout:', error);
 
-    // Auto-recovery for ChunkLoadErrors (highly common after new deployments)
+    // Auto-recovery for ChunkLoadErrors and stale deployment bundles
+    const errorMsg = (error?.message || '').toLowerCase();
+    const errorStack = (error?.stack || '').toLowerCase();
     const isChunkError = 
-      error.message && 
-      (error.message.toLowerCase().includes('chunk') || 
-       error.message.toLowerCase().includes('loading') || 
-       error.message.toLowerCase().includes('failed to fetch'));
+      errorMsg.includes('chunk') || 
+      errorMsg.includes('loading') || 
+      errorMsg.includes('failed to fetch') ||
+      errorMsg.includes("reading 'call'") ||
+      errorMsg.includes('undefined (reading') ||
+      errorMsg.includes('webpack') ||
+      errorStack.includes('webpack') ||
+      errorMsg.includes('minified react error');
 
     if (isChunkError) {
+      setIsAutoReloading(true);
       const reloadKey = 'pwa-chunk-reload-timestamp';
       const lastReload = sessionStorage.getItem(reloadKey);
       const now = Date.now();
@@ -36,6 +45,16 @@ export default function ErrorBoundary({
       }
     }
   }, [error]);
+
+  if (isAutoReloading) {
+    return (
+      <div className="min-h-[70vh] flex flex-col items-center justify-center p-6 text-center bg-background">
+        <Loader2 className="h-10 w-10 text-primary animate-spin mb-4" />
+        <h2 className="text-xl font-semibold text-foreground">Loading page...</h2>
+        <p className="text-muted-foreground text-sm mt-1">Please wait a moment while we update the content.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-[70vh] flex flex-col items-center justify-center p-6 text-center bg-background relative overflow-hidden">

@@ -1,150 +1,263 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import connectToDatabase from '@/lib/db';
-import Supplier from '@/models/Supplier';
 import SupplierBill from '@/models/SupplierBill';
+import Supplier from '@/models/Supplier';
+import mongoose from 'mongoose';
 
-export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
     const session = await auth();
-    if (!session || !(['admin', 'super_admin', 'manager'].includes((session?.user as any)?.role))) {
+    if (!session || !(['admin', 'super_admin', 'manager', 'moderator'].includes((session?.user as any)?.role))) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
     const { id } = await params;
-    const body = await req.json();
-    const { supplierId, date, items, subtotal, discount, total, paidAmount, paymentMethod } = body;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return NextResponse.json({ message: 'Invalid bill ID' }, { status: 400 });
+    }
 
     await connectToDatabase();
 
-    const mongoose = (await import('mongoose')).default;
-    const dbSession = await mongoose.startSession();
-    dbSession.startTransaction();
+    const bill = await SupplierBill.findById(id)
+      .populate('supplier', 'name companyName phone email address')
+      .populate('paymentAccountId', 'accountName accountType')
+      .lean();
 
-    try {
-      const oldBill = await SupplierBill.findById(id).session(dbSession);
-      if (!oldBill) {
-        await dbSession.abortTransaction();
-        dbSession.endSession();
-        return NextResponse.json({ message: 'Bill not found' }, { status: 404 });
-      }
-
-      // 1. Validate new supplier first if changing it
-      let targetSupplierId = oldBill.supplier;
-      if (supplierId && supplierId.toString() !== oldBill.supplier.toString()) {
-        const checkSupplier = await Supplier.findById(supplierId).session(dbSession);
-        if (!checkSupplier) {
-          await dbSession.abortTransaction();
-          dbSession.endSession();
-          return NextResponse.json({ message: 'Supplier not found' }, { status: 404 });
-        }
-        targetSupplierId = supplierId;
-      }
-
-      // 2. Subtract the old due amount from the old supplier (without Math.max clamping)
-      const oldSupplier = await Supplier.findById(oldBill.supplier).session(dbSession);
-      if (oldSupplier) {
-        oldSupplier.currentBalance = (oldSupplier.currentBalance || 0) - oldBill.dueAmount;
-        await oldSupplier.save({ session: dbSession });
-      }
-
-      // 3. Update the bill details deriving from oldBill values when fields are omitted, handling null/empty/non-numeric values
-      let totalNum = oldBill.total;
-      if (total !== undefined && total !== null && total !== '') {
-        const parsedTotal = parseFloat(total);
-        totalNum = isNaN(parsedTotal) || !isFinite(parsedTotal) ? 0 : parsedTotal;
-      } else if (total === null || total === '') {
-        totalNum = 0;
-      }
-
-      let paidNum = oldBill.paidAmount;
-      if (paidAmount !== undefined && paidAmount !== null && paidAmount !== '') {
-        const parsedPaid = parseFloat(paidAmount);
-        paidNum = isNaN(parsedPaid) || !isFinite(parsedPaid) ? 0 : parsedPaid;
-      } else if (paidAmount === null || paidAmount === '') {
-        paidNum = 0;
-      }
-
-      const dueNum = Math.max(0, totalNum - paidNum);
-      const status = dueNum === 0 ? 'Paid' : 'Due';
-
-      oldBill.supplier = targetSupplierId;
-      if (date) oldBill.date = new Date(date);
-      if (items) oldBill.items = items;
-      if (subtotal !== undefined) oldBill.subtotal = subtotal;
-      if (discount !== undefined) oldBill.discount = discount;
-      oldBill.total = totalNum;
-      oldBill.paidAmount = paidNum;
-      oldBill.dueAmount = dueNum;
-      oldBill.status = status;
-      if (paymentMethod) oldBill.paymentMethod = paymentMethod;
-
-      await oldBill.save({ session: dbSession });
-
-      // 4. Add the new due amount to the new supplier
-      const newSupplier = await Supplier.findById(oldBill.supplier).session(dbSession);
-      if (newSupplier) {
-        newSupplier.currentBalance = (newSupplier.currentBalance || 0) + dueNum;
-        await newSupplier.save({ session: dbSession });
-      }
-
-      await dbSession.commitTransaction();
-      dbSession.endSession();
-
-      return NextResponse.json(oldBill);
-    } catch (transactionError) {
-      await dbSession.abortTransaction();
-      dbSession.endSession();
-      throw transactionError;
+    if (!bill) {
+      return NextResponse.json({ message: 'Bill not found' }, { status: 404 });
     }
+
+    return NextResponse.json(bill);
   } catch (error: any) {
-    console.error('Error updating supplier bill:', error);
-    return NextResponse.json({ message: 'Internal Server Error' }, { status: 500 });
+    console.error('Error fetching supplier bill:', error);
+    return NextResponse.json({ message: error.message || 'Internal Server Error' }, { status: 500 });
   }
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function PUT(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
     const session = await auth();
-    if (!session || !(['admin', 'super_admin', 'manager'].includes((session?.user as any)?.role))) {
+    if (!session || !(['admin', 'super_admin', 'manager', 'moderator'].includes((session?.user as any)?.role))) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
     const { id } = await params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return NextResponse.json({ message: 'Invalid bill ID' }, { status: 400 });
+    }
+
+    const body = await req.json();
+    const { items, discount, paidAmount, paymentMethod, paymentAccountId, expectedPaymentDate, date } = body;
+
     await connectToDatabase();
 
-    const mongoose = (await import('mongoose')).default;
-    const dbSession = await mongoose.startSession();
-    dbSession.startTransaction();
-
-    try {
-      const bill = await SupplierBill.findById(id).session(dbSession);
-      if (!bill) {
-        await dbSession.abortTransaction();
-        dbSession.endSession();
-        return NextResponse.json({ message: 'Bill not found' }, { status: 404 });
-      }
-
-      // Subtract the bill due amount from supplier balance (without Math.max clamping)
-      const supplier = await Supplier.findById(bill.supplier).session(dbSession);
-      if (supplier) {
-        supplier.currentBalance = (supplier.currentBalance || 0) - bill.dueAmount;
-        await supplier.save({ session: dbSession });
-      }
-
-      await bill.deleteOne({ session: dbSession });
-
-      await dbSession.commitTransaction();
-      dbSession.endSession();
-
-      return NextResponse.json({ message: 'Bill deleted successfully' });
-    } catch (transactionError) {
-      await dbSession.abortTransaction();
-      dbSession.endSession();
-      throw transactionError;
+    const existingBill = await SupplierBill.findById(id);
+    if (!existingBill) {
+      return NextResponse.json({ message: 'Bill not found' }, { status: 404 });
     }
+
+    const oldDueAmount = existingBill.dueAmount || 0;
+    const oldPaidAmount = existingBill.paidAmount || 0;
+
+    if (items && Array.isArray(items)) {
+      existingBill.items = items.map((it: any) => ({
+        name: it.name.trim(),
+        quantity: Number(it.quantity) || 1,
+        price: Number(it.price) || 0
+      }));
+      existingBill.subtotal = existingBill.items.reduce((sum: number, it: any) => sum + (it.quantity * it.price), 0);
+    }
+
+    if (discount !== undefined) {
+      existingBill.discount = Number(discount) || 0;
+    }
+
+    existingBill.total = Math.max(0, existingBill.subtotal - (existingBill.discount || 0));
+
+    if (paidAmount !== undefined) {
+      existingBill.paidAmount = Math.min(existingBill.total, Number(paidAmount) || 0);
+    }
+
+    existingBill.dueAmount = Math.max(0, existingBill.total - (existingBill.paidAmount || 0));
+    existingBill.status = existingBill.dueAmount === 0 ? 'Paid' : 'Due';
+
+    if (paymentMethod !== undefined) existingBill.paymentMethod = paymentMethod;
+    if (paymentAccountId !== undefined) existingBill.paymentAccountId = paymentAccountId || undefined;
+    if (expectedPaymentDate !== undefined) existingBill.expectedPaymentDate = expectedPaymentDate ? new Date(expectedPaymentDate) : undefined;
+    if (date !== undefined) {
+      if (date) {
+        const parsed = new Date(date);
+        const now = new Date();
+        existingBill.date = parsed.toDateString() === now.toDateString() ? now : parsed;
+      } else {
+        existingBill.date = existingBill.date;
+      }
+    }
+
+    await existingBill.save();
+
+    // Adjust supplier balance for the difference
+    const dueDifference = existingBill.dueAmount - oldDueAmount;
+    if (dueDifference !== 0) {
+      await Supplier.findByIdAndUpdate(existingBill.supplier, {
+        $inc: { currentBalance: dueDifference }
+      });
+    }
+
+    // If payment amount increased, log transaction to Ledger
+    const paymentDifference = (existingBill.paidAmount || 0) - oldPaidAmount;
+    if (paymentDifference > 0) {
+      try {
+        const LedgerAccount = (await import('@/models/LedgerAccount')).default;
+        const LedgerTransaction = (await import('@/models/LedgerTransaction')).default;
+        const targetAccountId = paymentAccountId || existingBill.paymentAccountId;
+
+        const account = targetAccountId
+          ? await LedgerAccount.findById(targetAccountId)
+          : (await LedgerAccount.findOne({ isDefault: true }) || await LedgerAccount.findOne({ code: 'CASH' }));
+
+        if (account) {
+          const balanceAfter = (account.currentBalance || 0) - paymentDifference;
+          account.currentBalance = balanceAfter;
+          await account.save();
+
+          await LedgerTransaction.create({
+            account: account._id,
+            date: date ? new Date(date) : new Date(),
+            description: `Payment for Purchase Bill ${existingBill.billNo} (${paymentMethod || existingBill.paymentMethod || 'Cash'})`,
+            type: 'debit',
+            amount: paymentDifference,
+            reference: existingBill.billNo,
+            balanceAfter
+          });
+
+          // Log expense into Expense collection for /admin/expenses-incomes and daily/monthly reports
+          try {
+            const Expense = (await import('@/models/Expense')).default;
+            await Expense.create({
+              title: `Purchase Bill Payment - ${existingBill.billNo}`,
+              amount: paymentDifference,
+              category: 'Others Expense',
+              type: 'expense',
+              paymentAccountId: account._id,
+              date: date ? new Date(date) : new Date(),
+              reference: existingBill.billNo,
+              description: `Payment for Purchase Bill ${existingBill.billNo}`
+            });
+          } catch (expErr) {
+            console.error('Error logging payment difference to Expense collection:', expErr);
+          }
+        }
+      } catch (ledgerErr) {
+        console.error('[SupplierBill Ledger Error]', ledgerErr);
+      }
+    }
+
+    const updated = await SupplierBill.findById(id)
+      .populate('supplier', 'name companyName phone email address')
+      .populate('paymentAccountId', 'accountName accountType');
+
+    // Sync to Accounts Payable in ledger
+    try {
+      const { syncPayablesToLedger } = await import('@/lib/ledgerHelper');
+      await syncPayablesToLedger();
+    } catch (syncErr) {
+      console.error('[SupplierBill Sync Error]', syncErr);
+    }
+
+    return NextResponse.json(updated);
+  } catch (error: any) {
+    console.error('Error updating supplier bill:', error);
+    return NextResponse.json({ message: error.message || 'Internal Server Error' }, { status: 500 });
+  }
+}
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await auth();
+    if (!session || !(['admin', 'super_admin', 'manager', 'moderator'].includes((session?.user as any)?.role))) {
+      return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { id } = await params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return NextResponse.json({ message: 'Invalid bill ID' }, { status: 400 });
+    }
+
+    await connectToDatabase();
+
+    const bill = await SupplierBill.findById(id);
+    if (!bill) {
+      return NextResponse.json({ message: 'Bill not found' }, { status: 404 });
+    }
+
+    // Deduct due amount from supplier balance
+    if (bill.dueAmount > 0) {
+      await Supplier.findByIdAndUpdate(bill.supplier, {
+        $inc: { currentBalance: -bill.dueAmount }
+      });
+    }
+
+    // Clean associated ledger transactions
+    try {
+      const LedgerTransaction = (await import('@/models/LedgerTransaction')).default;
+      const { recalculateLedgerBalance } = await import('@/lib/ledgerHelper');
+
+      const refConditions: any[] = [{ reference: id }];
+      const billRef = (bill as any).billNo || (bill as any).invoiceNo;
+      if (billRef) {
+        refConditions.push({ reference: billRef });
+        refConditions.push({ description: { $regex: billRef, $options: 'i' } });
+      }
+
+      await LedgerTransaction.deleteMany({ $or: refConditions });
+      await recalculateLedgerBalance('AP');
+      await recalculateLedgerBalance('CASH');
+      await recalculateLedgerBalance('BANK');
+    } catch (err) {
+      console.error('Error removing ledger entries for supplier bill:', err);
+    }
+
+    // Clean associated Expense entries for this supplier bill
+    try {
+      const Expense = (await import('@/models/Expense')).default;
+      const billRef = (bill as any).billNo || (bill as any).invoiceNo;
+      if (billRef) {
+        await Expense.deleteMany({
+          $or: [
+            { reference: billRef },
+            { title: { $regex: billRef, $options: 'i' } },
+            { description: { $regex: billRef, $options: 'i' } }
+          ]
+        });
+      }
+    } catch (err) {
+      console.error('Error removing expense entries for supplier bill:', err);
+    }
+
+    await SupplierBill.findByIdAndDelete(id);
+
+    // Sync to Accounts Payable in ledger
+    try {
+      const { syncPayablesToLedger } = await import('@/lib/ledgerHelper');
+      await syncPayablesToLedger();
+    } catch (syncErr) {
+      console.error('[SupplierBill Sync Error]', syncErr);
+    }
+
+    return NextResponse.json({ message: 'Supplier bill deleted successfully' });
   } catch (error: any) {
     console.error('Error deleting supplier bill:', error);
-    return NextResponse.json({ message: 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ message: error.message || 'Internal Server Error' }, { status: 500 });
   }
 }

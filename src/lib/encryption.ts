@@ -13,13 +13,14 @@ const MASTER_KEY = process.env.ENCRYPTION_KEY;
  * allowing Next.js build-time static generation to proceed.
  */
 function getEffectiveKey(): string {
-  if (!MASTER_KEY) {
+  const envKey = process.env.ENCRYPTION_KEY || process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET;
+  if (!envKey) {
     if (process.env.NODE_ENV === 'production') {
       throw new Error('ENCRYPTION_KEY is required in production environments to secure sensitive data.');
     }
-    return 'generic-dev-only-insecure-key-32';
+    return 'ecommerce-dev-only-insecure-key-32';
   }
-  return MASTER_KEY;
+  return envKey;
 }
 
 /**

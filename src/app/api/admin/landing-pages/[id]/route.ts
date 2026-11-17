@@ -7,7 +7,7 @@ import mongoose from 'mongoose';
 // Auth helper
 async function authorizeAdmin() {
   const session = await auth();
-  if (!session || !session.user || !(['admin', 'super_admin', 'manager'].includes((session.user as any)?.role))) {
+  if (!session || !session.user || !(['admin', 'super_admin', 'manager', 'moderator'].includes((session.user as any)?.role))) {
     return false;
   }
   return true;
@@ -106,6 +106,24 @@ export async function DELETE(
 
     if (!deletedPage) {
       return NextResponse.json({ message: 'Page not found' }, { status: 404 });
+    }
+
+    try {
+      const { deleteMultipleFromR2 } = await import('@/lib/r2');
+      const imagesToDelete: string[] = [];
+      if (deletedPage.seoConfig?.ogImage) {
+        imagesToDelete.push(deletedPage.seoConfig.ogImage);
+      }
+      if (deletedPage.sections) {
+        const str = JSON.stringify(deletedPage.sections);
+        const matches = str.match(/https?:\/\/[^\s"'<>]+\.(?:webp|png|jpe?g|gif|svg|avif)/gi);
+        if (matches) imagesToDelete.push(...matches);
+      }
+      if (imagesToDelete.length > 0) {
+        await deleteMultipleFromR2(imagesToDelete);
+      }
+    } catch (r2Err) {
+      console.error('Failed to delete landing page images from Cloudflare R2:', r2Err);
     }
 
     return NextResponse.json({ message: 'Page deleted successfully' });

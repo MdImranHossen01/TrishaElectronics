@@ -8,21 +8,15 @@ import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { ShoppingCart, Heart, Search, MoreVertical, Edit, Trash2, Settings, ArrowUpRight } from 'lucide-react';
 import { RatingStars } from '@/components/ui/rating-stars';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { addToCart } from '@/store/slices/cartSlice';
 import { toggleWishlist } from '@/store/slices/wishlistSlice';
 import { toast } from 'sonner';
 import Swal from 'sweetalert2';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  DropdownMenuSeparator,
-} from '@/components/ui/dropdown-menu';
+import { validateAndAddToCart } from '@/lib/cart-seller';
 import { QuickViewModal } from './QuickViewModal';
+import { ProductActionMenu } from './ProductActionMenu';
 import {
   Tooltip,
   TooltipContent,
@@ -46,35 +40,49 @@ interface ProductCardProps {
     ratings?: number;
     numReviews?: number;
     sku?: string;
+    uploadedBy?: any;
   };
   isFlashSale?: boolean;
 }
 
 export default function ProductCardV5({ product: initialProduct, isFlashSale }: ProductCardProps) {
   const dispatch = useAppDispatch();
+  const cartItems = useAppSelector((state) => state.cart.items);
   const { data: session, status } = useSession();
   const wishlist = useAppSelector((state) => state.wishlist.items);
   const isInWishlist = wishlist.includes(initialProduct._id);
   const router = useRouter();
   const isAdmin = (session?.user as any)?.role === 'admin';
 
-  const firstVariant = initialProduct.variants && initialProduct.variants.length > 0 ? initialProduct.variants[0] : null;
-  const product = firstVariant ? {
-    ...initialProduct,
-    price: firstVariant.price,
-    salePrice: firstVariant.salePrice,
-    stock: firstVariant.stock ?? initialProduct.stock,
-    sku: firstVariant.sku ?? initialProduct.sku,
-    images: firstVariant.image ? [firstVariant.image, ...initialProduct.images.filter((img: string) => img !== firstVariant.image)] : initialProduct.images
-  } : initialProduct;
+  const hasVariants = Boolean(initialProduct.variants && initialProduct.variants.length > 0);
+  const firstVariant = hasVariants ? initialProduct.variants![0] : null;
 
-  const hasVariants = product.variants && product.variants.length > 0;
+  const displayPrice = firstVariant && (firstVariant.price !== undefined && firstVariant.price !== null)
+    ? Number(firstVariant.price)
+    : Number(initialProduct.price ?? (initialProduct as any).retailPrice ?? 0);
+
+  // If product has variants, discount MUST come strictly from firstVariant. Never fall back to main product salePrice!
+  const rawSale = firstVariant
+    ? (firstVariant.salePrice !== undefined && firstVariant.salePrice !== null ? Number(firstVariant.salePrice) : undefined)
+    : (initialProduct.salePrice !== undefined && initialProduct.salePrice !== null ? Number(initialProduct.salePrice) : undefined);
+
+  const hasDiscount = Boolean(rawSale !== undefined && rawSale > 0 && rawSale < displayPrice);
+  const displaySalePrice = hasDiscount ? rawSale : undefined;
+
+  const product = {
+    ...initialProduct,
+    price: isNaN(displayPrice) ? 0 : displayPrice,
+    salePrice: displaySalePrice,
+    stock: firstVariant?.stock ?? initialProduct.stock ?? 0,
+    sku: firstVariant?.sku ?? initialProduct.sku,
+    images: firstVariant?.image ? [firstVariant.image, ...((initialProduct.images || []).filter((img: string) => img !== firstVariant.image))] : (initialProduct.images || [])
+  };
 
   const [showQuickViewModal, setShowQuickViewModal] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
 
-  const discount = (product.price > 0 && product.salePrice && product.salePrice < product.price) 
-    ? Math.round(((product.price - product.salePrice) / product.price) * 100) 
+  const discount = hasDiscount && product.salePrice
+    ? Math.round(((product.price - product.salePrice) / product.price) * 100)
     : 0;
 
   const handleAddToCartClick = (e: React.MouseEvent) => {
@@ -86,16 +94,26 @@ export default function ProductCardV5({ product: initialProduct, isFlashSale }: 
     }
   };
 
-  const executeAddToCart = () => {
-    dispatch(addToCart({
-      productId: product._id,
+  const executeAddToCart = async () => {
+    const itemToAdd = {
+      productId: (product as any).productId || product._id,
+      resellerProductId: (product as any).productId ? product._id : undefined,
       name: product.name,
       price: product.salePrice ?? product.price,
       basePrice: product.price,
       quantity: 1,
-      image: product.images?.[0]
-    }));
-    toast.success(`${product.name} added to cart`);
+      image: product.images?.[0],
+      uploadedBy: (initialProduct as any).uploadedBy ? String((initialProduct as any).uploadedBy) : null,
+    };
+
+    await validateAndAddToCart({
+      cartItems,
+      newItem: itemToAdd,
+      dispatch,
+      onSuccess: () => {
+        toast.success(`${product.name} added to cart`);
+      }
+    });
   };
 
   const handleFavorite = async (e: React.MouseEvent) => {
@@ -115,11 +133,11 @@ export default function ProductCardV5({ product: initialProduct, isFlashSale }: 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ productId: product._id }),
       });
-      
+
       if (!res.ok) {
         throw new Error('Server synchronization failed');
       }
-      
+
       toast.success(willBeInWishlist ? 'Added to favorites' : 'Removed from favorites');
     } catch (err) {
       console.error('Wishlist error:', err);
@@ -161,7 +179,7 @@ export default function ProductCardV5({ product: initialProduct, isFlashSale }: 
   };
 
   return (
-    <div 
+    <div
       className="group relative flex flex-col bg-transparent"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -174,47 +192,32 @@ export default function ProductCardV5({ product: initialProduct, isFlashSale }: 
             src={product.images?.[0] || '/placeholder.png'}
             alt={product.name}
             fill
+            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
             className="object-cover transition-transform duration-[2000ms] group-hover:scale-110"
           />
         </Link>
 
         {/* Minimalist Floating Badges */}
-        <div className="absolute top-6 left-6 flex flex-col gap-3 z-10">
+        <div className="absolute top-4 left-4 flex flex-col gap-2 z-10">
           {discount > 0 && (
-            <div className="bg-white/80 dark:bg-black/80 backdrop-blur-xl text-primary text-[10px] font-black h-8 w-8 flex items-center justify-center rounded-full shadow-lg border border-primary/10">
-              {discount}
+            <div className="bg-background/90 backdrop-blur-md text-primary text-[10px] font-black px-2 py-0.5 min-w-8 h-7 flex items-center justify-center rounded-full shadow-md border border-primary/20">
+              -{discount}%
             </div>
           )}
         </div>
 
         {/* Action Float Menu */}
-        <div className={`absolute bottom-8 right-8 hidden md:flex flex-col gap-3 transition-all duration-500 ${isHovered ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
-           <TooltipProvider>
+        <div className={`absolute bottom-3 right-3 hidden md:flex flex-col items-center gap-2 transition-all duration-300 z-20 ${isHovered ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6 pointer-events-none'}`}>
+          <TooltipProvider>
+            {/* Favorites / Wishlist */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   size="icon"
-                  className="h-12 w-12 rounded-full shadow-2xl bg-primary text-white hover:bg-primary-foreground hover:text-primary transition-all duration-500"
-                  onClick={handleAddToCartClick}
-                  disabled={product.stock === 0}
-                >
-                  <ShoppingCart className="h-5 w-5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="left">
-                <p>Add to cart</p>
-              </TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  size="icon"
-                  variant="secondary"
-                  className="h-10 w-10 rounded-full shadow-2xl bg-white/90 dark:bg-neutral-900/90 hover:bg-primary hover:text-white transition-all duration-500"
+                  className="h-9 w-9 rounded-full shadow-lg bg-background text-foreground hover:bg-primary hover:text-primary-foreground border border-border/60 transition-all duration-200"
                   onClick={handleFavorite}
                 >
-                  <Heart className={`h-4 w-4 ${isInWishlist ? 'fill-primary text-primary' : ''}`} />
+                  <Heart className={`h-4 w-4 ${isInWishlist ? 'fill-primary text-primary' : 'text-foreground'}`} />
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="left">
@@ -222,63 +225,66 @@ export default function ProductCardV5({ product: initialProduct, isFlashSale }: 
               </TooltipContent>
             </Tooltip>
 
+            {/* Quick View */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   size="icon"
-                  variant="secondary"
-                  className="h-10 w-10 rounded-full shadow-2xl bg-white/90 dark:bg-neutral-900/90 hover:bg-primary hover:text-white transition-all duration-500"
+                  className="h-9 w-9 rounded-full shadow-lg bg-background text-foreground hover:bg-primary hover:text-primary-foreground border border-border/60 transition-all duration-200"
                   onClick={handleQuickView}
                 >
-                  <Search className="h-4 w-4" />
+                  <Search className="h-4 w-4 text-foreground hover:text-inherit" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="left">
                 <p>Quick View</p>
               </TooltipContent>
             </Tooltip>
-           </TooltipProvider>
+
+            {/* Add to Cart - placed at the bottom */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon"
+                  className="h-10 w-10 rounded-full shadow-xl bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-200"
+                  onClick={handleAddToCartClick}
+                  disabled={product.stock === 0}
+                >
+                  <ShoppingCart className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left">
+                <p>Add to cart</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
 
-        {/* Admin Quick Access */}
-        {isAdmin && (
-          <div className="absolute top-6 right-6">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="icon" variant="ghost" className="h-8 w-8 rounded-full bg-white/10 backdrop-blur-md hover:bg-white/30">
-                  <MoreVertical className="h-4 w-4 text-white" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="rounded-2xl border-none shadow-2xl">
-                <DropdownMenuItem onClick={() => router.push(`/admin/products/${product.slug}`)}>Edit</DropdownMenuItem>
-                <DropdownMenuItem onClick={handleDeleteProduct} className="text-destructive">Delete</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        )}
+        {/* Admin & Reseller Action Menu */}
+        <ProductActionMenu product={product} className="top-4 right-4 bottom-auto" />
       </div>
 
       {/* Minimalist Content Section */}
-      <div className="pt-8 px-4 space-y-4">
-        <div className="space-y-2">
+      <div className="px-[2px] pt-3 space-y-2 md:pt-8 md:px-4 md:space-y-4">
+        <div className="space-y-1 md:space-y-2">
           <div className="flex items-center justify-between">
-             <div className="flex items-center gap-2">
-                {product.isNewArrival && <span className="h-1 w-1 rounded-full bg-emerald-500" />}
-                <span className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground">
-                  {product.isNewArrival ? 'New Season' : 'Essential'}
-                </span>
-             </div>
-             <Link prefetch={true} href={`/product/${product.slug}`} className="text-muted-foreground hover:text-primary transition-colors">
-                <ArrowUpRight className="h-4 w-4" />
-             </Link>
+            <div className="flex items-center gap-2">
+              {product.isNewArrival && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
+              <span className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground">
+                {product.isNewArrival ? 'New Season' : 'Essential'}
+              </span>
+            </div>
+            <Link prefetch={true} href={`/product/${product.slug}`} className="text-muted-foreground hover:text-primary transition-colors">
+              <ArrowUpRight className="h-4 w-4" />
+            </Link>
           </div>
           <Link prefetch={true} href={`/product/${product.slug}`} className="block">
-            <h3 className="text-2xl font-bold tracking-tighter leading-tight hover:text-primary transition-colors line-clamp-1">
+            <h3 className="text-xs font-medium md:text-2xl md:font-bold tracking-tighter leading-tight hover:text-primary transition-colors line-clamp-1">
               {product.name}
             </h3>
           </Link>
           {(product.numReviews || 0) > 0 && (
-            <div 
+            <div
               className="flex items-center gap-2"
               aria-label={`${product.ratings || 0} out of 5 stars, ${product.numReviews || 0} reviews`}
             >
@@ -291,14 +297,14 @@ export default function ProductCardV5({ product: initialProduct, isFlashSale }: 
         </div>
 
         <div className="flex items-center gap-4">
-           <span className="text-2xl font-black text-primary">
-             ৳{Math.round(product.salePrice ?? product.price)}
-           </span>
-            {product.salePrice != null && product.salePrice < product.price && (
-              <span className="text-sm text-muted-foreground line-through opacity-40 font-bold">
-                ৳{Math.round(product.price)}
-              </span>
-            )}
+          <span className="text-2xl font-black text-primary">
+            ৳{Math.round(hasDiscount && product.salePrice ? product.salePrice : (product.price || 0))}
+          </span>
+          {hasDiscount && (
+            <span className="text-sm text-muted-foreground line-through opacity-40 font-bold">
+              ৳{Math.round(product.price ?? 0)}
+            </span>
+          )}
         </div>
       </div>
 

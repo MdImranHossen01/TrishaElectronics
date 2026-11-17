@@ -10,4 +10,3 @@ export async function getRedXStatus(trackingId: string, config: RedXConfig | str
   const provider = new RedXProvider(config);
   return await provider.getOrderStatus(trackingId);
 }
-

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -18,9 +18,18 @@ import {
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Loader2, Truck, CreditCard, Globe, X, BarChart3, Settings2, Landmark } from 'lucide-react';
-import { toast } from 'sonner';
+import { Badge } from '@/components/ui/badge';
+import { Label } from '@/components/ui/label';
 import { ImageUpload } from '@/components/ui/image-upload';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Loader2, Truck, CreditCard, BarChart3, Settings2, Zap, ShieldCheck, CheckCircle2, XCircle, AlertCircle, RefreshCcw, ExternalLink, Globe, X, Wallet, Banknote, Eye, QrCode } from 'lucide-react';
+import { toast } from 'sonner';
 import {
   Select,
   SelectContent,
@@ -28,7 +37,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useLanguage } from '@/contexts/LanguageContext';
 
 const marketingSettingsSchema = z.object({
   subscriptionConfig: z.object({
@@ -39,10 +47,13 @@ const marketingSettingsSchema = z.object({
   deliveryChargeOutsideDhaka: z.number().min(0, 'Charge cannot be negative').optional(),
   paymentConfig: z.object({
     activeMethod: z.string().default('none'),
+    activeMethods: z.array(z.string()).optional(),
+    cashOnDelivery: z.boolean().default(true),
     sslcommerz: z.object({
       storeId: z.string().nullish().transform(val => val ?? ''),
       storePassword: z.string().nullish().transform(val => val ?? ''),
       isSandbox: z.boolean().default(true),
+      active: z.boolean().default(false),
     }).nullable().optional(),
   }).optional(),
   manualPaymentConfig: z.object({
@@ -65,17 +76,10 @@ const marketingSettingsSchema = z.object({
       qrCode: z.string().nullish().transform(val => val ?? ''),
       active: z.boolean().default(false),
     }).nullable().optional(),
-    bank: z.object({
-      bankName: z.string().default(''),
-      accountNumber: z.string().default(''),
-      routingNumber: z.string().default(''),
-      branchName: z.string().default(''),
-      active: z.boolean().default(false),
-    }).nullable().optional(),
     instructions: z.string().nullish().transform(val => val ?? ''),
   }).optional(),
   courierConfig: z.object({
-    activeProvider: z.string().default('none'),
+    activeProvider: z.string().default('steadfast'),
     steadfast: z.object({
       apiKey: z.string().nullish().transform(val => val ?? ''),
       secretKey: z.string().nullish().transform(val => val ?? ''),
@@ -84,9 +88,13 @@ const marketingSettingsSchema = z.object({
       clientId: z.string().nullish().transform(val => val ?? ''),
       clientSecret: z.string().nullish().transform(val => val ?? ''),
       storeId: z.string().nullish().transform(val => val ?? ''),
+      username: z.string().nullish().transform(val => val ?? ''),
+      password: z.string().nullish().transform(val => val ?? ''),
+      isSandbox: z.boolean().default(false),
     }).nullable().optional(),
     redx: z.object({
       apiKey: z.string().nullish().transform(val => val ?? ''),
+      isSandbox: z.boolean().default(false),
     }).nullable().optional(),
     bdCourier: z.object({
       apiKey: z.string().nullish().transform(val => val ?? ''),
@@ -99,14 +107,26 @@ const marketingSettingsSchema = z.object({
   googleTagManagerId: z.string().nullish().transform(val => val ?? ''),
   tiktokPixelId: z.string().nullish().transform(val => val ?? ''),
   tiktokAccessToken: z.string().nullish().transform(val => val ?? ''),
+  tiktokDomainVerification: z.string().nullish().transform(val => val ?? ''),
+  tiktokTestEventCode: z.string().nullish().transform(val => val ?? ''),
 });
 
 type MarketingSettingsFormValues = z.infer<typeof marketingSettingsSchema>;
 
+// ── Server Tracking State ──────────────────────────────────────────────────
+type TrackingStatus = {
+  facebook: { configured: boolean; pixelId: string | null; testEventCode: string | null; hasAccessToken: boolean };
+  tiktok: { configured: boolean; pixelId: string | null; hasAccessToken: boolean };
+  gtm: { configured: boolean; gtmId: string | null };
+  ga: { configured: boolean; gaId: string | null };
+} | null;
+
 export default function MarketingSettingsPage() {
-  const { t } = useLanguage();
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [trackingStatus, setTrackingStatus] = useState<TrackingStatus>(null);
+  const [trackingStatusLoading, setTrackingStatusLoading] = useState(false);
+  const [showQrPreviewModal, setShowQrPreviewModal] = useState(false);
 
   const form = useForm<MarketingSettingsFormValues>({
     resolver: zodResolver(marketingSettingsSchema) as any,
@@ -119,10 +139,13 @@ export default function MarketingSettingsPage() {
       deliveryChargeOutsideDhaka: 120,
       paymentConfig: {
         activeMethod: 'none',
+        cashOnDelivery: true,
+        activeMethods: ['cod'],
         sslcommerz: {
           storeId: '',
           storePassword: '',
           isSandbox: true,
+          active: false,
         },
       },
       manualPaymentConfig: {
@@ -130,14 +153,13 @@ export default function MarketingSettingsPage() {
         nagad: { number: '', qrCode: '', active: false },
         rocket: { number: '', qrCode: '', active: false },
         banglaQr: { qrCode: '', active: false },
-        bank: { bankName: '', accountNumber: '', routingNumber: '', branchName: '', active: false },
         instructions: '',
       },
       courierConfig: {
-        activeProvider: 'none',
+        activeProvider: 'steadfast',
         steadfast: { apiKey: '', secretKey: '' },
-        pathao: { clientId: '', clientSecret: '', storeId: '' },
-        redx: { apiKey: '' },
+        pathao: { clientId: '', clientSecret: '', storeId: '', username: '', password: '', isSandbox: false },
+        redx: { apiKey: '', isSandbox: false },
         bdCourier: { apiKey: '' },
       },
       facebookDomainVerification: '',
@@ -147,6 +169,8 @@ export default function MarketingSettingsPage() {
       googleTagManagerId: '',
       tiktokPixelId: '',
       tiktokAccessToken: '',
+      tiktokDomainVerification: '',
+      tiktokTestEventCode: '',
     },
   });
 
@@ -171,10 +195,13 @@ export default function MarketingSettingsPage() {
                 deliveryChargeOutsideDhaka: result.data.deliveryChargeOutsideDhaka ?? 120,
                 paymentConfig: {
                   activeMethod: result.data.paymentConfig?.activeMethod || 'none',
+                  activeMethods: result.data.paymentConfig?.activeMethods || (result.data.paymentConfig?.cashOnDelivery !== false ? ['cod'] : []),
+                  cashOnDelivery: result.data.paymentConfig?.cashOnDelivery ?? true,
                   sslcommerz: {
                     storeId: result.data.paymentConfig?.sslcommerz?.storeId || '',
                     storePassword: result.data.paymentConfig?.sslcommerz?.storePassword || '',
                     isSandbox: result.data.paymentConfig?.sslcommerz?.isSandbox ?? true,
+                    active: result.data.paymentConfig?.sslcommerz?.active ?? (result.data.paymentConfig?.activeMethod === 'sslcommerz'),
                   },
                 },
                 manualPaymentConfig: {
@@ -197,13 +224,6 @@ export default function MarketingSettingsPage() {
                     qrCode: result.data.manualPaymentConfig?.banglaQr?.qrCode || '',
                     active: result.data.manualPaymentConfig?.banglaQr?.active ?? false,
                   },
-                  bank: {
-                    bankName: result.data.manualPaymentConfig?.bank?.bankName || '',
-                    accountNumber: result.data.manualPaymentConfig?.bank?.accountNumber || '',
-                    routingNumber: result.data.manualPaymentConfig?.bank?.routingNumber || '',
-                    branchName: result.data.manualPaymentConfig?.bank?.branchName || '',
-                    active: result.data.manualPaymentConfig?.bank?.active ?? false,
-                  },
                   instructions: result.data.manualPaymentConfig?.instructions || '',
                 },
                 courierConfig: {
@@ -216,9 +236,13 @@ export default function MarketingSettingsPage() {
                     clientId: result.data.courierConfig?.pathao?.clientId || '',
                     clientSecret: result.data.courierConfig?.pathao?.clientSecret || '',
                     storeId: result.data.courierConfig?.pathao?.storeId || '',
+                    username: result.data.courierConfig?.pathao?.username || '',
+                    password: result.data.courierConfig?.pathao?.password || '',
+                    isSandbox: result.data.courierConfig?.pathao?.isSandbox ?? false,
                   },
                   redx: {
                     apiKey: result.data.courierConfig?.redx?.apiKey || '',
+                    isSandbox: result.data.courierConfig?.redx?.isSandbox ?? false,
                   },
                   bdCourier: {
                     apiKey: result.data.courierConfig?.bdCourier?.apiKey || '',
@@ -231,22 +255,24 @@ export default function MarketingSettingsPage() {
                 googleTagManagerId: result.data.googleTagManagerId || '',
                 tiktokPixelId: result.data.tiktokPixelId || '',
                 tiktokAccessToken: result.data.tiktokAccessToken || '',
+                tiktokDomainVerification: result.data.tiktokDomainVerification || '',
+                tiktokTestEventCode: result.data.tiktokTestEventCode || '',
               };
               form.reset(sanitizedData);
             }
           } else {
             console.error('Settings validation failed:', result.error);
-            toast.error(t("marketing.invalid_settings") as string);
+            toast.error('Received invalid settings from server');
           }
         } else {
           if (!controller.signal.aborted) {
-            toast.error(`${t("marketing.failed_load")}: ${res.status} ${res.statusText}`);
+            toast.error(`Failed to load settings: ${res.status} ${res.statusText}`);
           }
         }
       } catch (error: any) {
         if (error.name === 'AbortError') return;
         if (!controller.signal.aborted) {
-          toast.error(t("marketing.failed_load") as string);
+          toast.error('Failed to load settings');
         }
       } finally {
         if (!controller.signal.aborted) {
@@ -259,9 +285,43 @@ export default function MarketingSettingsPage() {
     return () => controller.abort();
   }, [form]);
 
+  // Fetch tracking configuration status
+  const fetchTrackingStatus = useCallback(async () => {
+    setTrackingStatusLoading(true);
+    try {
+      const res = await fetch('/api/admin/marketing/server-tracking');
+      if (res.ok) {
+        setTrackingStatus(await res.json());
+      } else {
+        setTrackingStatus(null);
+        toast.error('Failed to fetch tracking status');
+      }
+    } catch {
+      setTrackingStatus(null);
+      toast.error('Failed to fetch tracking status');
+    } finally {
+      setTrackingStatusLoading(false);
+    }
+  }, []);
+
+
   const onSubmit = async (values: MarketingSettingsFormValues) => {
     setSubmitting(true);
     try {
+      // Sync payment methods
+      const isSslActive = Boolean(values.paymentConfig?.sslcommerz?.active);
+      if (values.paymentConfig) {
+        values.paymentConfig.activeMethod = isSslActive ? 'sslcommerz' : 'none';
+        const activeMethods: string[] = [];
+        if (values.paymentConfig.cashOnDelivery) activeMethods.push('cod');
+        if (isSslActive) activeMethods.push('sslcommerz');
+        if (values.manualPaymentConfig?.bkash?.active) activeMethods.push('bkash');
+        if (values.manualPaymentConfig?.nagad?.active) activeMethods.push('nagad');
+        if (values.manualPaymentConfig?.rocket?.active) activeMethods.push('rocket');
+        if (values.manualPaymentConfig?.banglaQr?.active) activeMethods.push('banglaQr');
+        values.paymentConfig.activeMethods = activeMethods;
+      }
+
       const response = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -269,12 +329,12 @@ export default function MarketingSettingsPage() {
       });
 
       if (response.ok) {
-        toast.success(t("marketing.settings_updated") as string);
+        toast.success('Marketing & Integration settings updated successfully');
       } else {
-        toast.error(t("marketing.failed_update") as string);
+        toast.error('Failed to update settings');
       }
     } catch (error) {
-      toast.error(t("marketing.error_updating") as string);
+      toast.error('Error updating settings');
     } finally {
       setSubmitting(false);
     }
@@ -289,31 +349,33 @@ export default function MarketingSettingsPage() {
   }
 
   return (
-    <div className="flex-1 space-y-4 px-[1px] pt-[1px] pb-4 md:p-8">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 w-full px-[1px] md:px-0 mb-[1px] md:mb-0">
-        <h1 className="hidden md:block text-2xl font-bold tracking-tight">{t("marketing.title")}</h1>
-        <Button type="submit" form="marketing-settings-form" disabled={submitting} className="w-full md:w-auto">
+    <div className="flex-1 space-y-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold tracking-tight">Marketing & Integration Settings</h1>
+        <Button type="submit" form="marketing-settings-form" disabled={submitting}>
           {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          {t("marketing.save_changes")}
+          Save Changes
         </Button>
       </div>
 
       <Form {...form}>
         <form id="marketing-settings-form" onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
           <Tabs defaultValue="loyalty" className="w-full">
-            <TabsList className="grid w-full grid-cols-4 lg:w-[480px]">
-              <TabsTrigger value="loyalty">{t("marketing.tab_loyalty")}</TabsTrigger>
-              <TabsTrigger value="payment">{t("marketing.tab_payment")}</TabsTrigger>
-              <TabsTrigger value="courier">{t("marketing.tab_courier")}</TabsTrigger>
-              <TabsTrigger value="marketing">{t("marketing.tab_marketing")}</TabsTrigger>
+            <TabsList className="flex flex-wrap h-auto gap-1 w-full">
+              <TabsTrigger value="loyalty" className="flex-1 min-w-[90px]">Loyalty</TabsTrigger>
+              <TabsTrigger value="payment" className="flex-1 min-w-[90px]">Payment</TabsTrigger>
+              <TabsTrigger value="courier" className="flex-1 min-w-[90px]">Courier</TabsTrigger>
+              <TabsTrigger value="marketing" className="flex-1 min-w-[150px]" onClick={fetchTrackingStatus}>
+                <Zap className="h-3 w-3 mr-1" />Meta Pixel & Server Track
+              </TabsTrigger>
             </TabsList>
 
             {/* 1. Loyalty Tab */}
             <TabsContent value="loyalty" className="space-y-4">
               <Card>
                 <CardHeader>
-                  <CardTitle>{t("marketing.loyalty_title")}</CardTitle>
-                  <CardDescription>{t("marketing.loyalty_desc")}</CardDescription>
+                  <CardTitle>Loyalty & Rewards System</CardTitle>
+                  <CardDescription>Configure how customers activate their lifetime rewards and the percentage they earn.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -322,7 +384,7 @@ export default function MarketingSettingsPage() {
                       name="subscriptionConfig.activationThreshold"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>{t("marketing.activation_threshold")}</FormLabel>
+                          <FormLabel>Activation Threshold (TK)</FormLabel>
                           <FormControl>
                             <Input
                               type="number"
@@ -331,7 +393,7 @@ export default function MarketingSettingsPage() {
                               onChange={(e) => field.onChange(Number(e.target.value))}
                             />
                           </FormControl>
-                          <FormDescription>{t("marketing.activation_desc")}</FormDescription>
+                          <FormDescription>Minimum single order amount to activate lifetime rewards for a user.</FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -341,7 +403,7 @@ export default function MarketingSettingsPage() {
                       name="subscriptionConfig.rewardPercentage"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>{t("marketing.reward_percentage")}</FormLabel>
+                          <FormLabel>Reward Percentage (%)</FormLabel>
                           <FormControl>
                             <Input
                               type="number"
@@ -350,7 +412,7 @@ export default function MarketingSettingsPage() {
                               onChange={(e) => field.onChange(Number(e.target.value))}
                             />
                           </FormControl>
-                          <FormDescription>{t("marketing.reward_desc")}</FormDescription>
+                          <FormDescription>Percentage of purchase total awarded as tokens to active users.</FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -358,79 +420,258 @@ export default function MarketingSettingsPage() {
                   </div>
 
                   <div className="rounded-lg border p-4 bg-primary/5">
-                    <h4 className="text-sm font-bold mb-2">{t("marketing.how_it_works")}</h4>
+                    <h4 className="text-sm font-bold mb-2">How it works:</h4>
                     <ul className="text-sm space-y-1 list-disc list-inside text-muted-foreground">
-                      <li>{t("marketing.loyalty_rule_1")}</li>
-                      <li>{t("marketing.loyalty_rule_2")}<strong>{t("marketing.active")}</strong>{t("marketing.loyalty_rule_2_after")}{form.watch('subscriptionConfig.activationThreshold')}{t("marketing.tk")}</li>
-                      <li>{t("marketing.loyalty_rule_3")}<strong>{form.watch('subscriptionConfig.rewardPercentage')}</strong>{t("marketing.loyalty_rule_3_after")}</li>
-                      <li>{t("marketing.loyalty_rule_4")}</li>
+                      <li>All registered users are enrolled in the loyalty program automatically.</li>
+                      <li>Users become <strong>Active</strong> after a single purchase ≥ {form.watch('subscriptionConfig.activationThreshold')} TK.</li>
+                      <li>Active users earn <strong>{form.watch('subscriptionConfig.rewardPercentage')}%</strong> of every purchase as wallet tokens.</li>
+                      <li>Tokens can be used for discounts on any future purchase.</li>
                     </ul>
                   </div>
                 </CardContent>
               </Card>
             </TabsContent>
 
-            {/* 2. Payment Tab */}
-            <TabsContent value="payment" className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <CreditCard className="h-5 w-5 text-primary" /> {t("marketing.payment_sslcommerz_title")}
-                  </CardTitle>
-                  <CardDescription>{t("marketing.payment_sslcommerz_desc")}</CardDescription>
+            {/* 2. Payment Gateway Tab */}
+            <TabsContent value="payment" className="space-y-6">
+              {/* Master Active Payment Methods Card */}
+              <Card className="border-2 border-primary/20 shadow-sm overflow-hidden">
+                <CardHeader className="bg-primary/5 border-b">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <CreditCard className="h-5 w-5 text-primary" /> Active Payment Methods (Multiple Selectable)
+                      </CardTitle>
+                      <CardDescription>
+                        চেকআউট পেজে কাস্টমারদের জন্য কোন কোন পেমেন্ট মেথড সক্রিয় থাকবে তা সিলেক্ট করুন (এক বা একাধিক সিলেক্ট করা যাবে)।
+                      </CardDescription>
+                    </div>
+                    <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-300 font-semibold gap-1 py-1 w-fit">
+                      <CheckCircle2 className="h-3 w-3" /> Multi-Gateway Support
+                    </Badge>
+                  </div>
                 </CardHeader>
-                <CardContent className="px-0 py-4 md:p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="md:col-span-1 space-y-4">
+                <CardContent className="p-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {/* 1. Cash on Delivery (COD) */}
                     <FormField
                       control={form.control}
-                      name="paymentConfig.activeMethod"
+                      name="paymentConfig.cashOnDelivery"
                       render={({ field }) => (
-                        <FormItem className="space-y-2">
-                          <FormLabel className="font-bold">{t("marketing.active_payment_method")}</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
-                            <FormControl>
-                              <SelectTrigger className="h-12 rounded-xl">
-                                <SelectValue placeholder={t("marketing.select_active_method") as string} />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="none">{t("marketing.none_cod")}</SelectItem>
-                              <SelectItem value="sslcommerz">{t("marketing.sslcommerz")}</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="paymentConfig.sslcommerz.isSandbox"
-                      render={({ field }) => (
-                        <FormItem className="flex items-center space-x-2 pt-4 space-y-0">
-                          <FormControl>
+                        <div
+                          onClick={() => field.onChange(!field.value)}
+                          className={`p-4 rounded-xl border-2 transition-all cursor-pointer flex flex-col justify-between gap-3 ${
+                            field.value ? 'border-primary bg-primary/5' : 'border-muted hover:border-muted-foreground/30'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                              <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center font-bold">
+                                <Truck className="h-4 w-4" />
+                              </div>
+                              <span className="font-bold text-sm">Cash on Delivery</span>
+                            </div>
                             <input
                               type="checkbox"
                               checked={field.value ?? true}
                               onChange={(e) => field.onChange(e.target.checked)}
-                              className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                              className="h-4 w-4 rounded border-primary text-primary focus:ring-primary"
+                              onClick={(e) => e.stopPropagation()}
                             />
-                          </FormControl>
-                          <FormLabel className="font-bold text-sm cursor-pointer">{t("marketing.enable_sandbox")}</FormLabel>
-                        </FormItem>
+                          </div>
+                          <p className="text-xs text-muted-foreground">পণ্য হাতে পেয়ে মূল্য পরিশোধ (ডিফল্ট অ্যাক্টিভ)</p>
+                          <Badge variant="secondary" className={`text-[10px] w-fit ${field.value ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : ''}`}>
+                            {field.value ? '● Active' : 'Off'}
+                          </Badge>
+                        </div>
+                      )}
+                    />
+
+                    {/* 2. SSLCommerz */}
+                    <FormField
+                      control={form.control}
+                      name="paymentConfig.sslcommerz.active"
+                      render={({ field }) => (
+                        <div
+                          onClick={() => field.onChange(!field.value)}
+                          className={`p-4 rounded-xl border-2 transition-all cursor-pointer flex flex-col justify-between gap-3 ${
+                            field.value ? 'border-primary bg-primary/5' : 'border-muted hover:border-muted-foreground/30'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                              <div className="h-8 w-8 rounded-lg bg-blue-500/10 text-blue-600 flex items-center justify-center font-bold">
+                                <CreditCard className="h-4 w-4" />
+                              </div>
+                              <span className="font-bold text-sm">SSLCommerz</span>
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={field.value ?? false}
+                              onChange={(e) => field.onChange(e.target.checked)}
+                              className="h-4 w-4 rounded border-primary text-primary focus:ring-primary"
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </div>
+                          <p className="text-xs text-muted-foreground">কার্ড, বিকাশ, নগদ অনলাইন গেটওয়ে</p>
+                          <Badge variant="secondary" className={`text-[10px] w-fit ${field.value ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : ''}`}>
+                            {field.value ? '● Active' : 'Off'}
+                          </Badge>
+                        </div>
+                      )}
+                    />
+
+                    {/* 3. Bangla QR */}
+                    <FormField
+                      control={form.control}
+                      name="manualPaymentConfig.banglaQr.active"
+                      render={({ field }) => (
+                        <div
+                          onClick={() => field.onChange(!field.value)}
+                          className={`p-4 rounded-xl border-2 transition-all cursor-pointer flex flex-col justify-between gap-3 ${
+                            field.value ? 'border-primary bg-primary/5' : 'border-muted hover:border-muted-foreground/30'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                              <div className="h-8 w-8 rounded-lg overflow-hidden flex items-center justify-center font-bold">
+                                <Image src="/qrlogo.jpg" alt="Bangla QR" width={32} height={32} className="h-full w-full object-contain" />
+                              </div>
+                              <span className="font-bold text-sm">Bangla QR</span>
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={field.value ?? false}
+                              onChange={(e) => field.onChange(e.target.checked)}
+                              className="h-4 w-4 rounded border-primary text-primary focus:ring-primary"
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </div>
+                          <p className="text-xs text-muted-foreground">সার্বজনীন বাংলা কিউআর পেমেন্ট</p>
+                          <Badge variant="secondary" className={`text-[10px] w-fit ${field.value ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : ''}`}>
+                            {field.value ? '● Active' : 'Off'}
+                          </Badge>
+                        </div>
+                      )}
+                    />
+
+                    {/* 4. Manual Nagad */}
+                    <FormField
+                      control={form.control}
+                      name="manualPaymentConfig.nagad.active"
+                      render={({ field }) => (
+                        <div
+                          onClick={() => field.onChange(!field.value)}
+                          className={`p-4 rounded-xl border-2 transition-all cursor-pointer flex flex-col justify-between gap-3 ${
+                            field.value ? 'border-primary bg-primary/5' : 'border-muted hover:border-muted-foreground/30'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                              <Image src="/assets/nagadlogo.webp" alt="Nagad" width={28} height={28} className="h-7 w-7 object-contain" />
+                              <span className="font-bold text-sm">Manual Nagad</span>
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={field.value ?? false}
+                              onChange={(e) => field.onChange(e.target.checked)}
+                              className="h-4 w-4 rounded border-primary text-primary focus:ring-primary"
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </div>
+                          <p className="text-xs text-muted-foreground">নগদ পার্সোনাল/মার্চেন্ট ম্যানুয়াল সেন্ড মানি</p>
+                          <Badge variant="secondary" className={`text-[10px] w-fit ${field.value ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : ''}`}>
+                            {field.value ? '● Active' : 'Off'}
+                          </Badge>
+                        </div>
+                      )}
+                    />
+
+                    {/* 5. Manual Rocket */}
+                    <FormField
+                      control={form.control}
+                      name="manualPaymentConfig.rocket.active"
+                      render={({ field }) => (
+                        <div
+                          onClick={() => field.onChange(!field.value)}
+                          className={`p-4 rounded-xl border-2 transition-all cursor-pointer flex flex-col justify-between gap-3 ${
+                            field.value ? 'border-primary bg-primary/5' : 'border-muted hover:border-muted-foreground/30'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                              <Image src="/assets/rocketlogo.webp" alt="Rocket" width={28} height={28} className="h-7 w-7 object-contain" />
+                              <span className="font-bold text-sm">Manual Rocket</span>
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={field.value ?? false}
+                              onChange={(e) => field.onChange(e.target.checked)}
+                              className="h-4 w-4 rounded border-primary text-primary focus:ring-primary"
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </div>
+                          <p className="text-xs text-muted-foreground">রকেট পার্সোনাল/মার্চেন্ট ম্যানুয়াল সেন্ড মানি</p>
+                          <Badge variant="secondary" className={`text-[10px] w-fit ${field.value ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : ''}`}>
+                            {field.value ? '● Active' : 'Off'}
+                          </Badge>
+                        </div>
+                      )}
+                    />
+
+                    {/* 6. Manual bKash */}
+                    <FormField
+                      control={form.control}
+                      name="manualPaymentConfig.bkash.active"
+                      render={({ field }) => (
+                        <div
+                          onClick={() => field.onChange(!field.value)}
+                          className={`p-4 rounded-xl border-2 transition-all cursor-pointer flex flex-col justify-between gap-3 ${
+                            field.value ? 'border-primary bg-primary/5' : 'border-muted hover:border-muted-foreground/30'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                              <Image src="/assets/bkashlogo.webp" alt="bKash" width={28} height={28} className="h-7 w-7 object-contain" />
+                              <span className="font-bold text-sm">Manual bKash</span>
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={field.value ?? false}
+                              onChange={(e) => field.onChange(e.target.checked)}
+                              className="h-4 w-4 rounded border-primary text-primary focus:ring-primary"
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </div>
+                          <p className="text-xs text-muted-foreground">বিকাশ পার্সোনাল/মার্চেন্ট ম্যানুয়াল সেন্ড মানি</p>
+                          <Badge variant="secondary" className={`text-[10px] w-fit ${field.value ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : ''}`}>
+                            {field.value ? '● Active' : 'Off'}
+                          </Badge>
+                        </div>
                       )}
                     />
                   </div>
+                </CardContent>
+              </Card>
 
-                  <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 bg-muted/20 p-4 rounded-2xl border">
-                    <div className="md:col-span-2 font-black text-xs uppercase opacity-50 mb-2">{t("marketing.sslcommerz_credentials")}</div>
+              {/* SSLCommerz Credentials Card */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <CreditCard className="h-5 w-5 text-primary" /> SSLCommerz Credentials
+                  </CardTitle>
+                  <CardDescription>Configure SSLCommerz Store ID and Password for automated online transactions</CardDescription>
+                </CardHeader>
+                <CardContent className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
                     <FormField
                       control={form.control}
                       name="paymentConfig.sslcommerz.storeId"
                       render={({ field }) => (
                         <FormItem className="space-y-2">
-                          <FormLabel className="font-bold text-xs">{t("marketing.store_id")}</FormLabel>
+                          <FormLabel className="font-bold text-xs">Store ID</FormLabel>
                           <FormControl>
-                            <Input placeholder={t("marketing.store_id") as string} {...field} className="h-10 rounded-lg border px-3 text-xs" />
+                            <Input placeholder="Store ID" {...field} className="h-10 rounded-lg border px-3 text-sm" />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -441,9 +682,132 @@ export default function MarketingSettingsPage() {
                       name="paymentConfig.sslcommerz.storePassword"
                       render={({ field }) => (
                         <FormItem className="space-y-2">
-                          <FormLabel className="font-bold text-xs">{t("marketing.store_password")}</FormLabel>
+                          <FormLabel className="font-bold text-xs">Store Password</FormLabel>
                           <FormControl>
-                            <Input type="text" placeholder={t("marketing.store_password") as string} {...field} className="h-10 rounded-lg border px-3 text-xs" />
+                            <Input type="text" placeholder="Enter Password" {...field} className="h-10 rounded-lg border px-3 text-sm" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                  <div className="flex items-center">
+                    <FormField
+                      control={form.control}
+                      name="paymentConfig.sslcommerz.isSandbox"
+                      render={({ field }) => (
+                        <FormItem className="flex items-center space-x-2 space-y-0 p-4 border rounded-xl w-full bg-muted/20">
+                          <FormControl>
+                            <input
+                              type="checkbox"
+                              checked={field.value ?? true}
+                              onChange={(e) => field.onChange(e.target.checked)}
+                              className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                            />
+                          </FormControl>
+                          <div className="space-y-0.5">
+                            <FormLabel className="font-bold text-sm cursor-pointer">Enable Sandbox Mode</FormLabel>
+                            <p className="text-xs text-muted-foreground">টেস্টিংয়ের জন্য স্যান্ডবক্স মোড অন রাখুন</p>
+                          </div>
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  {/* Sandbox Test Credentials Helper */}
+                  <div className="md:col-span-3 mt-1 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs">
+                    <div className="flex items-center gap-1.5 font-bold text-amber-700 dark:text-amber-400 mb-2">
+                      <Zap className="h-4 w-4" />
+                      <span>SSLCommerz Sandbox Test Credentials (টেস্টিং তথ্য)</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-[11px]">
+                      <div className="p-2 rounded-lg bg-background/80 border space-y-0.5">
+                        <span className="font-bold text-primary block">VISA Card</span>
+                        <code className="text-[10px] bg-muted px-1 py-0.5 rounded select-all font-mono block">4111 1111 1111 1111</code>
+                        <span className="text-[10px] text-muted-foreground block">Exp: 12/28 | CVV: 111</span>
+                      </div>
+                      <div className="p-2 rounded-lg bg-background/80 border space-y-0.5">
+                        <span className="font-bold text-primary block">MasterCard</span>
+                        <code className="text-[10px] bg-muted px-1 py-0.5 rounded select-all font-mono block">5111 1111 1111 1111</code>
+                        <span className="text-[10px] text-muted-foreground block">Exp: 12/28 | CVV: 111</span>
+                      </div>
+                      <div className="p-2 rounded-lg bg-background/80 border space-y-0.5">
+                        <span className="font-bold text-primary block">Amex Card</span>
+                        <code className="text-[10px] bg-muted px-1 py-0.5 rounded select-all font-mono block">3711 1111 1111 111</code>
+                        <span className="text-[10px] text-muted-foreground block">Exp: 12/28 | CVV: 111</span>
+                      </div>
+                      <div className="p-2 rounded-lg bg-background/80 border space-y-0.5">
+                        <span className="font-bold text-primary block">bKash / Nagad / Rocket</span>
+                        <span className="text-[10px] text-muted-foreground block">নম্বর: যেকোনো মোবাইল নম্বর</span>
+                        <span className="text-[10px] text-muted-foreground block">OTP: 111111 বা 123456 | PIN: 1234</span>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Manual Mobile Banking Numbers Card */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Wallet className="h-5 w-5 text-primary" /> Manual Payment Numbers (Mobile Banking)
+                  </CardTitle>
+                  <CardDescription>গ্রাহক যে একাউন্ট নাম্বারে টাকা পাঠাবে তা নিচে প্রদান করুন</CardDescription>
+                </CardHeader>
+                <CardContent className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* bKash */}
+                  <div className="space-y-3 p-4 rounded-xl border bg-muted/10">
+                    <div className="flex items-center gap-2">
+                      <Image src="/assets/bkashlogo.webp" alt="bKash" width={24} height={24} className="h-6 w-6 object-contain" />
+                      <span className="font-bold text-sm">bKash Number</span>
+                    </div>
+                    <FormField
+                      control={form.control}
+                      name="manualPaymentConfig.bkash.number"
+                      render={({ field }) => (
+                        <FormItem className="space-y-1.5">
+                          <FormControl>
+                            <Input placeholder="01XXXXXXXXX" {...field} className="h-10 rounded-lg border px-3 text-sm" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  {/* Nagad */}
+                  <div className="space-y-3 p-4 rounded-xl border bg-muted/10">
+                    <div className="flex items-center gap-2">
+                      <Image src="/assets/nagadlogo.webp" alt="Nagad" width={24} height={24} className="h-6 w-6 object-contain" />
+                      <span className="font-bold text-sm">Nagad Number</span>
+                    </div>
+                    <FormField
+                      control={form.control}
+                      name="manualPaymentConfig.nagad.number"
+                      render={({ field }) => (
+                        <FormItem className="space-y-1.5">
+                          <FormControl>
+                            <Input placeholder="01XXXXXXXXX" {...field} className="h-10 rounded-lg border px-3 text-sm" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  {/* Rocket */}
+                  <div className="space-y-3 p-4 rounded-xl border bg-muted/10">
+                    <div className="flex items-center gap-2">
+                      <Image src="/assets/rocketlogo.webp" alt="Rocket" width={24} height={24} className="h-6 w-6 object-contain" />
+                      <span className="font-bold text-sm">Rocket Number</span>
+                    </div>
+                    <FormField
+                      control={form.control}
+                      name="manualPaymentConfig.rocket.number"
+                      render={({ field }) => (
+                        <FormItem className="space-y-1.5">
+                          <FormControl>
+                            <Input placeholder="01XXXXXXXXX" {...field} className="h-10 rounded-lg border px-3 text-sm" />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -453,213 +817,219 @@ export default function MarketingSettingsPage() {
                 </CardContent>
               </Card>
 
-              <Card>
+              {/* Bangla QR (Universal Pay) Card */}
+              <Card className="border-2 border-dashed border-primary/20 bg-primary/5">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <CreditCard className="h-5 w-5 text-primary" /> {t("marketing.manual_payment_title")}
+                    <Image src="/qrlogo.jpg" alt="Bangla QR" width={22} height={22} className="h-5 w-5 object-contain rounded inline-block" /> Bangla QR (Universal Pay)
                   </CardTitle>
-                  <CardDescription>{t("marketing.manual_payment_desc")}</CardDescription>
+                  <CardDescription>
+                    Accept payment from any bank app via Bangla QR (কাস্টমার যেকোনো ব্যাংক বা এমএফএস অ্যাপ থেকে কিউআর স্ক্যান করে পে করতে পারবে)
+                  </CardDescription>
                 </CardHeader>
-                <CardContent className="px-0 py-4 md:p-6 space-y-8">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                    {(['bkash', 'nagad', 'rocket'] as const).map((method) => (
-                      <div key={method} className="space-y-4 p-4 rounded-2xl border bg-muted/10">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                          <div className="flex items-center gap-2">
-                            <Image src={`/assets/${method}logo.webp`} alt={method} width={24} height={24} className="h-6 w-6 object-contain" />
-                            <span className="font-bold capitalize">{method}</span>
-                          </div>
-                          <FormField
-                            control={form.control}
-                            name={`manualPaymentConfig.${method}.active`}
-                            render={({ field }) => (
-                              <FormItem className="space-y-0">
-                                <FormControl>
-                                  <input
-                                    type="checkbox"
-                                    checked={field.value ?? false}
-                                    onChange={(e) => field.onChange(e.target.checked)}
-                                    className="h-4 w-4"
-                                  />
-                                </FormControl>
-                              </FormItem>
-                            )}
-                          />
-                        </div>
-                        <FormField
-                          control={form.control}
-                          name={`manualPaymentConfig.${method}.number`}
-                          render={({ field }) => (
-                            <FormItem className="space-y-2">
-                              <FormLabel className="text-[10px] uppercase opacity-60">{t("marketing.number")}</FormLabel>
-                              <FormControl>
-                                <Input placeholder="017XXXXXXXX" {...field} className="h-10 rounded-lg border px-3 text-sm" />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Bank Transfer Details */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 border-t pt-8 mt-8">
-                    <div className="md:col-span-2 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Landmark className="h-5 w-5 text-primary" />
-                        <div>
-                          <h4 className="font-bold text-sm text-foreground">{t("marketing.bank_transfer_details")}</h4>
-                          <p className="text-xs text-muted-foreground">{t("marketing.bank_transfer_desc")}</p>
-                        </div>
-                      </div>
+                <CardContent className="p-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+                    <div className="space-y-3">
+                      <Label className="text-sm font-semibold">Upload Bangla QR Image</Label>
                       <FormField
                         control={form.control}
-                        name="manualPaymentConfig.bank.active"
+                        name="manualPaymentConfig.banglaQr.qrCode"
                         render={({ field }) => (
-                          <FormItem className="space-y-0">
-                            <FormControl>
-                              <input
-                                type="checkbox"
-                                checked={field.value ?? false}
-                                onChange={(e) => field.onChange(e.target.checked)}
-                                className="h-5 w-5 rounded-md border-primary text-primary focus:ring-primary"
+                          <div>
+                            {field.value ? (
+                              <div className="flex flex-col sm:flex-row items-center gap-4 p-4 bg-background rounded-2xl border border-primary/20 shadow-sm">
+                                <div className="relative group shrink-0">
+                                  <div className="h-28 w-28 rounded-xl border bg-white p-2 flex items-center justify-center overflow-hidden shadow-sm">
+                                    <Image
+                                      src={field.value}
+                                      alt="Bangla QR"
+                                      width={112}
+                                      height={112}
+                                      className="max-h-full max-w-full object-contain"
+                                    />
+                                  </div>
+                                </div>
+                                <div className="flex-1 space-y-2 text-center sm:text-left">
+                                  <div className="flex flex-wrap items-center gap-2 justify-center sm:justify-start">
+                                    <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-xs font-bold gap-1">
+                                      <CheckCircle2 className="h-3.5 w-3.5" /> QR Code Uploaded
+                                    </Badge>
+                                    <Badge variant="outline" className="text-[10px] font-semibold">
+                                      Universal Pay Active
+                                    </Badge>
+                                  </div>
+                                  <p className="text-xs text-muted-foreground">
+                                    কাস্টমার চেকআউট পেজে এই কিউআর স্ক্যান করে পেমেন্ট সম্পন্ন করতে পারবেন।
+                                  </p>
+                                  <div className="flex flex-wrap items-center gap-2 justify-center sm:justify-start pt-1">
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => setShowQrPreviewModal(true)}
+                                      className="h-8 text-xs font-bold gap-1.5 rounded-lg border-primary/20 hover:bg-primary/5"
+                                    >
+                                      <Eye className="h-3.5 w-3.5 text-primary" /> Preview Customer Modal
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => field.onChange('')}
+                                      className="h-8 text-xs font-bold gap-1.5 rounded-lg text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/20"
+                                    >
+                                      <X className="h-3.5 w-3.5" /> Remove / Change
+                                    </Button>
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <ImageUpload
+                                onUpload={(url) => field.onChange(url)}
+                                className="h-24 rounded-2xl border-2 border-dashed border-primary/30 hover:border-primary transition-all bg-card"
                               />
-                            </FormControl>
-                          </FormItem>
+                            )}
+                          </div>
                         )}
                       />
                     </div>
-
-                    <FormField
-                      control={form.control}
-                      name="manualPaymentConfig.bank.bankName"
-                      render={({ field }) => (
-                        <FormItem className="space-y-2">
-                          <FormLabel className="text-xs font-semibold text-gray-700">{t("marketing.bank_name")}</FormLabel>
-                          <FormControl>
-                            <Input placeholder="e.g. Islami Bank Bangladesh PLC" {...field} className="h-10 rounded-lg border px-3 text-xs" />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="manualPaymentConfig.bank.accountNumber"
-                      render={({ field }) => (
-                        <FormItem className="space-y-2">
-                          <FormLabel className="text-xs font-semibold text-gray-700">{t("marketing.account_number")}</FormLabel>
-                          <FormControl>
-                            <Input placeholder="e.g. 20501234567890123" {...field} className="h-10 rounded-lg border px-3 text-xs" />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="manualPaymentConfig.bank.routingNumber"
-                      render={({ field }) => (
-                        <FormItem className="space-y-2">
-                          <FormLabel className="text-xs font-semibold text-gray-700">{t("marketing.routing_number")}</FormLabel>
-                          <FormControl>
-                            <Input placeholder="e.g. 125271429" {...field} className="h-10 rounded-lg border px-3 text-xs" />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="manualPaymentConfig.bank.branchName"
-                      render={({ field }) => (
-                        <FormItem className="space-y-2">
-                          <FormLabel className="text-xs font-semibold text-gray-700">{t("marketing.branch_name")}</FormLabel>
-                          <FormControl>
-                            <Input placeholder="e.g. Motijheel Branch" {...field} className="h-10 rounded-lg border px-3 text-xs" />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                    <div className="p-4 bg-card rounded-2xl border border-primary/10 space-y-2">
+                      <div className="flex items-center gap-2 font-bold text-xs text-primary">
+                        <Globe className="h-4 w-4" />
+                        <span>Bangla QR Universal Interoperability</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        আপনার ব্যাংক বা মোবাইল ফাইন্যান্সিয়াল অ্যাপ (যেমন: Citytouch, bKash Merchant, EBL SKYBANKING ইত্যাদি) থেকে ডাউনলোডকৃত বাংলা কিউআর কোডের ছবিটি আপলোড করুন। যেকোনো ব্যাংক বা এমএফএস অ্যাপ থেকে গ্রাহক সরাসরি স্ক্যান করতে পারবেন।
+                      </p>
+                    </div>
                   </div>
-
-                  {/* Payment Instructions */}
-                  <div className="border-t pt-8 mt-8 space-y-4">
-                    <FormField
-                      control={form.control}
-                      name="manualPaymentConfig.instructions"
-                      render={({ field }) => (
-                        <FormItem className="space-y-2">
-                          <FormLabel className="font-bold text-sm">{t("marketing.payment_instructions")}</FormLabel>
-                          <FormControl>
-                            <textarea
-                              {...field}
-                              rows={4}
-                              placeholder={t("marketing.describe_instructions") as string}
-                              className="w-full rounded-lg border p-3 text-xs bg-transparent border-input"
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
                 </CardContent>
               </Card>
+
+              {/* Smart Bangla QR Customer Preview Modal */}
+              <Dialog open={showQrPreviewModal} onOpenChange={setShowQrPreviewModal}>
+                <DialogContent className="sm:max-w-[430px] rounded-3xl p-0 overflow-hidden border-none shadow-2xl flex flex-col max-h-[92vh]">
+                  <DialogHeader className="py-4 px-6 bg-gradient-to-br from-primary to-primary/80 text-white relative shrink-0">
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 bg-white rounded-xl p-1.5 shadow-md shrink-0 flex items-center justify-center">
+                        <Image src="/qrlogo.jpg" alt="Bangla QR" width={32} height={32} className="h-full w-auto object-contain rounded" />
+                      </div>
+                      <div className="text-left">
+                        <div className="flex items-center gap-2">
+                          <DialogTitle className="text-base md:text-lg font-black uppercase tracking-tight">
+                            Pay via Bangla QR
+                          </DialogTitle>
+                          <Badge className="bg-white/20 text-white border-none text-[9px] font-bold px-1.5 py-0">
+                            Live Preview
+                          </Badge>
+                        </div>
+                        <p className="text-[10px] text-white/80 font-medium">কাস্টমার ভিউ প্রিভিউ (চেকআউট পেজে যেভাবে দেখাবে)</p>
+                      </div>
+                    </div>
+                  </DialogHeader>
+
+                  <div className="flex-1 overflow-y-auto p-5 space-y-4 max-h-[65vh]">
+                    {/* Smart QR Card */}
+                    <div className="relative bg-gradient-to-b from-primary/10 via-primary/5 to-transparent rounded-3xl p-5 border-2 border-primary/20 flex flex-col items-center text-center shadow-inner">
+                      <div className="flex items-center gap-1.5 mb-3">
+                        <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                        <span className="text-[10px] font-black uppercase tracking-wider text-primary">Interoperable Universal QR</span>
+                      </div>
+
+                      {/* QR Frame with stylish scanner corners */}
+                      <div className="relative p-3 bg-white dark:bg-zinc-900 rounded-2xl shadow-xl border-2 border-primary/20">
+                        <div className="absolute -top-1 -left-1 w-4 h-4 border-t-2 border-l-2 border-primary rounded-tl" />
+                        <div className="absolute -top-1 -right-1 w-4 h-4 border-t-2 border-r-2 border-primary rounded-tr" />
+                        <div className="absolute -bottom-1 -left-1 w-4 h-4 border-b-2 border-l-2 border-primary rounded-bl" />
+                        <div className="absolute -bottom-1 -right-1 w-4 h-4 border-b-2 border-r-2 border-primary rounded-br" />
+
+                        {form.watch('manualPaymentConfig.banglaQr.qrCode') ? (
+                          <Image
+                            src={form.watch('manualPaymentConfig.banglaQr.qrCode') || '/assets/placeholder-qr.png'}
+                            alt="Bangla QR"
+                            width={180}
+                            height={180}
+                            className="h-44 w-44 object-contain rounded-lg"
+                          />
+                        ) : (
+                          <div className="h-44 w-44 flex flex-col items-center justify-center text-muted-foreground bg-muted/30 rounded-lg">
+                            <QrCode className="h-16 w-16 opacity-30 mb-2" />
+                            <p className="text-[10px] font-medium">কোনো কিউআর আপলোড করা হয়নি</p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Supported apps pill */}
+                      <div className="mt-3.5 flex flex-wrap items-center justify-center gap-1 max-w-[320px]">
+                        <Badge variant="outline" className="text-[9px] font-bold bg-white/70 dark:bg-zinc-800 border-primary/20">bKash</Badge>
+                        <Badge variant="outline" className="text-[9px] font-bold bg-white/70 dark:bg-zinc-800 border-primary/20">Nagad</Badge>
+                        <Badge variant="outline" className="text-[9px] font-bold bg-white/70 dark:bg-zinc-800 border-primary/20">Rocket</Badge>
+                        <Badge variant="outline" className="text-[9px] font-bold bg-white/70 dark:bg-zinc-800 border-primary/20">Citytouch</Badge>
+                        <Badge variant="outline" className="text-[9px] font-bold bg-white/70 dark:bg-zinc-800 border-primary/20">Cellfin</Badge>
+                        <Badge variant="outline" className="text-[9px] font-bold bg-white/70 dark:bg-zinc-800 border-primary/20">যেকোনো ব্যাংক অ্যাপ</Badge>
+                      </div>
+
+                      <div className="mt-3 py-1 px-4 bg-primary/10 rounded-full border border-primary/20">
+                        <span className="text-xs font-black text-primary">নমুনা মোট অ্যামাউন্ট: ৳২,৫০০</span>
+                      </div>
+                    </div>
+
+                    {/* Instruction Panel */}
+                    <div className="bg-slate-50 dark:bg-zinc-950 rounded-2xl p-4 border border-slate-200 dark:border-zinc-800 space-y-2">
+                      <p className="text-[11px] font-black text-slate-800 dark:text-zinc-200 uppercase tracking-wider flex items-center gap-1.5">
+                        <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                        পেমেন্ট নির্দেশিকা (পড়ুন):
+                      </p>
+                      <div className="space-y-1.5 text-[10px] leading-relaxed text-slate-600 dark:text-zinc-400 font-medium">
+                        <p>১. আপনার ব্যাংক (Citytouch, EBL, ইত্যাদি) বা MFS (বিকাশ, নগদ, রকেট) অ্যাপ ওপেন করুন।</p>
+                        <p>২. অ্যাপের <strong>"QR Pay"</strong> বা <strong>"Scan QR"</strong> অপশন সিলেক্ট করে ওপরের কোডটি স্ক্যান করুন।</p>
+                        <p>৩. মোট পেমেন্ট অ্যামাউন্ট নিশ্চিত করে সেন্ড/পে সম্পন্ন করুন।</p>
+                        <p>৪. সফলভাবে পেমেন্টের পর নিচের ঘরে <strong>TrxID</strong> বা <strong>মোবাইল নম্বর</strong> প্রদান করে কনফার্ম করুন।</p>
+                      </div>
+                    </div>
+
+                    {/* Sample Verification Fields */}
+                    <div className="space-y-2 pt-1 opacity-75 pointer-events-none">
+                      <Label className="text-[10px] font-black uppercase opacity-60">ট্রানজেকশন আইডি (TrxID)</Label>
+                      <Input placeholder="যেমন: 8N7A6D5C" disabled className="h-9 rounded-lg text-xs bg-background" />
+                    </div>
+                  </div>
+
+                  <DialogFooter className="p-4 bg-muted/20 border-t flex flex-row justify-end">
+                    <Button onClick={() => setShowQrPreviewModal(false)} className="rounded-full h-9 px-6 font-bold text-xs">
+                      বন্ধ করুন
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+
             </TabsContent>
 
             {/* 3. Courier Tab */}
-            <TabsContent value="courier" className="space-y-4">
+            <TabsContent value="courier" className="space-y-6">
+              {/* Delivery Charges Card */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <Truck className="h-5 w-5 text-primary" /> {t("marketing.courier_title")}
+                    <Truck className="h-5 w-5 text-primary" /> Delivery Charge Rules
                   </CardTitle>
-                  <CardDescription>{t("marketing.courier_desc")}</CardDescription>
+                  <CardDescription>Configure standard customer delivery fees for storefront checkouts.</CardDescription>
                 </CardHeader>
-                <CardContent className="px-0 py-4 md:p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="md:col-span-1 space-y-4">
-                    <FormField
-                      control={form.control}
-                      name="courierConfig.activeProvider"
-                      render={({ field }) => (
-                        <FormItem className="space-y-2">
-                          <FormLabel className="font-bold">{t("marketing.active_provider")}</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
-                            <FormControl>
-                              <SelectTrigger className="h-12 rounded-xl">
-                                <SelectValue placeholder={t("marketing.select_provider") as string} />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="none">{t("marketing.none")}</SelectItem>
-                              <SelectItem value="steadfast">{t("marketing.steadfast")}</SelectItem>
-                              <SelectItem value="pathao">{t("marketing.pathao")}</SelectItem>
-                              <SelectItem value="redx">{t("marketing.redx")}</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                <CardContent className="p-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <FormField
                       control={form.control}
                       name="deliveryChargeInsideDhaka"
                       render={({ field }) => (
                         <FormItem className="space-y-2">
-                          <FormLabel className="font-bold">{t("marketing.inside_dhaka")}</FormLabel>
+                          <FormLabel className="font-bold">Inside Dhaka (TK)</FormLabel>
                           <FormControl>
                             <Input
                               type="number"
                               {...field}
                               onChange={(e) => field.onChange(Number(e.target.value))}
-                              className="h-12 rounded-xl"
+                              className="h-11 rounded-xl font-semibold"
                             />
                           </FormControl>
                           <FormMessage />
@@ -671,13 +1041,13 @@ export default function MarketingSettingsPage() {
                       name="deliveryChargeOutsideDhaka"
                       render={({ field }) => (
                         <FormItem className="space-y-2">
-                          <FormLabel className="font-bold">{t("marketing.outside_dhaka")}</FormLabel>
+                          <FormLabel className="font-bold">Outside Dhaka (TK)</FormLabel>
                           <FormControl>
                             <Input
                               type="number"
                               {...field}
                               onChange={(e) => field.onChange(Number(e.target.value))}
-                              className="h-12 rounded-xl"
+                              className="h-11 rounded-xl font-semibold"
                             />
                           </FormControl>
                           <FormMessage />
@@ -685,74 +1055,208 @@ export default function MarketingSettingsPage() {
                       )}
                     />
                   </div>
+                </CardContent>
+              </Card>
 
-                  <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 bg-muted/20 p-4 rounded-2xl border">
-                    <div className="md:col-span-2 font-black text-xs uppercase opacity-50 mb-2">{t("marketing.provider_credentials")}</div>
-                    <FormField
-                      control={form.control}
-                      name="courierConfig.steadfast.apiKey"
-                      render={({ field }) => (
-                        <FormItem className="space-y-2">
-                          <FormLabel className="font-bold text-xs">{t("marketing.steadfast_api_key")}</FormLabel>
-                          <FormControl>
-                            <Input type="text" placeholder={t("marketing.steadfast_api_key") as string} {...field} className="h-10 rounded-lg border px-3 text-xs" />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="courierConfig.steadfast.secretKey"
-                      render={({ field }) => (
-                        <FormItem className="space-y-2">
-                          <FormLabel className="font-bold text-xs">{t("marketing.steadfast_secret_key")}</FormLabel>
-                          <FormControl>
-                            <Input type="text" placeholder={t("marketing.steadfast_secret_key") as string} {...field} className="h-10 rounded-lg border px-3 text-xs" />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="courierConfig.pathao.storeId"
-                      render={({ field }) => (
-                        <FormItem className="space-y-2">
-                          <FormLabel className="font-bold text-xs">{t("marketing.pathao_store_id")}</FormLabel>
-                          <FormControl>
-                            <Input placeholder={t("marketing.pathao_store_id") as string} {...field} className="h-10 rounded-lg border px-3 text-xs" />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="courierConfig.redx.apiKey"
-                      render={({ field }) => (
-                        <FormItem className="space-y-2">
-                          <FormLabel className="font-bold text-xs">{t("marketing.redx_api_key")}</FormLabel>
-                          <FormControl>
-                            <Input type="text" placeholder={t("marketing.redx_api_key") as string} {...field} className="h-10 rounded-lg border px-3 text-xs" />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="courierConfig.bdCourier.apiKey"
-                      render={({ field }) => (
-                        <FormItem className="space-y-2">
-                          <FormLabel className="font-bold text-xs">{t("marketing.bd_courier_api_key")}</FormLabel>
-                          <FormControl>
-                            <Input type="text" placeholder={t("marketing.bd_courier_api_key") as string} {...field} className="h-10 rounded-lg border px-3 text-xs" />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+              {/* Courier Providers Credentials */}
+              <Card>
+                <CardHeader>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <Settings2 className="h-5 w-5 text-primary" /> Multi-Courier API Integrations
+                      </CardTitle>
+                      <CardDescription>
+                        Configure API credentials for couriers you use. During order booking, you can choose any configured courier.
+                      </CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-6 space-y-6">
+                  {/* Steadfast Courier */}
+                  <div className="p-4 rounded-xl border bg-muted/20 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sm text-foreground">🚚 Steadfast Courier</span>
+                        <span className="text-[10px] bg-orange-100 text-orange-800 dark:bg-orange-950/40 dark:text-orange-400 font-semibold px-2 py-0.5 rounded-full">
+                          Steadfast API
+                        </span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <FormField
+                        control={form.control}
+                        name="courierConfig.steadfast.apiKey"
+                        render={({ field }) => (
+                          <FormItem className="space-y-1">
+                            <FormLabel className="font-bold text-xs">Steadfast API Key</FormLabel>
+                            <FormControl>
+                              <Input type="text" placeholder="e.g. Okblxdrgj9qqzyzajhvmc3is3nnaxcd8" {...field} className="h-10 rounded-lg text-xs font-mono" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="courierConfig.steadfast.secretKey"
+                        render={({ field }) => (
+                          <FormItem className="space-y-1">
+                            <FormLabel className="font-bold text-xs">Steadfast Secret Key</FormLabel>
+                            <FormControl>
+                              <Input type="text" placeholder="e.g. yq25rvb2a1iajxoznxtvofem" {...field} className="h-10 rounded-lg text-xs font-mono" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Pathao Courier */}
+                  <div className="p-4 rounded-xl border bg-muted/20 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sm text-foreground">📦 Pathao Courier</span>
+                        <span className="text-[10px] bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-400 font-semibold px-2 py-0.5 rounded-full">
+                          Pathao Aladdin v1 API
+                        </span>
+                      </div>
+                      <FormField
+                        control={form.control}
+                        name="courierConfig.pathao.isSandbox"
+                        render={({ field }) => (
+                          <FormItem className="flex items-center space-x-2 space-y-0">
+                            <FormControl>
+                              <input
+                                type="checkbox"
+                                checked={field.value ?? false}
+                                onChange={(e) => field.onChange(e.target.checked)}
+                                className="h-3.5 w-3.5 rounded"
+                              />
+                            </FormControl>
+                            <FormLabel className="text-xs cursor-pointer font-medium">Sandbox Mode</FormLabel>
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                      <FormField
+                        control={form.control}
+                        name="courierConfig.pathao.clientId"
+                        render={({ field }) => (
+                          <FormItem className="space-y-1">
+                            <FormLabel className="font-bold text-xs">Pathao Client ID <span className="text-red-500">*</span></FormLabel>
+                            <FormControl>
+                              <Input placeholder="Client ID from Developer Portal" {...field} className="h-10 rounded-lg text-xs font-mono" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="courierConfig.pathao.clientSecret"
+                        render={({ field }) => (
+                          <FormItem className="space-y-1">
+                            <FormLabel className="font-bold text-xs">Pathao Client Secret <span className="text-red-500">*</span></FormLabel>
+                            <FormControl>
+                              <Input placeholder="Client Secret" {...field} className="h-10 rounded-lg text-xs font-mono" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="courierConfig.pathao.username"
+                        render={({ field }) => (
+                          <FormItem className="space-y-1">
+                            <FormLabel className="font-bold text-xs">Merchant Email / Username <span className="text-red-500">*</span></FormLabel>
+                            <FormControl>
+                              <Input placeholder="merchant@email.com" {...field} className="h-10 rounded-lg text-xs" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="courierConfig.pathao.password"
+                        render={({ field }) => (
+                          <FormItem className="space-y-1">
+                            <FormLabel className="font-bold text-xs">Merchant Password <span className="text-red-500">*</span></FormLabel>
+                            <FormControl>
+                              <Input type="password" placeholder="••••••••" {...field} className="h-10 rounded-lg text-xs" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    <div className="p-2.5 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/50 rounded-lg text-[11px] text-blue-800 dark:text-blue-300 flex items-center gap-2">
+                      <span>💡 <strong>পিকআপ পয়েন্ট অটোমেশন:</strong> Store ID আলাদা করে দেওয়ার প্রয়োজন নেই। রিসেলারদের পণ্যের ডেলিভারি রিসেলারের নিজস্ব রেজিস্টার্ড পিকআপ পয়েন্ট থেকে এবং মাদার শপের পণ্য মাদার ওয়্যারহাউস থেকে সিস্টেম স্বয়ংক্রিয়ভাবে ডিটেক্ট করবে।</span>
+                    </div>
+                  </div>
+
+                  {/* RedX Courier & BD Courier Checker */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* RedX */}
+                    <div className="p-4 rounded-xl border bg-muted/20 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-sm text-foreground">📮 RedX Logistics</span>
+                        <FormField
+                          control={form.control}
+                          name="courierConfig.redx.isSandbox"
+                          render={({ field }) => (
+                            <FormItem className="flex items-center space-x-2 space-y-0">
+                              <FormControl>
+                                <input
+                                  type="checkbox"
+                                  checked={field.value ?? false}
+                                  onChange={(e) => field.onChange(e.target.checked)}
+                                  className="h-3.5 w-3.5 rounded"
+                                />
+                              </FormControl>
+                              <FormLabel className="text-xs cursor-pointer font-medium">Sandbox</FormLabel>
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      <FormField
+                        control={form.control}
+                        name="courierConfig.redx.apiKey"
+                        render={({ field }) => (
+                          <FormItem className="space-y-1">
+                            <FormLabel className="font-bold text-xs">RedX API Key</FormLabel>
+                            <FormControl>
+                              <Input placeholder="RedX API Key" {...field} className="h-10 rounded-lg text-xs font-mono" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+
+                    {/* BD Courier Fraud Checker */}
+                    <div className="p-4 rounded-xl border bg-muted/20 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-sm text-foreground">🛡️ BD Courier Fraud Checker</span>
+                      </div>
+                      <FormField
+                        control={form.control}
+                        name="courierConfig.bdCourier.apiKey"
+                        render={({ field }) => (
+                          <FormItem className="space-y-1">
+                            <FormLabel className="font-bold text-xs">BD Courier API Key</FormLabel>
+                            <FormControl>
+                              <Input placeholder="BD Courier Fraud API Key" {...field} className="h-10 rounded-lg text-xs font-mono" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -763,22 +1267,22 @@ export default function MarketingSettingsPage() {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <BarChart3 className="h-5 w-5 text-primary" /> {t("marketing.marketing_meta_title")}
+                    <BarChart3 className="h-5 w-5 text-primary" /> Marketing & Meta Pixel
                   </CardTitle>
-                  <CardDescription>{t("marketing.marketing_meta_desc")}</CardDescription>
+                  <CardDescription>Configure Meta Pixel and tracking integrations.</CardDescription>
                 </CardHeader>
-                <CardContent className="px-0 py-4 md:p-6 space-y-6">
+                <CardContent className="p-6 space-y-6">
                   <FormField
                     control={form.control}
                     name="googleTagManagerId"
                     render={({ field }) => (
                       <FormItem className="space-y-2">
-                        <FormLabel className="font-bold text-xs">{t("marketing.gtm_id")}</FormLabel>
+                        <FormLabel className="font-bold text-xs">GTM ID (Tag Manager)</FormLabel>
                         <FormControl>
                           <Input placeholder="GTM-XXXXXXX" {...field} className="h-12 rounded-xl" />
                         </FormControl>
                         <FormDescription>
-                          {t("marketing.gtm_desc")}
+                          Container ID for GA, Ads, and other tags.
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -789,9 +1293,9 @@ export default function MarketingSettingsPage() {
                     name="metaPixelId"
                     render={({ field }) => (
                       <FormItem className="space-y-2">
-                        <FormLabel className="font-bold text-xs">{t("marketing.meta_pixel_id")}</FormLabel>
+                        <FormLabel className="font-bold text-xs">Meta Pixel ID</FormLabel>
                         <FormControl>
-                          <Input placeholder={t("marketing.meta_pixel_id") as string} {...field} className="h-12 rounded-xl" />
+                          <Input placeholder="Enter Meta Pixel ID" {...field} className="h-12 rounded-xl" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -802,9 +1306,9 @@ export default function MarketingSettingsPage() {
                     name="facebookAccessToken"
                     render={({ field }) => (
                       <FormItem className="space-y-2">
-                        <FormLabel className="font-bold text-xs">{t("marketing.fb_access_token")}</FormLabel>
+                        <FormLabel className="font-bold text-xs">Facebook Access Token</FormLabel>
                         <FormControl>
-                          <Input type="text" placeholder={t("marketing.fb_access_token") as string} {...field} className="h-12 rounded-xl" />
+                          <Input type="text" placeholder="Enter Access Token" {...field} className="h-12 rounded-xl" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -816,9 +1320,9 @@ export default function MarketingSettingsPage() {
                       name="facebookDomainVerification"
                       render={({ field }) => (
                         <FormItem className="space-y-2">
-                          <FormLabel className="font-bold text-xs">{t("marketing.fb_domain_verification")}</FormLabel>
+                          <FormLabel className="font-bold text-xs">FB Domain Verification</FormLabel>
                           <FormControl>
-                            <Input placeholder={t("marketing.fb_domain_verification") as string} {...field} className="h-12 rounded-xl" />
+                            <Input placeholder="Enter FB Domain Verification Key" {...field} className="h-12 rounded-xl" />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -829,9 +1333,9 @@ export default function MarketingSettingsPage() {
                       name="facebookTestEventCode"
                       render={({ field }) => (
                         <FormItem className="space-y-2">
-                          <FormLabel className="font-bold text-xs">{t("marketing.fb_test_event_code")}</FormLabel>
+                          <FormLabel className="font-bold text-xs">FB Test Event Code</FormLabel>
                           <FormControl>
-                            <Input placeholder={t("marketing.fb_test_event_code") as string} {...field} className="h-12 rounded-xl" />
+                            <Input placeholder="Enter FB Test Event Code" {...field} className="h-12 rounded-xl" />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -839,17 +1343,17 @@ export default function MarketingSettingsPage() {
                     />
                   </div>
 
-                  <div className="border-t pt-6 mt-6">
-                    <h4 className="font-black text-xs uppercase opacity-50 mb-4">{t("marketing.tiktok_pixel_events_api")}</h4>
+                  <div className="border-t pt-6 mt-6 space-y-4">
+                    <h4 className="font-black text-xs uppercase opacity-50 mb-4">TikTok Pixel & Events API</h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <FormField
                         control={form.control}
                         name="tiktokPixelId"
                         render={({ field }) => (
                           <FormItem className="space-y-2">
-                            <FormLabel className="font-bold text-xs">{t("marketing.tiktok_pixel_id")}</FormLabel>
+                            <FormLabel className="font-bold text-xs">TikTok Pixel ID</FormLabel>
                             <FormControl>
-                              <Input placeholder={t("marketing.tiktok_pixel_id") as string} {...field} className="h-12 rounded-xl" />
+                              <Input placeholder="Enter TikTok Pixel ID" {...field} className="h-12 rounded-xl" />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -860,9 +1364,37 @@ export default function MarketingSettingsPage() {
                         name="tiktokAccessToken"
                         render={({ field }) => (
                           <FormItem className="space-y-2">
-                            <FormLabel className="font-bold text-xs">{t("marketing.tiktok_access_token")}</FormLabel>
+                            <FormLabel className="font-bold text-xs">TikTok Access Token</FormLabel>
                             <FormControl>
-                              <Input type="text" placeholder={t("marketing.tiktok_access_token") as string} {...field} className="h-12 rounded-xl" />
+                              <Input type="text" placeholder="Enter Access Token" {...field} className="h-12 rounded-xl" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <FormField
+                        control={form.control}
+                        name="tiktokDomainVerification"
+                        render={({ field }) => (
+                          <FormItem className="space-y-2">
+                            <FormLabel className="font-bold text-xs">TikTok Domain Verification</FormLabel>
+                            <FormControl>
+                              <Input placeholder="Enter TikTok Domain Verification Key" {...field} className="h-12 rounded-xl" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="tiktokTestEventCode"
+                        render={({ field }) => (
+                          <FormItem className="space-y-2">
+                            <FormLabel className="font-bold text-xs">TikTok Test Event Code</FormLabel>
+                            <FormControl>
+                              <Input placeholder="Enter TikTok Test Event Code (e.g. TEST81538)" {...field} className="h-12 rounded-xl" />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -872,7 +1404,95 @@ export default function MarketingSettingsPage() {
                   </div>
                 </CardContent>
               </Card>
+
+              {/* Status Overview & Event Testing */}
+              <div className="space-y-6 mt-6">
+                {/* Status Overview Cards */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {([
+                    { key: 'facebook', label: 'Meta CAPI', icon: <BarChart3 className="h-4 w-4" /> },
+                    { key: 'tiktok', label: 'TikTok API', icon: <BarChart3 className="h-4 w-4" /> },
+                    { key: 'gtm', label: 'GTM', icon: <Settings2 className="h-4 w-4" /> },
+                    { key: 'ga', label: 'GA4', icon: <BarChart3 className="h-4 w-4" /> },
+                  ] as const).map(({ key, label, icon }) => {
+                    const platform = trackingStatus?.[key];
+                    const isConfigured = platform?.configured ?? false;
+                    return (
+                      <Card key={key} className={`border-2 ${trackingStatus === null ? 'border-muted' :
+                          isConfigured ? 'border-primary/30 bg-primary/5' : 'border-destructive/30 bg-destructive/5'
+                        }`}>
+                        <CardContent className="pt-4 pb-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-bold uppercase tracking-wide opacity-60">{label}</span>
+                            {trackingStatusLoading ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : trackingStatus === null ? (
+                              <AlertCircle className="h-4 w-4 text-muted-foreground" />
+                            ) : isConfigured ? (
+                              <CheckCircle2 className="h-4 w-4 text-primary" />
+                            ) : (
+                              <XCircle className="h-4 w-4 text-destructive" />
+                            )}
+                          </div>
+                          <p className={`text-sm font-bold ${trackingStatus === null ? 'text-muted-foreground' :
+                              isConfigured ? 'text-primary' : 'text-destructive'
+                            }`}>
+                            {trackingStatus === null ? '—' : isConfigured ? 'Connected' : 'Not Set'}
+                          </p>
+                          {platform && 'pixelId' in platform && platform.pixelId && (
+                            <p className="text-[10px] text-muted-foreground mt-0.5 font-mono">{platform.pixelId}</p>
+                          )}
+                          {platform && 'gtmId' in platform && platform.gtmId && (
+                            <p className="text-[10px] text-muted-foreground mt-0.5 font-mono">{platform.gtmId}</p>
+                          )}
+                          {platform && 'gaId' in platform && platform.gaId && (
+                            <p className="text-[10px] text-muted-foreground mt-0.5 font-mono">{platform.gaId}</p>
+                          )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+
+                {/* Refresh status button */}
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={fetchTrackingStatus}
+                    disabled={trackingStatusLoading}
+                  >
+                    {trackingStatusLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <RefreshCcw className="h-4 w-4 mr-2" />
+                    )}
+                    Refresh Status
+                  </Button>
+                  {!trackingStatus && !trackingStatusLoading && (
+                    <p className="text-xs text-muted-foreground">Click the tab or Refresh Status to load configuration.</p>
+                  )}
+                </div>
+
+                {/* Security notice */}
+                <Card className="border-amber-500/20 bg-amber-500/5">
+                  <CardContent className="pt-4 pb-3">
+                    <div className="flex items-start gap-3">
+                      <ShieldCheck className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                      <div className="text-xs">
+                        <p className="font-bold mb-1">Security: Credentials are stored encrypted</p>
+                        <p className="text-muted-foreground">
+                          Facebook and TikTok Access Tokens are stored with field-level encryption in MongoDB.
+                          They are never exposed in frontend responses — only masked IDs are returned to the client.
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
             </TabsContent>
+
           </Tabs>
         </form>
       </Form>

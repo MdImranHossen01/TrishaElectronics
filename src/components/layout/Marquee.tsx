@@ -7,7 +7,10 @@ export function Marquee({ marqueeText: initialText }: { marqueeText?: string }) 
   const [marqueeText, setMarqueeText] = useState(initialText || '');
 
   useEffect(() => {
-    if (initialText) return; // Skip fetch if provided as prop
+    if (initialText !== undefined) {
+      setMarqueeText(initialText);
+      return;
+    }
 
     const controller = new AbortController();
 
@@ -17,12 +20,14 @@ export function Marquee({ marqueeText: initialText }: { marqueeText?: string }) 
         if (!res.ok) throw new Error('Failed to fetch settings');
 
         const data = await res.json();
-        const defaultText = `Welcome to ${process.env.NEXT_PUBLIC_STORE_NAME || 'Store'}! Free shipping on orders over ৳500.`;
-        setMarqueeText(data.marqueeText || defaultText);
+        if (data.marqueeText !== undefined) {
+          setMarqueeText(data.marqueeText);
+        } else {
+          setMarqueeText('Welcome to our store! Free shipping on orders over ৳500.');
+        }
       } catch (error: any) {
         if (error.name !== 'AbortError') {
           console.error('Error fetching marquee text:', error);
-          setMarqueeText(`Welcome to ${process.env.NEXT_PUBLIC_STORE_NAME || 'Store'}! Free shipping on orders over ৳500.`);
         }
       }
     }
@@ -31,25 +36,25 @@ export function Marquee({ marqueeText: initialText }: { marqueeText?: string }) 
     return () => controller.abort();
   }, [initialText]);
 
-  if (!marqueeText) return null;
+  if (!marqueeText || !marqueeText.trim()) return null;
 
   return (
-    <div className="bg-primary text-white py-2 overflow-hidden flex items-center font-semibold">
+    <div className="bg-primary text-primary-foreground py-2 overflow-hidden flex items-center font-semibold">
       <FastMarquee
         gradient={false}
         speed={50}
         pauseOnHover={true}
       >
-        <span className="mx-10 font-medium uppercase tracking-wider text-xs sm:text-sm flex items-center">
+        <span className="mx-10 font-medium tracking-wider text-xs sm:text-sm flex items-center">
           {marqueeText}
         </span>
-        <span className="mx-10 font-medium uppercase tracking-wider text-xs sm:text-sm flex items-center border-l border-white/25 pl-10">
+        <span className="mx-10 font-medium tracking-wider text-xs sm:text-sm flex items-center border-l border-primary-foreground/25 pl-10">
           {marqueeText}
         </span>
-        <span className="mx-10 font-medium uppercase tracking-wider text-xs sm:text-sm flex items-center border-l border-white/25 pl-10">
+        <span className="mx-10 font-medium tracking-wider text-xs sm:text-sm flex items-center border-l border-primary-foreground/25 pl-10">
           {marqueeText}
         </span>
-        <span className="mx-10 font-medium uppercase tracking-wider text-xs sm:text-sm flex items-center border-l border-white/25 pl-10">
+        <span className="mx-10 font-medium tracking-wider text-xs sm:text-sm flex items-center border-l border-primary-foreground/25 pl-10">
           {marqueeText}
         </span>
       </FastMarquee>

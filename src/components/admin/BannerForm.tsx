@@ -36,12 +36,9 @@ const urlSchema = z.string().optional().refine((val) => {
 });
 
 const bannerSchema = z.object({
-  title: z.string().min(3, 'Title is required'),
-  image: z.string().min(1, 'Image is required'),
-  primaryBtnText: z.string().optional(),
-  primaryBtnLink: urlSchema,
-  secondaryBtnText: z.string().optional(),
-  secondaryBtnLink: urlSchema,
+  title: z.string().optional(),
+  image: z.string().min(1, 'Banner image is required'),
+  link: urlSchema,
   order: z.coerce.number().int().default(0),
   isActive: z.boolean().default(true),
 });
@@ -50,21 +47,24 @@ type BannerFormValues = z.infer<typeof bannerSchema>;
 
 interface BannerFormProps {
   initialData?: any;
+  apiBase?: string;
+  redirectPath?: string;
 }
 
-export function BannerForm({ initialData }: BannerFormProps) {
+export function BannerForm({ 
+  initialData, 
+  apiBase = '/api/admin/banners', 
+  redirectPath = '/admin/cms/banners' 
+}: BannerFormProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
 
   const form = useForm<BannerFormValues>({
     resolver: zodResolver(bannerSchema) as any,
     defaultValues: {
-      title: initialData?.title || '',
+      title: initialData?.title || 'Banner',
       image: initialData?.image || '',
-      primaryBtnText: initialData?.primaryBtnText || 'Shop Now',
-      primaryBtnLink: initialData?.primaryBtnLink || '',
-      secondaryBtnText: initialData?.secondaryBtnText || 'Contact',
-      secondaryBtnLink: initialData?.secondaryBtnLink || '',
+      link: initialData?.link || initialData?.primaryBtnLink || '',
       order: initialData?.order || 0,
       isActive: initialData?.isActive ?? true,
     },
@@ -73,18 +73,27 @@ export function BannerForm({ initialData }: BannerFormProps) {
   const onSubmit = async (values: BannerFormValues) => {
     setLoading(true);
     try {
-      const url = initialData ? `/api/admin/banners/${initialData._id}` : '/api/admin/banners';
-      const method = initialData ? 'PUT' : 'POST';
+      const isResellerApi = apiBase.includes('/api/reseller/');
+      const url = initialData 
+        ? (isResellerApi ? apiBase : `${apiBase}/${initialData._id}`) 
+        : apiBase;
+      const method = initialData ? (isResellerApi ? 'PATCH' : 'PUT') : 'POST';
+      const payloadData = {
+        ...values,
+        title: values.title || 'Promotional Banner',
+        primaryBtnLink: values.link || '',
+      };
+      const payload = initialData && isResellerApi ? { ...payloadData, id: initialData._id } : payloadData;
 
       const response = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(values),
+        body: JSON.stringify(payload),
       });
 
       if (response.ok) {
         toast.success(`Banner ${initialData ? 'updated' : 'created'} successfully`);
-        router.push('/admin/cms/banners');
+        router.push(redirectPath);
         router.refresh();
       } else {
         const error = await response.json();
@@ -111,9 +120,12 @@ export function BannerForm({ initialData }: BannerFormProps) {
             >
               <ArrowLeft className="h-4 w-4" />
             </Button>
-            <h1 className="text-2xl font-bold tracking-tight">
-              {initialData ? 'Edit' : 'Add'} Banner
-            </h1>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">
+                {initialData ? 'Edit' : 'Add'} Banner
+              </h1>
+              <p className="text-sm text-muted-foreground">Upload banner image and optional destination link</p>
+            </div>
           </div>
           <Button type="submit" disabled={loading}>
             {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -122,88 +134,74 @@ export function BannerForm({ initialData }: BannerFormProps) {
         </div>
 
         <div className="grid gap-6 md:grid-cols-2">
+          {/* Banner Image Upload */}
           <div className="space-y-6">
             <Card>
               <CardContent className="pt-6 space-y-4">
+                <Label className="text-base font-semibold">Banner Image <span className="text-destructive">*</span></Label>
+                <div className="w-full">
+                  <FormField
+                    control={form.control}
+                    name="image"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormControl>
+                          <ImageUpload
+                            value={field.value}
+                            onUpload={(url) => field.onChange(url)}
+                            className="aspect-[21/9] w-full"
+                            aspect="banner"
+                            folder="banners"
+                            maxWidthOrHeight={2100}
+                            targetMaxKB={400}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+                <div className="space-y-2 pt-1">
+                  <p className="text-xs text-muted-foreground">
+                    <strong>Recommended Dimensions:</strong> 21:9 aspect ratio or <strong>2100×900px</strong> for crisp display across all desktop, laptop & mobile screens.
+                  </p>
+                  <div className="flex items-center gap-1.5 text-destructive font-semibold text-[11px] bg-destructive/10 border border-destructive/20 rounded-md px-2.5 py-1.5">
+                    <span className="font-bold uppercase tracking-wider text-[10px] bg-destructive text-white px-1.5 py-0.5 rounded shrink-0">Recommendation</span>
+                    <span>Upload in <strong>.webp</strong> format to ensure 100% original sharpness, zero quality loss, and instant loading!</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Banner Settings (Link, Order & Status) */}
+          <div className="space-y-6">
+            <Card>
+              <CardContent className="pt-6 space-y-5">
                 <FormField
                   control={form.control}
-                  name="title"
+                  name="link"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Banner Title</FormLabel>
+                      <FormLabel className="text-sm font-semibold">Banner Click / Destination Link (Optional)</FormLabel>
                       <FormControl>
-                        <Input placeholder="Enter banner title" {...field} />
+                        <Input placeholder="https://yourstore.com/shop or https://..." {...field} />
                       </FormControl>
+                      <FormDescription className="text-xs">
+                        When a customer clicks the banner, they will be redirected to this link.
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
 
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="primaryBtnText"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Primary Button Text</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Shop Now" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="primaryBtnLink"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Primary Button Link</FormLabel>
-                        <FormControl>
-                          <Input placeholder="https://example.com/shop" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="secondaryBtnText"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Secondary Button Text</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Learn More" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="secondaryBtnLink"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Secondary Button Link</FormLabel>
-                        <FormControl>
-                          <Input placeholder="https://wa.me/..." {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-4 pt-2">
                   <FormField
                     control={form.control}
                     name="order"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Display Order</FormLabel>
+                        <FormLabel className="text-sm font-semibold">Display Order</FormLabel>
                         <FormControl>
                           <Input type="number" {...field} />
                         </FormControl>
@@ -216,9 +214,9 @@ export function BannerForm({ initialData }: BannerFormProps) {
                     control={form.control}
                     name="isActive"
                     render={({ field }) => (
-                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm mt-8">
+                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm mt-7">
                         <div className="space-y-0.5">
-                          <FormLabel className="text-base">Active Status</FormLabel>
+                          <FormLabel className="text-sm font-medium cursor-pointer">Active Status</FormLabel>
                         </div>
                         <FormControl>
                           <Checkbox
@@ -229,41 +227,6 @@ export function BannerForm({ initialData }: BannerFormProps) {
                       </FormItem>
                     )}
                   />
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="space-y-6">
-            <Card>
-              <CardContent className="pt-6 space-y-4">
-                <Label>Banner Image</Label>
-                <div className="w-full">
-                  <FormField
-                    control={form.control}
-                    name="image"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormControl>
-                          <ImageUpload
-                            value={field.value}
-                            onUpload={(url) => field.onChange(url)}
-                            className="aspect-[21/9] w-full"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-                                <div className="space-y-2 pt-1">
-                  <p className="text-xs text-muted-foreground">
-                    <strong>Recommended Dimensions:</strong> 21:9 aspect ratio or <strong>2100×900px</strong> for crisp display across all desktop, laptop & mobile screens.
-                  </p>
-                  <div className="flex items-center gap-1.5 text-destructive font-semibold text-[11px] bg-destructive/10 border border-destructive/20 rounded-md px-2.5 py-1.5">
-                    <span className="font-bold uppercase tracking-wider text-[10px] bg-destructive text-white px-1.5 py-0.5 rounded shrink-0">Recommendation</span>
-                    <span>Upload in <strong>.webp</strong> format to ensure 100% original sharpness, zero quality loss, and instant loading!</span>
-                  </div>
                 </div>
               </CardContent>
             </Card>

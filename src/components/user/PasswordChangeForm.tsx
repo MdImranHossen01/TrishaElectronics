@@ -6,7 +6,6 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { useLanguage } from '@/contexts/LanguageContext';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -33,7 +32,6 @@ interface PasswordChangeFormProps {
 }
 
 export function PasswordChangeForm({ hideHeader = false }: PasswordChangeFormProps) {
-  const { t } = useLanguage();
   const [isLoading, setIsLoading] = useState(false);
 
   const form = useForm<z.infer<typeof passwordSchema>>({
@@ -76,9 +74,9 @@ export function PasswordChangeForm({ hideHeader = false }: PasswordChangeFormPro
     <Card className="max-w-md w-full border-none shadow-none bg-transparent">
       {!hideHeader && (
         <CardHeader className="px-0 pt-0">
-          <CardTitle className="text-2xl font-black">{t('store.dashboard.change_password') || 'Change Password'}</CardTitle>
+          <CardTitle className="text-2xl font-black">Change Password</CardTitle>
           <CardDescription>
-            {t('store.dashboard.change_password_desc') || 'Ensure your account is using a long, random password to stay secure.'}
+            Ensure your account is using a long, random password to stay secure.
           </CardDescription>
         </CardHeader>
       )}
@@ -90,7 +88,7 @@ export function PasswordChangeForm({ hideHeader = false }: PasswordChangeFormPro
               name="newPassword"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="font-bold">{t('store.dashboard.new_password') || 'New Password'}</FormLabel>
+                  <FormLabel className="font-bold">New Password</FormLabel>
                   <FormControl>
                     <Input 
                       placeholder="••••••••" 
@@ -109,7 +107,7 @@ export function PasswordChangeForm({ hideHeader = false }: PasswordChangeFormPro
               name="confirmNewPassword"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="font-bold">{t('store.dashboard.confirm_new_password') || 'Confirm New Password'}</FormLabel>
+                  <FormLabel className="font-bold">Confirm New Password</FormLabel>
                   <FormControl>
                     <Input 
                       placeholder="••••••••" 
@@ -129,7 +127,7 @@ export function PasswordChangeForm({ hideHeader = false }: PasswordChangeFormPro
               className="w-full h-12 bg-primary hover:bg-primary/90 text-primary-foreground font-bold rounded-xl transition-all shadow-lg shadow-primary/20"
             >
               {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {t('store.dashboard.save_password') || 'Save Password'}
+              Save Password
             </Button>
           </form>
         </Form>

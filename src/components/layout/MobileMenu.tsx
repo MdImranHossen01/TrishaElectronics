@@ -16,7 +16,6 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { useLanguage } from '@/contexts/LanguageContext';
 
 interface MobileMenuProps {
   navItems: { href: string; label: string }[];
@@ -26,7 +25,6 @@ interface MobileMenuProps {
 }
 
 export function MobileMenu({ navItems, categories, session, triggerClassName }: MobileMenuProps) {
-  const { t } = useLanguage();
   const pathname = usePathname();
   const [open, setOpen] = React.useState(false);
 
@@ -71,7 +69,7 @@ export function MobileMenu({ navItems, categories, session, triggerClassName }: 
                       <Accordion type="single" collapsible className="w-full">
                         <AccordionItem value="categories" className="border-none px-4">
                           <AccordionTrigger className="py-3 text-sm font-bold uppercase tracking-widest text-foreground/70 hover:text-primary hover:no-underline">
-                            {t('store.nav.categories') || 'Categories'}
+                            Categories
                           </AccordionTrigger>
                           <AccordionContent className="flex flex-col gap-3 pt-2 pl-4">
                             {categories.map((cat: any) => (

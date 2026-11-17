@@ -1,5 +1,16 @@
 import mongoose, { Document, Model, Schema } from 'mongoose';
 
+import './LedgerAccount';
+import './LoanProvider';
+export interface IBusinessLoanRepayment {
+  amount: number;
+  paymentAccountId: mongoose.Types.ObjectId;
+  paymentAccountName?: string;
+  date: Date;
+  note?: string;
+  createdAt: Date;
+}
+
 export interface IBusinessLoan extends Document {
   loanId: string;
   lenderName: string;
@@ -10,13 +21,10 @@ export interface IBusinessLoan extends Document {
   expectedRepaymentDate: Date;
   receivingAccountId: mongoose.Types.ObjectId;
   lenderId?: mongoose.Types.ObjectId;
-  repaymentType: 'One-time' | 'Installment';
   interestAmount: number;
   totalRepaymentAmount: number;
-  installmentCount?: number;
-  installmentAmount?: number;
-  installmentDayOfMonth?: number;
   status: 'Active' | 'Paid';
+  repayments?: IBusinessLoanRepayment[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -32,20 +40,24 @@ const BusinessLoanSchema: Schema<IBusinessLoan> = new Schema(
     expectedRepaymentDate: { type: Date, required: true },
     receivingAccountId: { type: Schema.Types.ObjectId, ref: 'LedgerAccount', required: true },
     lenderId: { type: Schema.Types.ObjectId, ref: 'LoanProvider' },
-    repaymentType: { type: String, enum: ['One-time', 'Installment'], default: 'One-time' },
     interestAmount: { type: Number, default: 0, min: 0 },
     totalRepaymentAmount: { type: Number, required: true, min: 0 },
-    installmentCount: { type: Number },
-    installmentAmount: { type: Number },
-    installmentDayOfMonth: { type: Number, min: 1, max: 31 },
     status: { type: String, enum: ['Active', 'Paid'], default: 'Active' },
+    repayments: [
+      {
+        amount: { type: Number, required: true },
+        paymentAccountId: { type: Schema.Types.ObjectId, ref: 'LedgerAccount', required: true },
+        paymentAccountName: { type: String },
+        date: { type: Date, default: Date.now },
+        note: { type: String },
+        createdAt: { type: Date, default: Date.now }
+      }
+    ]
   },
   { timestamps: true }
 );
 
-// Pre-save hook to calculate dueAmount and status
 BusinessLoanSchema.pre('save', function (this: any) {
-  // If totalRepaymentAmount isn't set manually, assume it's same as amount (no interest)
   if (!this.totalRepaymentAmount) {
     this.totalRepaymentAmount = this.amount + (this.interestAmount || 0);
   }

@@ -36,14 +36,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
+import { toast } from 'sonner';
 import { CouponForm } from '@/components/admin/CouponForm';
 import Swal from 'sweetalert2';
-import { useLanguage } from '@/contexts/LanguageContext';
 
 export default function CouponsPage() {
-  const { t } = useLanguage();
   const [coupons, setCoupons] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -51,7 +49,6 @@ export default function CouponsPage() {
   const [editingCoupon, setEditingCoupon] = useState<any>(null);
 
   const fetchCoupons = async () => {
-    await Promise.resolve();
     try {
       const response = await fetch('/api/admin/coupons');
       if (response.ok) {
@@ -69,10 +66,7 @@ export default function CouponsPage() {
   };
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      fetchCoupons();
-    }, 0);
-    return () => clearTimeout(timer);
+    fetchCoupons();
   }, []);
 
   const handleDelete = async (id: string) => {
@@ -108,24 +102,24 @@ export default function CouponsPage() {
   );
 
   return (
-    <div className="flex-1 space-y-4 px-[1px] pt-[1px] pb-4 md:p-8">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 w-full mb-[1px] md:mb-0">
-        <div className="hidden md:block">
-          <h2 className="text-3xl font-bold tracking-tight">{t("coupons.title")}</h2>
-          <p className="text-muted-foreground">{t("coupons.subtitle")}</p>
+    <div className="flex-1 space-y-4 md:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div>
+          <h2 className="text-xl md:text-2xl font-bold tracking-tight">Coupons</h2>
+          <p className="text-xs md:text-sm text-muted-foreground">Manage discount codes and promotional offers.</p>
         </div>
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
           <DialogTrigger 
             render={
-              <Button className="w-full md:w-auto bg-primary hover:bg-primary/90">
-                <Plus className="mr-2 h-4 w-4" /> {t("coupons.add_coupon")}
+              <Button className="bg-primary hover:bg-primary/90 h-9 self-start sm:self-auto text-xs md:text-sm">
+                <Plus className="mr-1.5 h-4 w-4" /> Add Coupon
               </Button>
             }
           />
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
-              <DialogTitle>{t("coupons.create_new")}</DialogTitle>
-              <DialogDescription>{t("coupons.create_desc")}</DialogDescription>
+              <DialogTitle>Create New Coupon</DialogTitle>
+              <DialogDescription>Fill in the details to create a new discount code.</DialogDescription>
             </DialogHeader>
             <CouponForm onSuccess={() => {
               setIsAddDialogOpen(false);
@@ -136,11 +130,11 @@ export default function CouponsPage() {
       </div>
 
       <div className="flex items-center space-x-2">
-        <div className="relative flex-1">
+        <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder={t("coupons.search_placeholder") as string}
-            className="pl-8"
+            placeholder="Search by coupon code..."
+            className="pl-8 h-9 text-xs md:text-sm"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -148,97 +142,158 @@ export default function CouponsPage() {
       </div>
 
       <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
-        <Table className="block md:table">
-          <TableHeader className="hidden md:table-header-group bg-muted/50">
-            <TableRow className="block md:table-row border md:border-b border-slate-100 rounded-xl p-3 sm:p-4 md:p-0 bg-white md:bg-transparent shadow-sm md:shadow-none mb-3 md:mb-0">
-              <TableHead className="font-bold">{t("coupons.code")}</TableHead>
-              <TableHead className="font-bold">{t("coupons.discount")}</TableHead>
-              <TableHead className="font-bold">{t("coupons.min_purchase")}</TableHead>
-              <TableHead className="font-bold">{t("coupons.expiry")}</TableHead>
-              <TableHead className="font-bold">{t("coupons.usage")}</TableHead>
-              <TableHead className="font-bold">{t("coupons.status")}</TableHead>
-              <TableHead className="text-right font-bold">{t("coupons.actions")}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody className="block md:table-row-group space-y-3 md:space-y-0 p-3 md:p-0">
-            {loading ? (
-              <TableRow className="block md:table-row border md:border-b border-slate-100 rounded-xl p-3 sm:p-4 md:p-0 bg-white md:bg-transparent shadow-sm md:shadow-none mb-3 md:mb-0">
-                <TableCell colSpan={7} className="block md:table-cell py-1.5 md:py-4 text-left h-24 text-center">
-                  <Loader2 className="mx-auto h-6 w-6 animate-spin text-primary" />
-                </TableCell>
+        {/* Desktop Table View */}
+        <div className="hidden md:block overflow-x-auto">
+          <Table>
+            <TableHeader className="bg-muted/50">
+              <TableRow>
+                <TableHead className="font-bold">Code</TableHead>
+                <TableHead className="font-bold">Discount</TableHead>
+                <TableHead className="font-bold">Min Purchase</TableHead>
+                <TableHead className="font-bold">Expiry</TableHead>
+                <TableHead className="font-bold">Usage</TableHead>
+                <TableHead className="font-bold">Status</TableHead>
+                <TableHead className="text-right font-bold">Actions</TableHead>
               </TableRow>
-            ) : filteredCoupons.length === 0 ? (
-              <TableRow className="block md:table-row border md:border-b border-slate-100 rounded-xl p-3 sm:p-4 md:p-0 bg-white md:bg-transparent shadow-sm md:shadow-none mb-3 md:mb-0">
-                <TableCell colSpan={7} className="block md:table-cell py-1.5 md:py-4 text-left h-24 text-center text-muted-foreground">
-                  {t("coupons.no_coupons")}
-                </TableCell>
-              </TableRow>
-            ) : (
-              filteredCoupons.map((coupon) => (
-                <TableRow key={coupon._id} className="block md:table-row border md:border-b border-slate-100 rounded-xl p-3 sm:p-4 md:p-0 bg-white md:bg-transparent shadow-sm md:shadow-none mb-3 md:mb-0 hover:bg-muted/30 transition-colors">
-                  <TableCell className="block md:table-cell py-1.5 md:py-4 text-left">
-                    <div className="flex items-center gap-2">
-                      <Tag className="h-4 w-4 text-primary" />
-                      <span className="font-bold">{coupon.code}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="block md:table-cell py-1.5 md:py-4 text-left">
-                    {coupon.discountType === 'percentage' 
-                      ? `${coupon.discountValue}%` 
-                      : `৳${coupon.discountValue}`}
-                  </TableCell>
-                  <TableCell className="block md:table-cell py-1.5 md:py-4 text-left">৳{coupon.minPurchase}</TableCell>
-                  <TableCell className="block md:table-cell py-1.5 md:py-4 text-left">
-                    <div className="flex items-center gap-1 text-xs">
-                      <Calendar className="h-3 w-3" />
-                      {new Date(coupon.expiryDate).toLocaleDateString()}
-                    </div>
-                  </TableCell>
-                  <TableCell className="block md:table-cell py-1.5 md:py-4 text-left">
-                    <div className="flex items-center gap-1 text-xs">
-                      <Users className="h-3 w-3" />
-                      {coupon.usedCount} / {coupon.usageLimit || '∞'}
-                    </div>
-                  </TableCell>
-                  <TableCell className="block md:table-cell py-1.5 md:py-4 text-left">
-                    <Badge variant={coupon.isActive ? "default" : "secondary"}>
-                      {coupon.isActive ? t("coupons.active") : t("coupons.inactive")}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="block md:table-cell py-1.5 md:py-4 text-left md:text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger 
-                        render={
-                          <Button variant="ghost" className="h-8 w-8 p-0">
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        }
-                      />
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => setEditingCoupon(coupon)}>
-                          <Edit className="mr-2 h-4 w-4" /> Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem 
-                          className="text-destructive"
-                          onClick={() => handleDelete(coupon._id)}
-                        >
-                          <Trash2 className="mr-2 h-4 w-4" /> Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="h-24 text-center">
+                    <Loader2 className="mx-auto h-6 w-6 animate-spin text-primary" />
                   </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+              ) : filteredCoupons.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                    No coupons found.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filteredCoupons.map((coupon) => (
+                  <TableRow key={coupon._id} className="hover:bg-muted/30 transition-colors">
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Tag className="h-4 w-4 text-primary" />
+                        <span className="font-bold">{coupon.code}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {coupon.discountType === 'percentage' 
+                        ? `${coupon.discountValue}%` 
+                        : `৳${coupon.discountValue}`}
+                    </TableCell>
+                    <TableCell>৳{coupon.minPurchase}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1 text-xs">
+                        <Calendar className="h-3 w-3" />
+                        {new Date(coupon.expiryDate).toLocaleDateString()}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1 text-xs">
+                        <Users className="h-3 w-3" />
+                        {coupon.usedCount} / {coupon.usageLimit || '∞'}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={coupon.isActive ?"default" :"secondary"}>
+                        {coupon.isActive ? 'Active' : 'Inactive'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger 
+                          render={
+                            <Button variant="ghost" className="h-8 w-8 p-0">
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          }
+                        />
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => setEditingCoupon(coupon)}>
+                            <Edit className="mr-2 h-4 w-4" /> Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem 
+                            className="text-destructive"
+                            onClick={() => handleDelete(coupon._id)}
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" /> Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+
+        {/* Mobile Card View */}
+        <div className="block md:hidden p-2 space-y-2.5">
+          {loading ? (
+            <div className="text-center py-10 text-muted-foreground text-sm">
+              <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2 text-primary" />
+              Loading coupons...
+            </div>
+          ) : filteredCoupons.length === 0 ? (
+            <div className="text-center py-10 text-muted-foreground text-sm">
+              No coupons found.
+            </div>
+          ) : (
+            filteredCoupons.map((coupon) => (
+              <div key={coupon._id} className="p-3 bg-card border rounded-lg shadow-sm space-y-2">
+                <div className="flex items-center justify-between gap-2 border-b pb-2">
+                  <div className="flex items-center gap-2">
+                    <Tag className="h-4 w-4 text-primary shrink-0" />
+                    <span className="font-bold text-sm tracking-wide text-foreground">{coupon.code}</span>
+                  </div>
+                  <Badge variant={coupon.isActive ?"default" :"secondary"} className="text-[10px]">
+                    {coupon.isActive ? 'Active' : 'Inactive'}
+                  </Badge>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <span className="text-[10px] text-muted-foreground block">Discount</span>
+                    <span className="font-semibold text-emerald-600">
+                      {coupon.discountType === 'percentage' ? `${coupon.discountValue}%` : `৳${coupon.discountValue}`}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-muted-foreground block">Min Purchase</span>
+                    <span className="font-medium">৳{coupon.minPurchase}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-muted-foreground block">Expiry</span>
+                    <span className="text-muted-foreground">{new Date(coupon.expiryDate).toLocaleDateString()}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-muted-foreground block">Usage</span>
+                    <span className="text-muted-foreground">{coupon.usedCount} / {coupon.usageLimit || '∞'}</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-1.5 pt-1 border-t">
+                  <Button variant="outline" size="sm" className="h-7 text-xs px-2.5" onClick={() => setEditingCoupon(coupon)}>
+                    <Edit className="h-3 w-3 mr-1" /> Edit
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-7 text-xs px-2.5 text-destructive hover:text-destructive" onClick={() => handleDelete(coupon._id)}>
+                    <Trash2 className="h-3 w-3 mr-1" /> Delete
+                  </Button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       </div>
 
       <Dialog open={!!editingCoupon} onOpenChange={() => setEditingCoupon(null)}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>{t("coupons.edit_coupon")}</DialogTitle>
-            <DialogDescription>{t("coupons.edit_desc")}</DialogDescription>
+            <DialogTitle>Edit Coupon</DialogTitle>
+            <DialogDescription>Update the coupon details below.</DialogDescription>
           </DialogHeader>
           {editingCoupon && (
             <CouponForm 

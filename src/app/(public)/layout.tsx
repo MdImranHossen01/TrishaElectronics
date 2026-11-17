@@ -1,11 +1,10 @@
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
 import { Marquee } from '@/components/layout/Marquee';
-import { getCachedSettings } from '@/lib/data-fetching';
+import { getCachedSettings, getCachedCategories, getCachedBrands } from '@/lib/data-fetching';
 import { headers } from 'next/headers';
 import { ScrollToTop } from '@/components/layout/ScrollToTop';
 import { MobileBottomNavbar } from '@/components/layout/MobileBottomNavbar';
-import SubscriptionBlocker from '../components/SubscriptionBlocker';
 import { auth } from '@/auth';
 
 export default async function PublicLayout({ children }: { children: React.ReactNode }) {
@@ -13,21 +12,24 @@ export default async function PublicLayout({ children }: { children: React.React
   const isSuperAdmin = (session?.user as any)?.role === 'super_admin';
 
   let settings = null;
+  let initialCategories: any[] = [];
+  let initialBrands: any[] = [];
   try {
-    settings = await getCachedSettings();
+    const [fetchedSettings, fetchedCats, fetchedBrands] = await Promise.all([
+      getCachedSettings(),
+      getCachedCategories(),
+      getCachedBrands(),
+    ]);
+    settings = fetchedSettings;
+    initialCategories = fetchedCats || [];
+    initialBrands = fetchedBrands || [];
   } catch (error) {
-    console.error('Failed to fetch settings:', error);
+    console.error('Failed to fetch settings/categories/brands:', error);
   }
 
-  // Subscription Enforcement Logic
-  const sub = settings?.saasSubscription;
-  // If sub is missing, default to not expired (allow access by default)
-  const isExpired = sub ? (sub.status !== 'Active' || (sub.expiryDate && new Date(sub.expiryDate).getTime() < new Date().getTime())) : false;
-
-  // Only show blocker if expired and NOT a super admin
-  const showBlocker = isExpired && !isSuperAdmin;
-
-  const marqueeText = settings?.marqueeText || 'Welcome to Omor Auto Corner! Free shipping on orders over $500.';
+  const marqueeText = settings?.marqueeText !== undefined
+    ? settings.marqueeText
+    : `Welcome to ${settings?.brandName || process.env.NEXT_PUBLIC_STORE_NAME || 'our store'}! Free shipping available.`;
   const ui = {
     layout: settings?.uiTemplates?.layout || 'v1',
     navbar: settings?.uiTemplates?.navbar || 'v1',
@@ -36,11 +38,10 @@ export default async function PublicLayout({ children }: { children: React.React
 
   return (
     <>
-      {showBlocker && <SubscriptionBlocker brandName={settings?.brandName || 'Omor Auto Corner'} />}
-      {ui.layout !== 'v2' && ui.layout !== 'aarong' && ui.navbar !== 'aarong' && <Marquee marqueeText={marqueeText} />}
-      <Navbar style={ui.navbar} />
+      <Marquee marqueeText={marqueeText} />
+      <Navbar style={ui.navbar} initialCategories={initialCategories} initialBrands={initialBrands} />
       <main className="flex-1">{children}</main>
-      <div className="md:pb-0">
+      <div className="pb-16 md:pb-0">
         <Footer style={ui.footer} />
       </div>
       <ScrollToTop />

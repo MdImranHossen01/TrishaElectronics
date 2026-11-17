@@ -6,7 +6,6 @@ import Image from 'next/image';
 import { Plus } from 'lucide-react';
 import useEmblaCarousel from 'embla-carousel-react';
 import Autoplay from 'embla-carousel-autoplay';
-import { useLanguage } from '@/contexts/LanguageContext';
 
 interface Category {
   _id: string;
@@ -48,7 +47,6 @@ function CategoryItem({ category }: { category: Category }) {
 }
 
 export default function CategoryV1({ categories }: CategoryShowcaseProps) {
-  const { t } = useLanguage();
   // ── Mobile carousel state ──────────────────────────────────────────
   const [mobileIndex, setMobileIndex] = useState(0);
   const [mobileSnaps, setMobileSnaps] = useState<number[]>([]);
@@ -64,15 +62,11 @@ export default function CategoryV1({ categories }: CategoryShowcaseProps) {
 
   useEffect(() => {
     if (!mobileApi) return;
-    const init = () => {
-      onMobileSelect();
-      setMobileSnaps(mobileApi.scrollSnapList());
-    };
-    const timer = setTimeout(init, 0);
+    onMobileSelect();
+    setMobileSnaps(mobileApi.scrollSnapList());
     mobileApi.on('select', onMobileSelect);
     mobileApi.on('reInit', onMobileSelect);
     return () => {
-      clearTimeout(timer);
       mobileApi.off('select', onMobileSelect);
       mobileApi.off('reInit', onMobileSelect);
     };
@@ -93,15 +87,11 @@ export default function CategoryV1({ categories }: CategoryShowcaseProps) {
 
   useEffect(() => {
     if (!desktopApi) return;
-    const init = () => {
-      onDesktopSelect();
-      setDesktopSnaps(desktopApi.scrollSnapList());
-    };
-    const timer = setTimeout(init, 0);
+    onDesktopSelect();
+    setDesktopSnaps(desktopApi.scrollSnapList());
     desktopApi.on('select', onDesktopSelect);
     desktopApi.on('reInit', onDesktopSelect);
     return () => {
-      clearTimeout(timer);
       desktopApi.off('select', onDesktopSelect);
       desktopApi.off('reInit', onDesktopSelect);
     };
@@ -112,11 +102,11 @@ export default function CategoryV1({ categories }: CategoryShowcaseProps) {
   const manyCategories = categories.length > 6;
 
   return (
-    <section className="bg-muted/30 py-6 md:py-12 overflow-hidden">
+    <section className="bg-muted/30 py-6 overflow-hidden">
       <div className="container px-4 mx-auto">
         <div className="flex flex-col items-center justify-center text-center space-y-2 mb-5 md:space-y-4 md:mb-10">
           <h2 className="text-2xl font-bold tracking-tighter md:text-4xl text-foreground">
-            {t('store.categories.browse_by_category') || 'Browse by Category'}
+            Browse by Category
           </h2>
         </div>
 
@@ -137,11 +127,10 @@ export default function CategoryV1({ categories }: CategoryShowcaseProps) {
                 <button
                   key={index}
                   onClick={() => mobileApi?.scrollTo(index)}
-                  className={`transition-all duration-300 cursor-pointer rounded-full h-1.5 ${
-                    index === mobileIndex
-                      ? 'w-6 bg-primary'
-                      : 'w-1.5 bg-muted-foreground/30 hover:bg-muted-foreground/50'
-                  }`}
+                  className={`transition-all duration-300 cursor-pointer rounded-full h-1.5 ${index === mobileIndex
+                    ? 'w-6 bg-primary'
+                    : 'w-1.5 bg-muted-foreground/30 hover:bg-muted-foreground/50'
+                    }`}
                   aria-label={`Go to group ${index + 1}`}
                 />
               ))}
@@ -179,11 +168,10 @@ export default function CategoryV1({ categories }: CategoryShowcaseProps) {
                     <button
                       key={index}
                       onClick={() => desktopApi?.scrollTo(index)}
-                      className={`transition-all duration-300 cursor-pointer rounded-full h-1.5 ${
-                        index === desktopIndex
-                          ? 'w-8 bg-primary'
-                          : 'w-2 bg-muted-foreground/30 hover:bg-muted-foreground/50'
-                      }`}
+                      className={`transition-all duration-300 cursor-pointer rounded-full h-1.5 ${index === desktopIndex
+                        ? 'w-8 bg-primary'
+                        : 'w-2 bg-muted-foreground/30 hover:bg-muted-foreground/50'
+                        }`}
                       aria-label={`Go to group ${index + 1}`}
                     />
                   ))}

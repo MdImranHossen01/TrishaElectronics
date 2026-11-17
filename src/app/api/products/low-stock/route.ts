@@ -1,108 +1,113 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
 import Product from '@/models/Product';
-import Showroom from '@/models/Showroom';
+import Reseller from '@/models/Reseller';
+import ResellerProduct from '@/models/ResellerProduct';
 import { auth } from '@/auth';
 
 export async function GET(req: NextRequest) {
   try {
     const session = await auth();
     const userRole = (session?.user as any)?.role;
-    const userId = (session?.user as any)?.id;
 
-    if (!session || !session.user || !(['admin', 'super_admin', 'showroom_manager'].includes(userRole))) {
+    if (!session || !session.user || !['admin', 'super_admin', 'manager', 'reseller'].includes(userRole)) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
     await connectToDatabase();
 
-    let showroomId: string | null = null;
-    let showroomName = '';
-    if (userRole === 'showroom_manager') {
-      const showroom = await Showroom.findOne({ manager: userId }).lean();
-      if (!showroom) {
-        return NextResponse.json({ message: 'No showroom assigned' }, { status: 404 });
+    let resellerRecord: any = null;
+    let sourcedSet = new Set<string>();
+
+    if (userRole === 'reseller') {
+      resellerRecord = await Reseller.findOne({ userId: (session.user as any).id }).lean();
+      if (resellerRecord) {
+        const sourced = await ResellerProduct.find({ resellerId: resellerRecord._id }).select('productId').lean();
+        sourcedSet = new Set(sourced.map((s: any) => s.productId.toString()));
       }
-      showroomId = showroom._id.toString();
-      showroomName = showroom.name;
     }
 
-    // Fetch all showrooms to map showroom IDs to names
-    const showrooms = await Showroom.find().lean();
-    const showroomMap: Record<string, string> = {};
-    showrooms.forEach(s => {
-      showroomMap[s._id.toString()] = s.name;
-    });
-
-    // Fetch all products (to check central, variant, and showroom stocks)
-    // To optimize, we could query for stock < 5, but for safety against complex subdocument checks, we'll fetch lean and filter in memory if the dataset isn't huge.
-    // Or we can query $or: [ { stock: { $lt: 5 } }, { 'variants.stock': { $lt: 5 } }, { 'showroomStocks.stock': { $lt: 5 } } ]
+    // Fetch low stock products (less than 5 units)
     const products = await Product.find({
+      isPublished: true,
       $or: [
         { stock: { $lt: 5 } },
-        { 'variants.stock': { $lt: 5 } },
-        { 'showroomStocks.stock': { $lt: 5 } }
+        { 'variants.stock': { $lt: 5 } }
       ]
-    }).lean();
+    })
+      .populate('uploadedBy', 'storeName subdomain')
+      .lean();
 
     const lowStockItems: any[] = [];
-    const isShowroomMgr = userRole === 'showroom_manager';
 
     for (const product of products) {
-      // Check Central Base Stock (if no variants, or we track base stock) - only for admin/manager
-      if (!isShowroomMgr && product.stock < 5) {
+      const uploadedById = (product.uploadedBy as any)?._id?.toString() || (product.uploadedBy ? product.uploadedBy.toString() : null);
+      const uploadedByStoreName = (product.uploadedBy as any)?.storeName || null;
+
+      const isOwnProduct = userRole === 'reseller'
+        ? Boolean(resellerRecord && uploadedById === resellerRecord._id.toString())
+        : !uploadedById; // For Admin, true only if uploaded by Mother/Admin
+
+      const isSourced = userRole === 'reseller'
+        ? Boolean(sourcedSet.has(product._id.toString()))
+        : false;
+
+      // Check Base/Central Stock
+      if ((product.stock ?? 0) < 5) {
         lowStockItems.push({
-          id: `${product._id}-central`,
-          productId: product._id,
+          id: `${product._id}-base`,
+          productId: product._id.toString(),
           name: product.name,
+          slug: product.slug,
           color: null,
           size: null,
-          location: 'Central Warehouse',
-          stock: product.stock || 0,
+          location: 'Main Inventory',
+          stock: product.stock ?? 0,
+          price: product.price ?? 0,
+          salePrice: product.salePrice,
+          resellerPrice: product.resellerPrice,
+          purchasePrice: product.purchasePrice,
+          images: product.images || [],
+          uploadedBy: uploadedById,
+          uploadedByStoreName,
+          isOwnProduct,
+          isSourced,
+          sourceType: uploadedById ? (isOwnProduct ? 'own' : 'other_reseller') : 'mother',
         });
       }
 
-      // Check Variants (Central) - only for admin/manager
-      if (!isShowroomMgr && product.variants && Array.isArray(product.variants)) {
+      // Check Variants
+      if (product.variants && Array.isArray(product.variants)) {
         for (const variant of product.variants) {
-          if (variant.stock < 5) {
+          if ((variant.stock ?? 0) < 5) {
             lowStockItems.push({
-              id: `${product._id}-variant-${variant._id}`,
-              productId: product._id,
+              id: `${product._id}-variant-${variant._id || variant.sku}`,
+              productId: product._id.toString(),
               name: product.name,
+              slug: product.slug,
               color: variant.color || null,
               size: variant.size || null,
-              location: 'Central Warehouse',
-              stock: variant.stock || 0,
-            });
-          }
-        }
-      }
-
-      // Check Showroom Stocks - filter by assigned showroom for showroom manager
-      if (product.showroomStocks && Array.isArray(product.showroomStocks)) {
-        for (const srStock of product.showroomStocks) {
-          const isThisShowroom = showroomId ? srStock.showroom.toString() === showroomId : true;
-          if (isThisShowroom && srStock.stock < 5) {
-            lowStockItems.push({
-              id: `${product._id}-showroom-${srStock.showroom}`,
-              productId: product._id,
-              name: product.name,
-              color: null,
-              size: null,
-              location: showroomName || showroomMap[srStock.showroom.toString()] || 'Unknown Showroom',
-              stock: srStock.stock || 0,
+              location: 'Variant Stock',
+              stock: variant.stock ?? 0,
+              price: variant.price ?? product.price ?? 0,
+              salePrice: variant.salePrice ?? product.salePrice,
+              resellerPrice: variant.resellerPrice ?? product.resellerPrice,
+              purchasePrice: variant.purchasePrice ?? product.purchasePrice,
+              images: variant.image ? [variant.image] : (product.images || []),
+              uploadedBy: uploadedById,
+              uploadedByStoreName,
+              isOwnProduct,
+              isSourced,
+              sourceType: uploadedById ? (isOwnProduct ? 'own' : 'other_reseller') : 'mother',
             });
           }
         }
       }
     }
 
-    // Sort by lowest stock first
     lowStockItems.sort((a, b) => a.stock - b.stock);
 
     return NextResponse.json({ items: lowStockItems }, { status: 200 });
-
   } catch (error: any) {
     console.error('Error fetching low stock:', error);
     return NextResponse.json({ message: error.message || 'Internal Server Error' }, { status: 500 });

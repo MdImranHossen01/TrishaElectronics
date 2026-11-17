@@ -1,8 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { useSession } from 'next-auth/react';
 import {
   Table,
   TableBody,
@@ -33,84 +32,63 @@ import {
   ArrowUpCircle,
   DollarSign,
   Wallet,
-  Landmark
+  Landmark,
+  Edit2,
+  Trash2,
+  MoreHorizontal
 } from 'lucide-react';
-import { AdminLedgerSkeleton } from '@/components/admin/AdminSkeletons';
-import { Skeleton } from '@/components/ui/skeleton';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import Swal from 'sweetalert2';
 import { Pagination } from '@/components/ui/pagination';
-import { useLanguage } from '@/contexts/LanguageContext';
+import { MobileDataCard, MobileDataRow } from '@/components/common/MobileDataCard';
+import { cleanAccountName } from '@/lib/utils';
+
+function getTransactionTypeInfo(tx: any) {
+  if (tx.type === 'debit') {
+    return {
+      label: 'Debit',
+      sign: '',
+      color: 'bg-primary/10 text-primary border-primary/20',
+      textColor: 'text-primary',
+    };
+  }
+
+  return {
+    label: 'Credit',
+    sign: '',
+    color: 'bg-muted text-muted-foreground border-border',
+    textColor: 'text-foreground',
+  };
+}
 
 function AccountsLedgerContent() {
-  const { t } = useLanguage();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { data: session, status } = useSession();
-  const userRole = (session?.user as any)?.role;
-  const isAuthorized = userRole === 'super_admin' || userRole === 'admin';
 
   const [accounts, setAccounts] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  
-  const [activeTab, setActiveTab] = useState<'journal' | 'summary'>('journal');
-  const [summaryLoading, setSummaryLoading] = useState(false);
-  const [categorySummary, setCategorySummary] = useState<any[]>([]);
-  const [accountSummary, setAccountSummary] = useState<any[]>([]);
+  const initialSearch = searchParams.get('search') || searchParams.get('accountName') || '';
+  const initialAccountId = searchParams.get('accountId') || 'all';
 
-  const [journalSearchTerm, setJournalSearchTerm] = useState(() => {
-    return searchParams.get('search') || '';
-  });
+  const [journalSearchTerm, setJournalSearchTerm] = useState(initialSearch);
+  const [selectedAccountFilter, setSelectedAccountFilter] = useState<string>(initialAccountId);
   
   const initialPage = Math.max(1, parseInt(searchParams.get('page') || '1'));
   const [currentPage, setCurrentPage] = useState(initialPage);
-  const [dateFilter, setDateFilter] = useState(() => {
-    const now = new Date();
-    const start = new Date(now.getFullYear(), now.getMonth(), 1);
-    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    return {
-      from: format(start, 'yyyy-MM-dd'),
-      to: format(end, 'yyyy-MM-dd')
-    };
-  });
-  const [filterByDate, setFilterByDate] = useState(true);
+  const [dateFilter, setDateFilter] = useState({ from: '', to: '' });
 
   // Editing Opening Balance state
   const [editingAccount, setEditingAccount] = useState<any>(null);
   const [newOpeningBalance, setNewOpeningBalance] = useState<number>(0);
   const [updatingOpening, setUpdatingOpening] = useState(false);
 
-  const isMounted = useRef(false);
-
-  const fetchSummary = useCallback(async () => {
-    try {
-      setSummaryLoading(true);
-      let url = '/api/admin/ledger/summary';
-      if (filterByDate && (dateFilter.from || dateFilter.to)) {
-        const params = new URLSearchParams();
-        if (dateFilter.from) params.set('from', dateFilter.from);
-        if (dateFilter.to) params.set('to', dateFilter.to);
-        url += `?${params.toString()}`;
-      }
-      const res = await fetch(url);
-      if (!res.ok) throw new Error('Failed to fetch ledger summary');
-      const data = await res.json();
-      setCategorySummary(data.categorySummary || []);
-      setAccountSummary(data.accountSummary || []);
-    } catch (error) {
-      toast.error('Failed to load ledger summary');
-    } finally {
-      setSummaryLoading(false);
-    }
-  }, [filterByDate, dateFilter.from, dateFilter.to]);
-
-  useEffect(() => {
-    if (status === 'authenticated' && isAuthorized && activeTab === 'summary') {
-      fetchSummary();
-    }
-  }, [status, isAuthorized, activeTab, fetchSummary]);
+  // Manual Transaction Dialog state
+  const [isTxOpen, setIsTxOpen] = useState(false);
+  
+  const initialTab = (searchParams.get('tab') as 'journal' | 'transfer') || 'journal';
+  const [activeTab, setActiveTab] = useState<'journal' | 'transfer'>(initialTab);
 
   // Sync state to URL search params
   useEffect(() => {
@@ -120,27 +98,46 @@ function AccountsLedgerContent() {
     } else {
       params.delete('page');
     }
+    if (activeTab !== 'journal') {
+      params.set('tab', activeTab);
+    } else {
+      params.delete('tab');
+    }
+    if (journalSearchTerm) {
+      params.set('search', journalSearchTerm);
+    } else {
+      params.delete('search');
+    }
+    if (selectedAccountFilter && selectedAccountFilter !== 'all') {
+      params.set('accountId', selectedAccountFilter);
+    } else {
+      params.delete('accountId');
+    }
     router.push(`/admin/ledger?${params.toString()}`);
-  }, [currentPage]);
+  }, [currentPage, activeTab, journalSearchTerm, selectedAccountFilter, dateFilter.from, dateFilter.to]);
 
   useEffect(() => {
-    if (!isMounted.current) {
-      isMounted.current = true;
-      return;
-    }
     setCurrentPage(1);
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete('page');
-    router.push(`/admin/ledger?${params.toString()}`);
-  }, [journalSearchTerm, filterByDate, dateFilter.from, dateFilter.to]);
+  }, [journalSearchTerm, dateFilter.from, dateFilter.to, selectedAccountFilter]);
+
+  const [accountCode, setAccountCode] = useState<'CASH' | 'BANK'>('CASH');
+  const [fromAccountCode, setFromAccountCode] = useState<'CASH' | 'BANK'>('CASH');
+  const [toAccountCode, setToAccountCode] = useState<'CASH' | 'BANK'>('BANK');
+  const [journalType, setJournalType] = useState<'in' | 'out'>('out');
+  const [journalAmount, setJournalAmount] = useState<string>('');
+  const [transferAmount, setTransferAmount] = useState<string>('');
+  const [description, setDescription] = useState('');
+  const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [creatingTx, setCreatingTx] = useState(false);
+  const [editingTx, setEditingTx] = useState<any>(null);
+  const titleRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (status === 'authenticated' && !isAuthorized) {
-      router.push('/admin/dashboard');
-    }
-  }, [status, isAuthorized, router]);
+    fetchAccounts();
+    fetchTransactions();
+  }, []);
 
-  const fetchAccounts = useCallback(async () => {
+  const fetchAccounts = async () => {
     try {
       const res = await fetch('/api/admin/ledger/accounts');
       if (!res.ok) throw new Error('Failed to fetch accounts');
@@ -149,9 +146,9 @@ function AccountsLedgerContent() {
     } catch (error) {
       toast.error('Failed to load accounts');
     }
-  }, []);
+  };
 
-  const fetchTransactions = useCallback(async () => {
+  const fetchTransactions = async () => {
     try {
       setLoading(true);
       const res = await fetch('/api/admin/ledger/transactions');
@@ -163,31 +160,7 @@ function AccountsLedgerContent() {
     } finally {
       setLoading(false);
     }
-  }, []);
-
-  useEffect(() => {
-    let isMounted = true;
-    const loadData = async () => {
-      if (status === 'authenticated' && isAuthorized) {
-        await Promise.all([fetchAccounts(), fetchTransactions()]);
-      }
-    };
-    if (isMounted) {
-      loadData();
-    }
-    return () => {
-      isMounted = false;
-    };
-  }, [status, isAuthorized, fetchAccounts, fetchTransactions]);
-
-  if (status === 'loading') {
-    return <AdminLedgerSkeleton />;
-  }
-
-  if (status === 'authenticated' && !isAuthorized) {
-    return null;
-  }
-
+  };
 
   const handleUpdateOpeningBalance = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -216,32 +189,189 @@ function AccountsLedgerContent() {
     }
   };
 
+  const handleCreateTransaction = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!description.trim()) {
+      toast.error('Title is required');
+      return;
+    }
 
+    let finalEntryType: 'deposit' | 'withdrawal' | 'transfer' = 'deposit';
+    let finalAmount = 0;
 
+    if (activeTab === 'journal') {
+      const amtVal = parseFloat(journalAmount) || 0;
+      if (amtVal <= 0) {
+        toast.error('Please enter a positive amount.');
+        return;
+      }
 
+      if (journalType === 'in') {
+        finalEntryType = 'deposit';
+        finalAmount = amtVal;
+      } else {
+        finalEntryType = 'withdrawal';
+        finalAmount = amtVal;
+      }
+    } else {
+      const transVal = parseFloat(transferAmount) || 0;
+      if (transVal <= 0) {
+        toast.error('Please enter a positive transfer amount.');
+        return;
+      }
+      finalEntryType = 'transfer';
+      finalAmount = transVal;
+    }
 
+    try {
+      setCreatingTx(true);
+      const payload = {
+        entryType: finalEntryType,
+        amount: finalAmount,
+        description,
+        date,
+        accountCode: finalEntryType !== 'transfer' ? accountCode : undefined,
+        fromAccountCode: finalEntryType === 'transfer' ? fromAccountCode : undefined,
+        toAccountCode: finalEntryType === 'transfer' ? toAccountCode : undefined,
+      };
 
+      const url = editingTx ? `/api/admin/ledger/transactions/${editingTx._id}` : '/api/admin/ledger/transactions';
+      const method = editingTx ? 'PUT' : 'POST';
+
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || 'Transaction saving failed');
+      }
+
+      toast.success(editingTx ? 'Ledger entry updated successfully!' : 'Ledger entry recorded successfully!');
+      
+      if (editingTx) {
+        setIsTxOpen(false);
+        setEditingTx(null);
+        resetTxForm();
+      } else {
+        setJournalAmount('');
+        setTransferAmount('');
+        setDescription('');
+        setTimeout(() => {
+          titleRef.current?.focus();
+        }, 50);
+      }
+      
+      fetchAccounts();
+      fetchTransactions();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to save transaction');
+    } finally {
+      setCreatingTx(false);
+    }
+  };
+
+  const handleEditClick = (tx: any) => {
+    setEditingTx(tx);
+    const tab = tx.reference === 'manual-transfer' ? 'transfer' : 'journal';
+    setActiveTab(tab);
+    
+    setAccountCode(tx.account?.code || 'CASH');
+    setJournalType(tx.type === 'debit' ? 'in' : 'out');
+    
+    const cleanDesc = tx.description.replace(/^(Transfer to |Transfer from |Manual Deposit: |Manual Withdrawal: |Transfer to CASH: |Transfer to BANK: |Transfer from CASH: |Transfer from BANK: )/g, '');
+    setDescription(cleanDesc);
+    setDate(format(new Date(tx.date), 'yyyy-MM-dd'));
+
+    if (tab === 'journal') {
+      setJournalAmount(tx.amount.toString());
+    } else {
+      setTransferAmount(tx.amount.toString());
+      if (tx.type === 'debit') {
+        setToAccountCode(tx.account?.code || 'BANK');
+        setFromAccountCode(tx.account?.code === 'CASH' ? 'BANK' : 'CASH');
+      } else {
+        setFromAccountCode(tx.account?.code || 'CASH');
+        setToAccountCode(tx.account?.code === 'CASH' ? 'BANK' : 'CASH');
+      }
+    }
+    setIsTxOpen(true);
+  };
+
+  const handleDeleteTx = async (id: string) => {
+    const result = await Swal.fire({
+      title: 'Delete Ledger Entry?',
+      text: 'Are you sure you want to delete this manual transaction? This will update the running balances of the ledger.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#ef4444',
+      confirmButtonText: 'Yes, delete it!'
+    });
+
+    if (!result.isConfirmed) return;
+    try {
+      const res = await fetch(`/api/admin/ledger/transactions/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        toast.success('Transaction deleted successfully');
+        fetchAccounts();
+        fetchTransactions();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.message || 'Failed to delete transaction');
+      }
+    } catch (error) {
+      toast.error('Failed to delete transaction');
+    }
+  };
+
+  const resetTxForm = () => {
+    setActiveTab('journal');
+    setAccountCode('CASH');
+    setFromAccountCode('CASH');
+    setToAccountCode('BANK');
+    setJournalType('out');
+    setJournalAmount('');
+    setTransferAmount('');
+    setDescription('');
+    setDate(format(new Date(), 'yyyy-MM-dd'));
+    setEditingTx(null);
+  };
 
   const filteredTransactions = transactions.filter((tx) => {
+    // Filter by selected account
+    if (selectedAccountFilter && selectedAccountFilter !== 'all') {
+      const accId = tx.account?._id?.toString() || tx.account?.toString();
+      if (accId !== selectedAccountFilter) {
+        return false;
+      }
+    }
+
     const term = journalSearchTerm.toLowerCase();
     const name = tx.account?.name?.toLowerCase() || '';
     const desc = tx.description?.toLowerCase() || '';
     const ref = tx.reference?.toLowerCase() || '';
-    const matchesSearch = name.includes(term) || desc.includes(term) || ref.includes(term);
+    const matchesSearch = !term || name.includes(term) || desc.includes(term) || ref.includes(term);
 
     let matchesDate = true;
-    if (filterByDate) {
-      if (dateFilter.from) {
-        matchesDate = matchesDate && new Date(tx.date) >= new Date(dateFilter.from + 'T00:00:00');
-      }
-      if (dateFilter.to) {
-        const nextDay = new Date(dateFilter.to + 'T00:00:00');
-        nextDay.setDate(nextDay.getDate() + 1);
-        matchesDate = matchesDate && new Date(tx.date) < nextDay;
-      }
+    if (dateFilter.from) {
+      matchesDate = matchesDate && new Date(tx.date) >= new Date(dateFilter.from + 'T00:00:00');
+    }
+    if (dateFilter.to) {
+      matchesDate = matchesDate && new Date(tx.date) <= new Date(dateFilter.to + 'T23:59:59');
     }
 
     return matchesSearch && matchesDate;
+  }).sort((a: any, b: any) => {
+    const dateA = a.date ? new Date(a.date).toISOString().slice(0, 10) : '';
+    const dateB = b.date ? new Date(b.date).toISOString().slice(0, 10) : '';
+    if (dateA !== dateB) {
+      return dateB.localeCompare(dateA);
+    }
+    const createdA = a.createdAt ? new Date(a.createdAt).getTime() : (a._id ? parseInt(a._id.toString().substring(0, 8), 16) * 1000 : 0);
+    const createdB = b.createdAt ? new Date(b.createdAt).getTime() : (b._id ? parseInt(b._id.toString().substring(0, 8), 16) * 1000 : 0);
+    return createdB - createdA;
   });
 
   const ITEMS_PER_PAGE = 20;
@@ -251,473 +381,259 @@ function AccountsLedgerContent() {
     currentPage * ITEMS_PER_PAGE
   );
 
-  const isFiltered = !!((filterByDate && (dateFilter.from || dateFilter.to)) || journalSearchTerm);
-
   return (
-    <div className="space-y-0 md:space-y-6 px-[1px] pt-[1px] pb-4 md:p-6 w-full max-w-full overflow-x-hidden">
-      <div className="hidden md:block">
-        <h2 className="text-3xl font-bold tracking-tight">{t("ledger.title")}</h2>
-        <p className="text-muted-foreground text-sm">
-          {t("ledger.subtitle")}
-        </p>
+    <div className="space-y-4 md:space-y-6">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b pb-3">
+        <div>
+          <h2 className="text-xl md:text-3xl font-bold tracking-tight">Accounts Ledger</h2>
+          <p className="text-muted-foreground text-xs md:text-sm mt-0.5">
+            Track and review transaction journal entries across all accounts.
+          </p>
+        </div>
       </div>
 
-
-
-      {/* Tabs Switcher */}
-      <div className="flex border-b border-border mt-4">
-        <button
-          onClick={() => setActiveTab('journal')}
-          className={`px-4 py-2 text-sm font-bold border-b-2 transition-all ${
-            activeTab === 'journal'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          {t("ledger.transaction_journal") || "Transaction Journal"}
-        </button>
-        <button
-          onClick={() => setActiveTab('summary')}
-          className={`px-4 py-2 text-sm font-bold border-b-2 transition-all ${
-            activeTab === 'summary'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          {t("ledger.cumulative_summary") || "Cumulative Summary"}
-        </button>
-      </div>
-
-      {/* Transactions Journal Tab */}
-      {activeTab === 'journal' && (
-        <div className="px-0 md:px-0 !mt-[1px] md:!mt-6">
-          <Card className="border-0 md:border bg-transparent md:bg-card shadow-none md:shadow-sm">
-            <CardHeader className="px-4 md:px-6 pb-4">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <CardTitle className="hidden md:block">{t("ledger.transaction_journal")}</CardTitle>
-                <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-                  <div className="relative w-full md:w-64">
-                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder={t("ledger.search_placeholder") as string}
-                      className="pl-8 text-xs h-8"
-                      value={journalSearchTerm}
-                      onChange={(e) => setJournalSearchTerm(e.target.value)}
-                    />
-                  </div>
-
-                  {/* Date Filter Checkbox & Date Inputs */}
-                  <div className="flex items-center gap-1.5 text-xs">
-                    <label className="flex items-center gap-1 cursor-pointer font-bold text-foreground shrink-0 select-none">
-                      <input
-                        type="checkbox"
-                        checked={filterByDate}
-                        onChange={(e) => setFilterByDate(e.target.checked)}
-                        className="rounded border-border text-primary focus:ring-primary h-3.5 w-3.5 accent-primary"
-                      />
-                      {t("ledger.filter_by_date")}
-                    </label>
-
-                    <div className={`flex items-center gap-1 bg-muted/50 p-0.5 rounded-md border w-full sm:w-auto transition-opacity duration-200 ${!filterByDate ? 'opacity-40 pointer-events-none' : ''}`}>
-                      <Input
-                        type="date"
-                        aria-label="Start date"
-                        className="h-7 border-none bg-transparent focus-visible:ring-0 p-0.5 text-xs md:w-28 font-medium"
-                        value={dateFilter.from}
-                        onChange={(e) => setDateFilter(prev => ({ ...prev, from: e.target.value }))}
-                        disabled={!filterByDate}
-                      />
-                      <span className="text-muted-foreground text-[10px] shrink-0 font-medium">{t("ledger.to")}</span>
-                      <Input
-                        type="date"
-                        aria-label="End date"
-                        className="h-7 border-none bg-transparent focus-visible:ring-0 p-0.5 text-xs md:w-28 font-medium"
-                        value={dateFilter.to}
-                        onChange={(e) => setDateFilter(prev => ({ ...prev, to: e.target.value }))}
-                        disabled={!filterByDate}
-                      />
-                    </div>
-                  </div>
-
-                  {isFiltered && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        const now = new Date();
-                        const start = new Date(now.getFullYear(), now.getMonth(), 1);
-                        const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-                        setDateFilter({
-                          from: format(start, 'yyyy-MM-dd'),
-                          to: format(end, 'yyyy-MM-dd')
-                        });
-                        setFilterByDate(false);
-                        setJournalSearchTerm('');
-                      }}
-                      className="text-xs text-muted-foreground hover:text-primary shrink-0 h-8"
-                    >
-                      {t("ledger.clear")}
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="px-4 md:px-6">
-              {loading ? (
-                <div className="space-y-3 p-4">
-                  {Array.from({ length: 6 }).map((_, i) => (
-                    <div key={i} className="flex items-center justify-between p-3 border rounded-xl">
-                      <Skeleton className="h-4 w-24 rounded" />
-                      <Skeleton className="h-4 w-32 rounded" />
-                      <Skeleton className="h-4 w-40 rounded" />
-                      <Skeleton className="h-5 w-16 rounded-full" />
-                      <Skeleton className="h-4 w-24 rounded" />
-                    </div>
+      {/* Transactions Journal */}
+      <Card className="shadow-xs overflow-hidden">
+        <CardHeader className="p-3 md:p-4 bg-muted/20 border-b">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <CardTitle className="text-sm md:text-base font-bold">Transaction Journal</CardTitle>
+            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+              {/* Account Filter Dropdown */}
+              <Select
+                value={selectedAccountFilter}
+                onValueChange={(val) => {
+                  setSelectedAccountFilter(val || 'all');
+                  setCurrentPage(1);
+                }}
+              >
+                <SelectTrigger className="h-8 text-xs w-[130px] sm:w-[150px] bg-background">
+                  <SelectValue placeholder="All Accounts" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Accounts</SelectItem>
+                  {accounts.map((acc) => (
+                    <SelectItem key={acc._id} value={acc._id} className="text-xs">
+                      {cleanAccountName(acc.name)} {acc.code ? `(${acc.code})` : ''}
+                    </SelectItem>
                   ))}
-                </div>
-              ) : filteredTransactions.length === 0 ? (
-                <div className="flex h-32 flex-col items-center justify-center text-muted-foreground">
-                  <Plus className="h-10 w-10 mb-2 stroke-1" />
-                  <p>{t("ledger.no_journal_entries")}</p>
-                </div>
-              ) : (
-                <div>
-                  {/* Desktop View */}
-                  <div className="hidden md:block overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>{t("ledger.date")}</TableHead>
-                          <TableHead>{t("ledger.account")}</TableHead>
-                          <TableHead>{t("ledger.description")}</TableHead>
-                          <TableHead>{t("ledger.type")}</TableHead>
-                          <TableHead className="text-right">{t("ledger.amount")}</TableHead>
-                          <TableHead className="text-right">{t("ledger.running_balance")}</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {paginatedTransactions.map((tx) => (
-                          <TableRow key={tx._id}>
-                            <TableCell className="text-muted-foreground">
-                              {format(new Date(tx.date), 'dd MMM yyyy')}
-                            </TableCell>
-                            <TableCell className="font-medium">{tx.account?.name}</TableCell>
-                            <TableCell>
-                              <div className="space-y-0.5">
-                                <p>{tx.description}</p>
-                                {tx.reference && (
-                                  <span className="text-xs text-muted-foreground uppercase bg-muted px-1.5 py-0.5 rounded">
-                                    {t("ledger.ref")}: {tx.reference}
-                                  </span>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <Badge
-                                variant={tx.type === 'debit' ? 'default' : 'outline'}
-                                className={tx.type === 'debit' ? 'bg-primary/20 text-primary hover:bg-primary/20 border-transparent' : ''}
-                              >
-                                {tx.type === 'debit' ? t("ledger.debit") : t("ledger.credit")}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-right font-medium">৳{Math.round(tx.amount)}</TableCell>
-                            <TableCell className="text-right font-semibold">৳{Math.round(tx.balanceAfter)}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
+                </SelectContent>
+              </Select>
 
-                  {/* Mobile View */}
-                  <div className="block md:hidden space-y-3">
+              <div className="relative flex-1 sm:w-56 md:w-64">
+                <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  placeholder="Search description / ref..."
+                  className="pl-8 h-8 text-xs bg-background"
+                  value={journalSearchTerm}
+                  onChange={(e) => setJournalSearchTerm(e.target.value)}
+                />
+              </div>
+              <div className="flex items-center gap-1 bg-muted/50 p-0.5 rounded-md border text-xs">
+                <Input
+                  type="date"
+                  className="h-7 w-28 border-none bg-transparent focus-visible:ring-0 text-xs px-1"
+                  value={dateFilter.from}
+                  onChange={(e) => setDateFilter(prev => ({ ...prev, from: e.target.value }))}
+                />
+                <span className="text-muted-foreground text-[10px]">to</span>
+                <Input
+                  type="date"
+                  className="h-7 w-28 border-none bg-transparent focus-visible:ring-0 text-xs px-1"
+                  value={dateFilter.to}
+                  onChange={(e) => setDateFilter(prev => ({ ...prev, to: e.target.value }))}
+                />
+              </div>
+              {(dateFilter.from || dateFilter.to || journalSearchTerm || (selectedAccountFilter && selectedAccountFilter !== 'all')) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setDateFilter({ from: '', to: '' });
+                    setJournalSearchTerm('');
+                    setSelectedAccountFilter('all');
+                  }}
+                  className="text-xs text-muted-foreground hover:text-primary h-7 px-2"
+                >
+                  Clear
+                </Button>
+              )}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="flex h-32 items-center justify-center">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            </div>
+          ) : filteredTransactions.length === 0 ? (
+            <div className="flex h-32 flex-col items-center justify-center text-muted-foreground text-xs">
+              <Plus className="h-8 w-8 mb-2 stroke-1" />
+              <p>No journal entries found</p>
+            </div>
+          ) : (
+            <>
+              {/* Desktop Table */}
+              <div className="hidden md:block overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[110px] whitespace-nowrap">Date</TableHead>
+                      <TableHead className="w-[150px] whitespace-nowrap">Account</TableHead>
+                      <TableHead className="max-w-[300px]">Description</TableHead>
+                      <TableHead className="text-right w-[120px] whitespace-nowrap font-bold text-foreground">Debit</TableHead>
+                      <TableHead className="text-right w-[120px] whitespace-nowrap font-bold text-foreground">Credit</TableHead>
+                      <TableHead className="text-right w-[150px] whitespace-nowrap font-bold text-foreground">Running Balance (৳)</TableHead>
+                      <TableHead className="text-right w-[80px] whitespace-nowrap">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {paginatedTransactions.map((tx) => {
-                      const isDebit = tx.type === 'debit';
+                      const txInfo = getTransactionTypeInfo(tx);
                       return (
-                        <div key={tx._id} className="p-4 mb-3 border border-border/50 rounded-xl bg-card shadow-sm flex flex-col gap-2.5 relative">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm text-muted-foreground font-semibold">
-                              {format(new Date(tx.date), 'dd MMM yyyy')}
-                            </span>
-                            <Badge
-                              variant={isDebit ? 'default' : 'outline'}
-                              className={isDebit ? 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/10 border-transparent font-extrabold text-xs px-2 py-0.5' : 'bg-rose-500/10 text-rose-600 hover:bg-rose-500/10 border-transparent font-extrabold text-xs px-2 py-0.5'}
-                            >
-                              {isDebit ? t("ledger.received") : t("ledger.spent")}
-                            </Badge>
-                          </div>
-
-                          <p className="font-bold text-base leading-snug text-foreground">{tx.description}</p>
-
-                          <div className="flex flex-wrap gap-2 items-center">
-                            <span className="text-xs bg-muted px-2 py-0.5 rounded font-semibold text-muted-foreground">
-                              {tx.account?.name}
-                            </span>
+                      <TableRow key={tx._id}>
+                        <TableCell className="text-muted-foreground whitespace-nowrap text-xs">
+                          {format(new Date(tx.date), 'dd MMM yyyy')}
+                        </TableCell>
+                        <TableCell className="font-semibold whitespace-nowrap text-xs">{tx.account?.name}</TableCell>
+                        <TableCell className="max-w-[280px] md:max-w-[340px] whitespace-normal break-words py-2.5">
+                          <div className="space-y-1">
+                            <p className="leading-snug text-xs md:text-sm text-foreground">{tx.description}</p>
                             {tx.reference && (
-                              <span className="text-xs bg-muted px-2 py-0.5 rounded font-semibold text-muted-foreground uppercase">
-                                {t("ledger.ref")}: {tx.reference}
+                              <span className="inline-block text-[10px] text-muted-foreground uppercase bg-muted px-1.5 py-0.5 rounded font-mono">
+                                Ref: {tx.reference}
                               </span>
                             )}
                           </div>
-
-                          <div className="flex items-center justify-between border-t pt-2 mt-1">
-                            <div className="flex flex-col">
-                              <span className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">{t("ledger.balance")}</span>
-                              <span className="text-xs font-bold text-foreground">৳{Math.round(tx.balanceAfter).toLocaleString()}</span>
+                        </TableCell>
+                        <TableCell className="text-right font-bold whitespace-nowrap text-xs md:text-sm text-primary">
+                          {tx.type === 'debit' ? `৳${Math.round(tx.amount || 0).toLocaleString()}` : '—'}
+                        </TableCell>
+                        <TableCell className="text-right font-bold whitespace-nowrap text-xs md:text-sm text-foreground">
+                          {tx.type === 'credit' ? `৳${Math.round(tx.amount || 0).toLocaleString()}` : '—'}
+                        </TableCell>
+                        <TableCell className="text-right font-bold whitespace-nowrap text-xs md:text-sm">৳{Math.round(tx.balanceAfter).toLocaleString()}</TableCell>
+                        <TableCell className="text-right whitespace-nowrap">
+                          {tx.reference && ['manual-deposit', 'manual-withdrawal', 'manual-transfer'].includes(tx.reference) ? (
+                            <div className="flex items-center justify-end gap-1.5">
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="icon" className="h-8 w-8">
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem onClick={() => handleEditClick(tx)}>
+                                    <Edit2 className="mr-2 h-4 w-4 text-indigo-600" /> Edit
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    className="text-destructive focus:text-destructive"
+                                    onClick={() => handleDeleteTx(tx._id)}
+                                  >
+                                    <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             </div>
-                            <div className="text-right">
-                              <span className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider block">{isDebit ? t("ledger.received") : t("ledger.spent")}</span>
-                              <span className={`font-extrabold text-base ${isDebit ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                {isDebit ? '+' : '-'}৳{Math.round(tx.amount).toLocaleString()}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
                       );
                     })}
-                  </div>
-                </div>
-              )}
-              {totalPages > 1 && (
-                <div className="py-4 border-t bg-background px-6">
-                  <Pagination
-                    currentPage={currentPage}
-                    totalPages={totalPages}
-                    onPageChange={(page) => setCurrentPage(page)}
-                  />
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Cumulative Summary Tab */}
-      {activeTab === 'summary' && (
-        <div className="px-0 md:px-0 !mt-[1px] md:!mt-6">
-          <Card className="border-0 md:border bg-transparent md:bg-card shadow-none md:shadow-sm">
-            <CardHeader className="px-4 md:px-6 pb-4">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <CardTitle className="hidden md:block">{t("ledger.cumulative_summary") || "Cumulative Summary"}</CardTitle>
-                <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-                  {/* Date Filter Checkbox & Date Inputs */}
-                  <div className="flex items-center gap-1.5 text-xs">
-                    <label className="flex items-center gap-1 cursor-pointer font-bold text-foreground shrink-0 select-none">
-                      <input
-                        type="checkbox"
-                        checked={filterByDate}
-                        onChange={(e) => setFilterByDate(e.target.checked)}
-                        className="rounded border-border text-primary focus:ring-primary h-3.5 w-3.5 accent-primary"
-                      />
-                      {t("ledger.filter_by_date")}
-                    </label>
-
-                    <div className={`flex items-center gap-1 bg-muted/50 p-0.5 rounded-md border w-full sm:w-auto transition-opacity duration-200 ${!filterByDate ? 'opacity-40 pointer-events-none' : ''}`}>
-                      <Input
-                        type="date"
-                        aria-label="Start date"
-                        className="h-7 border-none bg-transparent focus-visible:ring-0 p-0.5 text-xs md:w-28 font-medium"
-                        value={dateFilter.from}
-                        onChange={(e) => setDateFilter(prev => ({ ...prev, from: e.target.value }))}
-                        disabled={!filterByDate}
-                      />
-                      <span className="text-muted-foreground text-[10px] shrink-0 font-medium">{t("ledger.to")}</span>
-                      <Input
-                        type="date"
-                        aria-label="End date"
-                        className="h-7 border-none bg-transparent focus-visible:ring-0 p-0.5 text-xs md:w-28 font-medium"
-                        value={dateFilter.to}
-                        onChange={(e) => setDateFilter(prev => ({ ...prev, to: e.target.value }))}
-                        disabled={!filterByDate}
-                      />
-                    </div>
-                  </div>
-                </div>
+                  </TableBody>
+                </Table>
               </div>
-            </CardHeader>
-            <CardContent className="px-1 md:px-6">
-              {summaryLoading ? (
-                <div className="space-y-4 p-4">
-                  <Skeleton className="h-8 w-full rounded" />
-                  <Skeleton className="h-20 w-full rounded" />
-                  <Skeleton className="h-8 w-full rounded" />
-                  <Skeleton className="h-20 w-full rounded" />
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 gap-8">
-                  {/* Category-wise summary table */}
-                  <div className="space-y-3">
-                    <h3 className="text-lg font-bold text-foreground px-1 md:px-0">{t("ledger.category_wise") || "Category-wise Summary"}</h3>
-                    
-                    {/* Desktop View */}
-                    <div className="hidden md:block overflow-x-auto border border-border/60 rounded-xl">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="bg-muted/40">
-                            <TableHead>{t("ledger.category") || "Category"}</TableHead>
-                            <TableHead className="text-right text-emerald-600 font-bold">{t("ledger.debit_in") || "Total Debit / In (৳)"}</TableHead>
-                            <TableHead className="text-right text-rose-600 font-bold">{t("ledger.credit_out") || "Total Credit / Out (৳)"}</TableHead>
-                            <TableHead className="text-right font-bold">{t("ledger.net_flow") || "Net Flow (৳)"}</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {categorySummary.length === 0 ? (
-                            <TableRow>
-                              <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
-                                {t("ledger.no_summary_records") || "No summary records found."}
-                              </TableCell>
-                            </TableRow>
-                          ) : (
-                            categorySummary.map((item, idx) => {
-                              const netFlow = item.debit - item.credit;
-                              return (
-                                <TableRow key={idx}>
-                                  <TableCell className="font-semibold text-foreground">{item.category}</TableCell>
-                                  <TableCell className="text-right text-emerald-600 font-medium">৳{Math.round(item.debit).toLocaleString()}</TableCell>
-                                  <TableCell className="text-right text-rose-600 font-medium">৳{Math.round(item.credit).toLocaleString()}</TableCell>
-                                  <TableCell className={`text-right font-bold ${netFlow > 0 ? 'text-emerald-600' : netFlow < 0 ? 'text-rose-600' : ''}`}>
-                                    ৳{Math.round(netFlow).toLocaleString()}
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })
-                          )}
-                        </TableBody>
-                      </Table>
-                    </div>
 
-                    {/* Mobile View */}
-                    <div className="block md:hidden space-y-2.5 px-0.5">
-                      {categorySummary.length === 0 ? (
-                        <div className="text-center text-muted-foreground py-8 bg-card border border-border/50 rounded-xl">
-                          {t("ledger.no_summary_records") || "No summary records found."}
-                        </div>
-                      ) : (
-                        categorySummary.map((item, idx) => {
-                          const netFlow = item.debit - item.credit;
-                          return (
-                            <div key={idx} className="p-3 border border-border/50 rounded-xl bg-card shadow-sm space-y-2.5">
-                              <div className="flex items-center justify-between border-b border-border/40 pb-1.5">
-                                <span className="font-extrabold text-foreground text-sm">{item.category}</span>
-                              </div>
-                              <div className="grid grid-cols-3 gap-1 text-center">
-                                <div className="flex flex-col items-start">
-                                  <span className="text-[9px] text-emerald-600 font-bold uppercase tracking-wider">{t("ledger.debit_in")?.split(' ')[0] || "Debit"}</span>
-                                  <span className="text-xs font-semibold text-emerald-600">৳{Math.round(item.debit).toLocaleString()}</span>
-                                </div>
-                                <div className="flex flex-col items-center">
-                                  <span className="text-[9px] text-rose-600 font-bold uppercase tracking-wider">{t("ledger.credit_out")?.split(' ')[0] || "Credit"}</span>
-                                  <span className="text-xs font-semibold text-rose-600">৳{Math.round(item.credit).toLocaleString()}</span>
-                                </div>
-                                <div className="flex flex-col items-end">
-                                  <span className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider">{t("ledger.net_flow")?.split(' ')[0] || "Net"}</span>
-                                  <span className={`text-xs font-extrabold ${netFlow > 0 ? 'text-emerald-600' : netFlow < 0 ? 'text-rose-600' : 'text-foreground'}`}>
-                                    ৳{Math.round(netFlow).toLocaleString()}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
+              {/* Mobile Card List */}
+              <div className="block md:hidden p-2 space-y-2.5">
+                {paginatedTransactions.map((tx) => {
+                  const txInfo = getTransactionTypeInfo(tx);
+                  return (
+                  <MobileDataCard
+                    key={tx._id}
+                    title={tx.description || 'Transaction'}
+                    badge={
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] font-semibold ${txInfo.color}`}
+                      >
+                        {txInfo.label}
+                      </Badge>
+                    }
+                    footer={
+                      <div className="flex items-center justify-between w-full font-bold text-xs">
+                        <span className="text-muted-foreground">Running Balance:</span>
+                        <span className="text-foreground text-sm">৳{Math.round(tx.balanceAfter).toLocaleString()}</span>
+                      </div>
+                    }
+                  >
+                    <MobileDataRow label="Date" value={format(new Date(tx.date), 'dd MMM yyyy')} />
+                    <MobileDataRow label="Account" value={<span className="font-semibold">{tx.account?.name}</span>} />
+                    <MobileDataRow 
+                      label="Debit" 
+                      value={
+                        tx.type === 'debit' ? (
+                          <span className="font-bold text-primary">৳{Math.round(tx.amount || 0).toLocaleString()}</span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )
+                      } 
+                    />
+                    <MobileDataRow 
+                      label="Credit" 
+                      value={
+                        tx.type === 'credit' ? (
+                          <span className="font-bold text-foreground">৳{Math.round(tx.amount || 0).toLocaleString()}</span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )
+                      } 
+                    />
+                    {tx.reference && (
+                      <MobileDataRow 
+                        label="Reference" 
+                        value={<span className="font-mono text-[10px] bg-muted px-1.5 py-0.5 rounded">{tx.reference}</span>} 
+                      />
+                    )}
+                    {tx.reference && ['manual-deposit', 'manual-withdrawal', 'manual-transfer'].includes(tx.reference) && (
+                      <div className="flex items-center justify-end gap-2 pt-2 border-t">
+                        <Button variant="outline" size="sm" onClick={() => handleEditClick(tx)} className="h-7 text-xs px-2">
+                          <Edit2 className="h-3 w-3 mr-1 text-indigo-600" /> Edit
+                        </Button>
+                        <Button variant="destructive" size="sm" onClick={() => handleDeleteTx(tx._id)} className="h-7 text-xs px-2">
+                          <Trash2 className="h-3 w-3 mr-1" /> Delete
+                        </Button>
+                      </div>
+                    )}
+                  </MobileDataCard>
+                  );
+                })}
+              </div>
+            </>
+          )}
 
-                  {/* Account-wise summary table */}
-                  <div className="space-y-3">
-                    <h3 className="text-lg font-bold text-foreground px-1 md:px-0">{t("ledger.account_wise") || "Account-wise Summary"}</h3>
-                    
-                    {/* Desktop View */}
-                    <div className="hidden md:block overflow-x-auto border border-border/60 rounded-xl">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="bg-muted/40">
-                            <TableHead>{t("ledger.account") || "Account"}</TableHead>
-                            <TableHead>{t("ledger.code") || "Code"}</TableHead>
-                            <TableHead className="text-right text-emerald-600 font-bold">{t("ledger.debit") || "Debit (৳)"}</TableHead>
-                            <TableHead className="text-right text-rose-600 font-bold">{t("ledger.credit") || "Credit (৳)"}</TableHead>
-                            <TableHead className="text-right font-bold">{t("ledger.net_change") || "Net Change (৳)"}</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {accountSummary.length === 0 ? (
-                            <TableRow>
-                              <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                                {t("ledger.no_summary_records") || "No summary records found."}
-                              </TableCell>
-                            </TableRow>
-                          ) : (
-                            accountSummary.map((item, idx) => {
-                              const netChange = item.debit - item.credit;
-                              return (
-                                <TableRow key={idx}>
-                                  <TableCell className="font-semibold text-foreground">{item.accountName}</TableCell>
-                                  <TableCell className="text-muted-foreground text-xs uppercase">{item.code}</TableCell>
-                                  <TableCell className="text-right text-emerald-600 font-medium">৳{Math.round(item.debit).toLocaleString()}</TableCell>
-                                  <TableCell className="text-right text-rose-600 font-medium">৳{Math.round(item.credit).toLocaleString()}</TableCell>
-                                  <TableCell className={`text-right font-bold ${netChange > 0 ? 'text-emerald-600' : netChange < 0 ? 'text-rose-600' : ''}`}>
-                                    ৳{Math.round(netChange).toLocaleString()}
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })
-                          )}
-                        </TableBody>
-                      </Table>
-                    </div>
-
-                    {/* Mobile View */}
-                    <div className="block md:hidden space-y-2.5 px-0.5">
-                      {accountSummary.length === 0 ? (
-                        <div className="text-center text-muted-foreground py-8 bg-card border border-border/50 rounded-xl">
-                          {t("ledger.no_summary_records") || "No summary records found."}
-                        </div>
-                      ) : (
-                        accountSummary.map((item, idx) => {
-                          const netChange = item.debit - item.credit;
-                          return (
-                            <div key={idx} className="p-3 border border-border/50 rounded-xl bg-card shadow-sm space-y-2.5">
-                              <div className="flex items-center justify-between border-b border-border/40 pb-1.5">
-                                <span className="font-extrabold text-foreground text-sm">{item.accountName}</span>
-                                <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded font-extrabold uppercase tracking-wider">{item.code}</span>
-                              </div>
-                              <div className="grid grid-cols-3 gap-1 text-center">
-                                <div className="flex flex-col items-start">
-                                  <span className="text-[9px] text-emerald-600 font-bold uppercase tracking-wider">{t("ledger.debit") || "Debit"}</span>
-                                  <span className="text-xs font-semibold text-emerald-600">৳{Math.round(item.debit).toLocaleString()}</span>
-                                </div>
-                                <div className="flex flex-col items-center">
-                                  <span className="text-[9px] text-rose-600 font-bold uppercase tracking-wider">{t("ledger.credit") || "Credit"}</span>
-                                  <span className="text-xs font-semibold text-rose-600">৳{Math.round(item.credit).toLocaleString()}</span>
-                                </div>
-                                <div className="flex flex-col items-end">
-                                  <span className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider">{t("ledger.net_change")?.split(' ')[0] || "Net"}</span>
-                                  <span className={`text-xs font-extrabold ${netChange > 0 ? 'text-emerald-600' : netChange < 0 ? 'text-rose-600' : 'text-foreground'}`}>
-                                    ৳{Math.round(netChange).toLocaleString()}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
+          {totalPages > 1 && (
+            <div className="py-3 border-t bg-background px-3">
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={(page) => setCurrentPage(page)}
+              />
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Edit Opening Balance Dialog */}
       <Dialog open={!!editingAccount} onOpenChange={(open) => { if (!open) setEditingAccount(null); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{t("ledger.edit_opening_balance")} — {editingAccount?.name}</DialogTitle>
+            <DialogTitle>Edit Opening Balance — {editingAccount?.name}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleUpdateOpeningBalance} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="openingBal">{t("ledger.opening_balance_label")}</Label>
+              <Label htmlFor="openingBal">Opening Balance (৳)</Label>
               <Input
                 id="openingBal"
                 type="number"
@@ -726,23 +642,240 @@ function AccountsLedgerContent() {
                 required
               />
               <p className="text-xs text-muted-foreground">
-                {t("ledger.opening_balance_note")}
+                Note: Changing the opening balance will recalculate the entire ledger running balance.
               </p>
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setEditingAccount(null)}>
-                {t("ledger.cancel")}
+                Cancel
               </Button>
-              <Button type="submit" disabled={updatingOpening} className="bg-primary text-primary-foreground">
+              <Button type="submit" disabled={updatingOpening} className="bg-primary text-primary-foreground font-bold">
                 {updatingOpening && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {t("ledger.save_balance")}
+                Save Balance
               </Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
+      {/* Edit Manual Transaction Dialog */}
+      <Dialog open={isTxOpen && !!editingTx} onOpenChange={(open) => { setIsTxOpen(open); if(!open) resetTxForm(); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit Transaction</DialogTitle>
+          </DialogHeader>
 
+          {/* Custom Tabs */}
+          {!editingTx && (
+            <div className="flex border-b border-muted">
+              <button
+                type="button"
+                className={`flex-1 py-2 text-sm font-semibold border-b-2 transition-all ${
+                  activeTab === 'journal'
+                    ? 'border-primary text-primary font-bold'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                }`}
+                onClick={() => setActiveTab('journal')}
+              >
+                Cash In / Out (Journal)
+              </button>
+              <button
+                type="button"
+                className={`flex-1 py-2 text-sm font-semibold border-b-2 transition-all ${
+                  activeTab === 'transfer'
+                    ? 'border-primary text-primary font-bold'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                }`}
+                onClick={() => setActiveTab('transfer')}
+              >
+                Account Transfer
+              </button>
+            </div>
+          )}
+
+          <form onSubmit={handleCreateTransaction} className="space-y-3 pt-2 text-xs">
+            {activeTab === 'journal' ? (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="txDate" className="text-xs">Transaction Date</Label>
+                    <Input
+                      id="txDate"
+                      type="date"
+                      value={date}
+                      onChange={(e) => setDate(e.target.value)}
+                      required
+                      className="h-8 text-xs"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label htmlFor="accCode" className="text-xs">Target Account</Label>
+                    <Select
+                      value={accountCode}
+                      onValueChange={(val: any) => setAccountCode(val)}
+                    >
+                      <SelectTrigger id="accCode" className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="CASH" className="text-xs">Cash Account</SelectItem>
+                        <SelectItem value="BANK" className="text-xs">Bank Account</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-xs">Type</Label>
+                  <div className="flex items-center gap-6 pt-1">
+                    <label className="flex items-center space-x-2 cursor-pointer select-none">
+                      <input
+                        type="radio"
+                        name="journalType"
+                        value="in"
+                        checked={journalType === 'in'}
+                        onChange={() => setJournalType('in')}
+                        className="h-4 w-4 text-emerald-600 focus:ring-emerald-500 border-gray-300"
+                      />
+                      <span className="text-emerald-600 dark:text-emerald-400 font-semibold text-xs">
+                        Debit (Cash In)
+                      </span>
+                    </label>
+                    <label className="flex items-center space-x-2 cursor-pointer select-none">
+                      <input
+                        type="radio"
+                        name="journalType"
+                        value="out"
+                        checked={journalType === 'out'}
+                        onChange={() => setJournalType('out')}
+                        className="h-4 w-4 text-rose-600 focus:ring-rose-500 border-gray-300"
+                      />
+                      <span className="text-rose-600 dark:text-rose-400 font-semibold text-xs">
+                        Credit (Cash Out)
+                      </span>
+                    </label>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="space-y-1">
+                  <Label htmlFor="txDate" className="text-xs">Transaction Date</Label>
+                  <Input
+                    id="txDate"
+                    type="date"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    required
+                    className="h-8 text-xs"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="fromAcc" className="text-xs">From Account</Label>
+                    <Select
+                      value={fromAccountCode}
+                      onValueChange={(val: any) => {
+                        setFromAccountCode(val);
+                        if (val === toAccountCode) {
+                          setToAccountCode(val === 'CASH' ? 'BANK' : 'CASH');
+                        }
+                      }}
+                    >
+                      <SelectTrigger id="fromAcc" className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="CASH" className="text-xs">Cash</SelectItem>
+                        <SelectItem value="BANK" className="text-xs">Bank</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="toAcc" className="text-xs">To Account</Label>
+                    <Select
+                      value={toAccountCode}
+                      onValueChange={(val: any) => {
+                        setToAccountCode(val);
+                        if (val === fromAccountCode) {
+                          setFromAccountCode(val === 'CASH' ? 'BANK' : 'CASH');
+                        }
+                      }}
+                    >
+                      <SelectTrigger id="toAcc" className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="CASH" className="text-xs">Cash</SelectItem>
+                        <SelectItem value="BANK" className="text-xs">Bank</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="space-y-1">
+              <Label htmlFor="txDesc" className="text-xs">Title</Label>
+              <Input
+                id="txDesc"
+                ref={titleRef}
+                autoFocus
+                placeholder={
+                  activeTab === 'journal'
+                    ?"e.g. Sales Income or Facebook Ads Cost"
+                    :"e.g. Account Transfer"
+                }
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                required
+                className="h-8 text-xs"
+              />
+            </div>
+
+            {activeTab === 'journal' ? (
+              <div className="space-y-1">
+                <Label htmlFor="journalAmt" className="text-xs">Amount (৳)</Label>
+                <Input
+                  id="journalAmt"
+                  type="number"
+                  min="1"
+                  placeholder="Enter amount"
+                  value={journalAmount}
+                  onChange={(e) => setJournalAmount(e.target.value)}
+                  required
+                  className="h-8 text-xs"
+                />
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <Label htmlFor="transferAmt" className="text-xs">Transfer Amount (৳)</Label>
+                <Input
+                  id="transferAmt"
+                  type="number"
+                  min="1"
+                  placeholder="0.00"
+                  value={transferAmount}
+                  onChange={(e) => setTransferAmount(e.target.value)}
+                  required
+                  className="h-8 text-xs"
+                />
+              </div>
+            )}
+
+            <DialogFooter className="pt-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setIsTxOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" size="sm" disabled={creatingTx} className="bg-primary text-primary-foreground font-bold">
+                {creatingTx && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {editingTx ? 'Update Transaction' : 'Save Transaction'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

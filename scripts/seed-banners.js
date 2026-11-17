@@ -16,7 +16,7 @@ if (fs.existsSync(envPath)) {
 
 if (!mongodbUri) {
   // Fallback if env file doesn't parse correctly
-  mongodbUri = 'mongodb+srv://Trishna Electronics:S4Epscw0SOkd5ZtG@cluster0.e5n1hnl.mongodb.net/Trishna Electronics';
+  mongodbUri = 'mongodb+srv://Climax Apparels:S4Epscw0SOkd5ZtG@cluster0.e5n1hnl.mongodb.net/Climax Apparels';
 }
 
 console.log('Connecting to MongoDB...');
@@ -40,57 +40,47 @@ const Banner = mongoose.models.Banner || mongoose.model('Banner', BannerSchema);
 
 const banners = [
   {
-    title: 'SMART IP SECURITY CAMERAS',
-    image: '/assets/images/Banner/banner-ip-camera.webp',
-    link: '/shop',
-    primaryBtnText: 'SHOP NOW',
-    primaryBtnLink: '/shop',
-    secondaryBtnText: 'CONTACT US',
-    secondaryBtnLink: 'https://wa.me/8801819273596',
+    title: 'Heritage in Harmony',
+    image: '/assets/images/Banner/banner-festive-heritage.webp',
+    link: '/shop?filter=featured',
+    primaryBtnText: 'Shop Collection',
+    primaryBtnLink: '/shop?filter=featured',
     order: 1,
     isActive: true,
   },
   {
-    title: 'ULTRA HD LED TELEVISIONS',
-    image: '/assets/images/Banner/banner-led-tv.webp',
-    link: '/shop',
-    primaryBtnText: 'SHOP NOW',
-    primaryBtnLink: '/shop',
-    secondaryBtnText: 'CONTACT US',
-    secondaryBtnLink: 'https://wa.me/8801819273596',
+    title: 'Summer Reset',
+    image: '/assets/images/Banner/banner-summer-handloom.webp',
+    link: '/shop?category=women',
+    primaryBtnText: 'Explore Women',
+    primaryBtnLink: '/shop?category=women',
     order: 2,
     isActive: true,
   },
   {
-    title: 'HIGH-DEFINITION PROJECTORS',
-    image: '/assets/images/Banner/banner-projector.webp',
-    link: '/shop',
-    primaryBtnText: 'SHOP NOW',
-    primaryBtnLink: '/shop',
-    secondaryBtnText: 'CONTACT US',
-    secondaryBtnLink: 'https://wa.me/8801819273596',
+    title: 'Ground in Grace - The Royal Silk',
+    image: '/assets/images/Banner/banner-mens-royal-panjabi.webp',
+    link: '/shop?category=men',
+    primaryBtnText: 'Shop Men',
+    primaryBtnLink: '/shop?category=men',
     order: 3,
     isActive: true,
   },
   {
-    title: 'PROFESSIONAL CC CAMERA SYSTEMS',
-    image: '/assets/images/Banner/banner-cc-camera.webp',
-    link: '/shop',
-    primaryBtnText: 'SHOP NOW',
-    primaryBtnLink: '/shop',
-    secondaryBtnText: 'CONTACT US',
-    secondaryBtnLink: 'https://wa.me/8801819273596',
+    title: 'Artisan Living',
+    image: '/assets/images/Banner/banner-home-living-decor.webp',
+    link: '/shop?category=home-decor',
+    primaryBtnText: 'Discover Decor',
+    primaryBtnLink: '/shop?category=home-decor',
     order: 4,
     isActive: true,
   },
   {
-    title: 'TRISHNA ELECTRONICS PREMIUM STORE',
-    image: '/assets/images/Banner/banner-trishna-brand.webp',
-    link: '/shop',
-    primaryBtnText: 'SHOP NOW',
-    primaryBtnLink: '/shop',
-    secondaryBtnText: 'CONTACT US',
-    secondaryBtnLink: 'https://wa.me/8801819273596',
+    title: 'Royal Splendor - The Bridal Edit',
+    image: '/assets/images/Banner/banner-wedding-splendor.webp',
+    link: '/shop?category=wedding',
+    primaryBtnText: 'Explore Bridal',
+    primaryBtnLink: '/shop?category=wedding',
     order: 5,
     isActive: true,
   }

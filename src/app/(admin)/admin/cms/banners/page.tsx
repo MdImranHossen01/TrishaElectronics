@@ -11,22 +11,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Plus, Edit, Trash2, MoreHorizontal } from 'lucide-react';
-import { Skeleton } from '@/components/ui/skeleton';
+import { Plus, Edit, Trash, Loader2, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 import Swal from 'sweetalert2';
-import { useLanguage } from '@/contexts/LanguageContext';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 
 export default function BannersPage() {
-  const { t } = useLanguage();
   const [banners, setBanners] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -53,10 +44,10 @@ export default function BannersPage() {
   const handleDelete = async (id: string, title: string) => {
     const result = await Swal.fire({
       title: 'Are you sure?',
-      text: `You are about to delete the banner "${title}". This action cannot be undone!`,
+      text: `You are about to delete the banner"${title}". This action cannot be undone!`,
       icon: 'warning',
       showCancelButton: true,
-      confirmButtonColor: '#00D1B2', // Primary color
+      confirmButtonColor: '#00D1B2', // Primary brand color
       cancelButtonColor: '#d33',
       confirmButtonText: 'Yes, delete it!',
       background: '#fff',
@@ -105,237 +96,203 @@ export default function BannersPage() {
   };
 
   return (
-    <div className="flex flex-col gap-4 px-0 pt-[1px] pb-4 md:p-6 w-full max-w-full overflow-x-hidden">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-0 px-[1px] md:px-0">
-        <div className="hidden md:block">
-          <h1 className="text-2xl font-bold tracking-tight">{t("banners.title")}</h1>
-          <p className="text-muted-foreground text-sm">{t("banners.subtitle")}</p>
+    <div className="flex-1 space-y-4 md:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div>
+          <h1 className="text-xl md:text-2xl font-bold tracking-tight">Promotional Banners</h1>
+          <p className="text-xs md:text-sm text-muted-foreground">Manage banners appearing in the homepage hero slider</p>
         </div>
-        <Link href="/admin/cms/banners/new" className="w-full sm:w-auto">
-          <Button className="w-full sm:w-auto rounded-none">
-            <Plus className="mr-2 h-4 w-4" /> {t("banners.add_banner")}
+        <Link href="/admin/cms/banners/new">
+          <Button size="sm" className="h-9 self-start sm:self-auto text-xs md:text-sm">
+            <Plus className="mr-1.5 h-4 w-4" /> Add Banner
           </Button>
         </Link>
       </div>
 
-      <div className="hidden md:block rounded-md border bg-background overflow-hidden shadow-sm !mt-[1px] md:!mt-6 px-[1px] md:px-0">
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-muted/50">
-              <TableHead className="w-[180px]">{t("banners.preview")}</TableHead>
-              <TableHead>{t("banners.banner_title")}</TableHead>
-              <TableHead>{t("banners.order")}</TableHead>
-              <TableHead>{t("banners.status")}</TableHead>
-              <TableHead>{t("banners.primary_cta")}</TableHead>
-              <TableHead>{t("banners.secondary_cta")}</TableHead>
-              <TableHead className="text-right">{t("banners.actions")}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              Array.from({ length: 4 }).map((_, i) => (
-                <TableRow key={i}>
-                  <TableCell>
-                    <Skeleton className="h-16 w-32 rounded-lg" />
-                  </TableCell>
-                  <TableCell>
-                    <Skeleton className="h-4 w-36 rounded" />
-                  </TableCell>
-                  <TableCell>
-                    <Skeleton className="h-4 w-12 rounded" />
-                  </TableCell>
-                  <TableCell>
-                    <Skeleton className="h-5 w-16 rounded-full" />
-                  </TableCell>
-                  <TableCell>
-                    <Skeleton className="h-4 w-24 rounded" />
-                  </TableCell>
-                  <TableCell>
-                    <Skeleton className="h-4 w-24 rounded" />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Skeleton className="h-8 w-8 rounded-full ml-auto" />
-                  </TableCell>
-                </TableRow>
-              ))
-            ) : banners.length === 0 ? (
+      <div className="rounded-xl border bg-card overflow-hidden shadow-sm">
+        {/* Desktop Table View */}
+        <div className="hidden md:block overflow-x-auto">
+          <Table>
+            <TableHeader className="bg-muted/50">
               <TableRow>
-                <TableCell colSpan={7} className="text-left h-40 text-center">
-                  <div className="flex flex-col items-center justify-center gap-2">
-                    <p className="text-lg font-medium">{t("banners.no_banners")}</p>
-                    <p className="text-sm text-muted-foreground">{t("banners.no_banners_desc")}</p>
-                    <Link href="/admin/cms/banners/new" className="mt-2">
-                      <Button variant="outline" size="sm">{t("banners.add_banner")}</Button>
-                    </Link>
-                  </div>
-                </TableCell>
+                <TableHead className="w-[180px]">Preview</TableHead>
+                <TableHead>Title</TableHead>
+                <TableHead>Order</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Primary CTA</TableHead>
+                <TableHead>Secondary CTA</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
-            ) : (
-              banners.map((banner) => (
-                <TableRow key={banner._id} className="group hover:bg-muted/30 transition-colors">
-                  <TableCell className="py-4">
-                    <div className="aspect-[21/9] w-[180px] overflow-hidden rounded-md border bg-muted relative">
-                      <Image
-                        src={banner.image}
-                        alt={banner.title}
-                        width={180}
-                        height={77}
-                        className="absolute inset-0 h-full w-full object-cover"
-                      />
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="h-40 text-center">
+                    <div className="flex flex-col items-center justify-center gap-2">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                      <p className="text-sm text-muted-foreground">Loading banners...</p>
                     </div>
-                  </TableCell>
-                  <TableCell className="py-4">
-                    <span className="font-semibold">{banner.title}</span>
-                  </TableCell>
-                  <TableCell className="py-4">
-                    <Badge variant="outline" className="font-mono">
-                      {banner.order}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="py-4">
-                    <button
-                      onClick={() => toggleStatus(banner._id, banner.isActive)}
-                      className="transition-opacity hover:opacity-80"
-                    >
-                      <Badge variant={banner.isActive ? 'default' : 'secondary'} className="cursor-pointer">
-                        {banner.isActive ? t("banners.active") : t("banners.inactive")}
-                      </Badge>
-                    </button>
-                  </TableCell>
-                  <TableCell className="py-4">
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-sm font-medium">{banner.primaryBtnText || t("banners.shop_now")}</span>
-                      <span className="text-[10px] text-muted-foreground truncate max-w-[150px]">
-                        {banner.primaryBtnLink || t("banners.no_link")}
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="py-4">
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-sm font-medium">{banner.secondaryBtnText || t("banners.contact")}</span>
-                      <span className="text-[10px] text-muted-foreground truncate max-w-[150px]">
-                        {banner.secondaryBtnLink || t("banners.no_link")}
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="py-4 text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-muted">
-                          <MoreHorizontal className="h-4 w-4 text-zinc-500" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-32 bg-white border shadow-sm">
-                        <Link href={`/admin/cms/banners/${banner._id}/edit`} className="w-full">
-                          <DropdownMenuItem className="cursor-pointer flex items-center gap-2">
-                            <Edit className="h-3.5 w-3.5 text-indigo-600" />
-                            <span>Edit</span>
-                          </DropdownMenuItem>
-                        </Link>
-                        <DropdownMenuItem
-                          onClick={() => handleDelete(banner._id, banner.title)}
-                          className="cursor-pointer flex items-center gap-2 text-destructive focus:text-destructive focus:bg-destructive/10"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                          <span>Delete</span>
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
                   </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
+              ) : banners.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="h-40 text-center">
+                    <div className="flex flex-col items-center justify-center gap-2">
+                      <p className="text-lg font-medium">No banners found</p>
+                      <p className="text-sm text-muted-foreground">Add your first promotional banner to get started.</p>
+                      <Link href="/admin/cms/banners/new" className="mt-2">
+                        <Button variant="outline" size="sm">Add Banner</Button>
+                      </Link>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                banners.map((banner) => (
+                  <TableRow key={banner._id} className="group hover:bg-muted/30 transition-colors">
+                    <TableCell>
+                      <div className="aspect-[21/9] w-full overflow-hidden rounded-md border bg-muted relative">
+                        <Image
+                          src={banner.image}
+                          alt={banner.title}
+                          width={180}
+                          height={77}
+                          className="absolute inset-0 h-full w-full object-cover"
+                        />
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <span className="font-semibold">{banner.title}</span>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="font-mono">
+                        {banner.order}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <button
+                        onClick={() => toggleStatus(banner._id, banner.isActive)}
+                        className="transition-opacity hover:opacity-80"
+                      >
+                        <Badge variant={banner.isActive ? 'default' : 'secondary'} className="cursor-pointer">
+                          {banner.isActive ? 'Active' : 'Inactive'}
+                        </Badge>
+                      </button>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-sm font-medium">{banner.primaryBtnText || 'Shop Now'}</span>
+                        <span className="text-[10px] text-muted-foreground truncate max-w-[150px]">
+                          {banner.primaryBtnLink || 'No link'}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-sm font-medium">{banner.secondaryBtnText || 'Contact'}</span>
+                        <span className="text-[10px] text-muted-foreground truncate max-w-[150px]">
+                          {banner.secondaryBtnLink || 'No link'}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Link href={`/admin/cms/banners/${banner._id}/edit`}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 hover:text-primary hover:bg-primary/10"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                        </Link>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => handleDelete(banner._id, banner.title)}
+                        >
+                          <Trash className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
 
-      {/* Mobile View */}
-      <div className="block md:hidden space-y-3 px-[1px] py-1 bg-zinc-50/55 !mt-[1px] md:!mt-6">
-        {loading ? (
-          <div className="space-y-3">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="p-4 border border-border/50 rounded-xl bg-card shadow-sm space-y-3">
-                <Skeleton className="h-32 w-full rounded-lg" />
-                <Skeleton className="h-4 w-40 rounded" />
-              </div>
-            ))}
-          </div>
-        ) : banners.length === 0 ? (
-          <div className="p-8 text-center text-muted-foreground bg-background rounded-xl border">
-            <p className="font-semibold text-sm">{t("banners.no_banners")}</p>
-          </div>
-        ) : (
-          banners.map((banner) => (
-            <div key={banner._id} className="p-4 mb-3 border border-border/50 rounded-2xl bg-card bg-white shadow-sm flex flex-col gap-2.5 relative">
-              {/* Banner Image Preview */}
-              <div className="aspect-[21/9] w-full overflow-hidden rounded-lg border bg-muted relative">
-                <Image
-                  src={banner.image}
-                  alt={banner.title}
-                  width={400}
-                  height={171}
-                  className="absolute inset-0 h-full w-full object-cover"
-                />
-              </div>
-
-              {/* Title & Status */}
-              <div className="flex items-start justify-between gap-3 border-t border-border/30 pt-2 mt-1">
-                <div>
-                  <h4 className="font-bold text-base text-foreground leading-tight">{banner.title}</h4>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-xs text-muted-foreground">Order:</span>
-                    <Badge variant="outline" className="font-mono text-xs py-0 px-1.5">{banner.order}</Badge>
-                  </div>
+        {/* Mobile Card View */}
+        <div className="block md:hidden p-2 space-y-2.5">
+          {loading ? (
+            <div className="text-center py-10 text-muted-foreground text-sm">
+              <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2 text-primary" />
+              Loading banners...
+            </div>
+          ) : banners.length === 0 ? (
+            <div className="text-center py-10 text-muted-foreground text-sm">
+              <p>No banners found</p>
+              <Link href="/admin/cms/banners/new" className="mt-2 inline-block">
+                <Button variant="outline" size="sm">Add Banner</Button>
+              </Link>
+            </div>
+          ) : (
+            banners.map((banner) => (
+              <div key={banner._id} className="p-3 bg-card border rounded-lg shadow-sm space-y-2.5">
+                <div className="aspect-[21/9] w-full overflow-hidden rounded-md border bg-muted relative">
+                  <Image
+                    src={banner.image}
+                    alt={banner.title}
+                    fill
+                    className="object-cover"
+                  />
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-start justify-between gap-2 border-b pb-2">
+                  <div>
+                    <h4 className="font-semibold text-sm text-foreground">{banner.title}</h4>
+                    <span className="text-[10px] text-muted-foreground font-mono">Order: {banner.order}</span>
+                  </div>
                   <button
                     onClick={() => toggleStatus(banner._id, banner.isActive)}
-                    className="transition-opacity hover:opacity-80"
+                    className="transition-opacity hover:opacity-80 shrink-0"
                   >
-                    <Badge variant={banner.isActive ? 'default' : 'secondary'} className="cursor-pointer text-xs px-2 py-0.5">
-                      {banner.isActive ? t("banners.active") : t("banners.inactive")}
+                    <Badge variant={banner.isActive ? 'default' : 'secondary'} className="cursor-pointer text-[10px]">
+                      {banner.isActive ? 'Active' : 'Inactive'}
                     </Badge>
                   </button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-muted">
-                        <MoreHorizontal className="h-4 w-4 text-zinc-500" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-32 bg-white border shadow-sm">
-                      <Link href={`/admin/cms/banners/${banner._id}/edit`} className="w-full">
-                        <DropdownMenuItem className="cursor-pointer flex items-center gap-2">
-                          <Edit className="h-3.5 w-3.5 text-indigo-600" />
-                          <span>Edit</span>
-                        </DropdownMenuItem>
-                      </Link>
-                      <DropdownMenuItem
-                        onClick={() => handleDelete(banner._id, banner.title)}
-                        className="cursor-pointer flex items-center gap-2 text-destructive focus:text-destructive focus:bg-destructive/10"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        <span>Delete</span>
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
                 </div>
-              </div>
 
-              {/* CTAs */}
-              <div className="grid grid-cols-2 gap-2 border-t border-border/30 pt-2 text-xs">
-                <div className="bg-muted/30 p-2 rounded-lg border border-border/20">
-                  <span className="font-bold text-foreground block">{banner.primaryBtnText || t("banners.shop_now")}</span>
-                  <span className="text-[10px] text-muted-foreground truncate block mt-0.5">{banner.primaryBtnLink || t("banners.no_link")}</span>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <span className="text-[10px] text-muted-foreground block">Primary CTA</span>
+                    <span className="font-medium truncate block">{banner.primaryBtnText || 'Shop Now'}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-muted-foreground block">Secondary CTA</span>
+                    <span className="font-medium truncate block">{banner.secondaryBtnText || 'Contact'}</span>
+                  </div>
                 </div>
-                <div className="bg-muted/30 p-2 rounded-lg border border-border/20">
-                  <span className="font-bold text-foreground block">{banner.secondaryBtnText || t("banners.contact")}</span>
-                  <span className="text-[10px] text-muted-foreground truncate block mt-0.5">{banner.secondaryBtnLink || t("banners.no_link")}</span>
+
+                <div className="flex items-center justify-end gap-1.5 pt-1 border-t">
+                  <Link href={`/admin/cms/banners/${banner._id}/edit`}>
+                    <Button variant="outline" size="sm" className="h-7 text-xs px-2.5">
+                      <Edit className="h-3 w-3 mr-1" /> Edit
+                    </Button>
+                  </Link>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs px-2.5 text-destructive hover:text-destructive"
+                    onClick={() => handleDelete(banner._id, banner.title)}
+                  >
+                    <Trash className="h-3 w-3 mr-1" /> Delete
+                  </Button>
                 </div>
               </div>
-            </div>
-          ))
-        )}
+            ))
+          )}
+        </div>
       </div>
     </div>
   );

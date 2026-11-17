@@ -253,8 +253,14 @@ async function run() {
     });
 
     // Parse prompts.md
-    const filePath = path.join(__dirname, '../prompts.md');
-    const content = fs.readFileSync(filePath, 'utf8');
+    let filePath = path.join(__dirname, '../scratch/rumas_product_prompts_utf8.md');
+    if (!fs.existsSync(filePath)) {
+      filePath = path.join(__dirname, '../scratch/rumas_product_prompts.md');
+    }
+    if (!fs.existsSync(filePath)) {
+      filePath = path.join(__dirname, '../prompts.md');
+    }
+    const content = fs.readFileSync(filePath, 'utf8').replace(/\r\n/g, '\n');
 
     const sections = content.split(/\n## /);
     const parsedProducts = [];

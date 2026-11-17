@@ -12,13 +12,20 @@ export async function GET() {
     }
 
     await connectToDatabase();
-    await seedLedgerAccounts();
 
-    await recalculateLedgerBalance('AR');
-    await recalculateLedgerBalance('AP');
-    await recalculateLedgerBalance('CASH');
+    const { syncBillsToLedger, syncOrdersToLedger, syncPayablesToLedger } = await import('@/lib/ledgerHelper');
+    await Promise.all([
+      (async () => {
+        await syncBillsToLedger();
+        await syncOrdersToLedger();
+      })(),
+      syncPayablesToLedger()
+    ]);
 
-    const accounts = await LedgerAccount.find().sort({ code: 1 });
+    const accounts = await LedgerAccount.find({
+      $or: [{ resellerId: null }, { resellerId: { $exists: false } }]
+    }).sort({ category: 1, name: 1 }).lean();
+
     return NextResponse.json(accounts);
   } catch (error: any) {
     console.error('Error fetching ledger accounts:', error);
@@ -42,7 +49,10 @@ export async function POST(req: NextRequest) {
 
     await connectToDatabase();
     
-    const account = await LedgerAccount.findOne({ code });
+    const account = await LedgerAccount.findOne({
+      code,
+      $or: [{ resellerId: null }, { resellerId: { $exists: false } }]
+    });
     if (!account) {
       return NextResponse.json({ message: 'Account not found' }, { status: 404 });
     }
@@ -53,7 +63,10 @@ export async function POST(req: NextRequest) {
     // Recalculate full balance of the account
     await recalculateLedgerBalance(code);
 
-    const updatedAccount = await LedgerAccount.findOne({ code });
+    const updatedAccount = await LedgerAccount.findOne({
+      code,
+      $or: [{ resellerId: null }, { resellerId: { $exists: false } }]
+    }).lean();
     return NextResponse.json(updatedAccount);
   } catch (error: any) {
     console.error('Error updating opening balance:', error);

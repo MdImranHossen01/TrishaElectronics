@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { motion } from 'framer-motion';
 import Link from 'next/link';
 import {
   ShoppingCart,
@@ -16,17 +17,25 @@ import {
   Settings,
   Package,
   Truck,
+  HelpCircle,
+  ChevronDown,
+  Store
 } from 'lucide-react';
 import { useSession, signOut } from 'next-auth/react';
+import { handleSignOut } from '@/lib/logout';
 import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
 import Image from 'next/image';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { ModeToggle } from '@/components/mode-toggle';
 import { useAppSelector } from '@/store/hooks';
 import { CartDrawer } from '@/components/layout/CartDrawer';
 import { CategoryNav } from '@/components/layout/CategoryNav';
+import { AIChatbot } from '@/components/layout/AIChatbot';
 import { Logo } from '@/components/ui/logo';
 import { useSettings } from '@/components/SettingsProvider';
+import { UserAvatar } from '@/components/ui/user-avatar';
+import { ImpersonationDropdownCard } from '@/components/admin/ImpersonationDropdownCard';
 import {
   Accordion,
   AccordionContent,
@@ -43,20 +52,20 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import Swal from 'sweetalert2';
-import { useLanguage } from '@/contexts/LanguageContext';
+
+const navItems = [
+  { href: '/', label: 'Home' },
+  { href: '/shop', label: 'Shop' },
+  { href: '/reseller-program', label: 'Become Reseller' },
+  { href: '/catalog', label: 'Catalog' },
+  { href: '/blog', label: 'Blogs' },
+  { href: '/contact', label: 'Contact' },
+];
 
 export default function NavbarV4() {
-  const { t } = useLanguage();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-
-  const navItems = [
-    { href: '/', label: t('store.nav.home') },
-    { href: '/shop', label: t('store.nav.shop') },
-    { href: '/blog', label: t('store.nav.blogs') },
-    { href: '/contact', label: t('store.nav.contact') },
-  ];
   const [isListening, setIsListening] = useState(false);
   const [liveResults, setLiveResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -68,6 +77,22 @@ export default function NavbarV4() {
   const { data: session, status } = useSession();
   const { totalQuantity: cartCount, totalAmount } = useAppSelector((state) => state.cart);
   const { items: wishlistItems } = useAppSelector((state) => state.wishlist);
+  const settings = useSettings();
+  const isResellerStore = Boolean(
+    settings?.isReseller ||
+    (typeof window !== 'undefined' && (
+      window.location.pathname.startsWith('/store/') ||
+      (window.location.hostname !== 'localhost' &&
+       window.location.hostname !== '127.0.0.1' &&
+       (process.env.NEXT_PUBLIC_ROOT_DOMAIN ? (
+          window.location.hostname !== process.env.NEXT_PUBLIC_ROOT_DOMAIN &&
+          window.location.hostname !== `www.${process.env.NEXT_PUBLIC_ROOT_DOMAIN}`
+        ) : true))
+    ))
+  );
+  const filteredNavItems = isResellerStore
+    ? navItems.filter((i) => i.href !== '/reseller-program')
+    : navItems;
 
   const [categories, setCategories] = useState<any[]>([]);
   const [profile, setProfile] = useState<any>(null);
@@ -111,16 +136,7 @@ export default function NavbarV4() {
           }
         });
     } else {
-      const timer = setTimeout(() => {
-        if (isMounted) {
-          setProfile((prev: any) => prev !== null ? null : prev);
-        }
-      }, 0);
-      return () => {
-        isMounted = false;
-        controller.abort();
-        clearTimeout(timer);
-      };
+      setProfile(null);
     }
 
     return () => {
@@ -152,51 +168,32 @@ export default function NavbarV4() {
 
   // Live search debounce
   useEffect(() => {
-    let active = true;
-    const controller = new AbortController();
-
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
     const trimmed = searchTerm.trim();
     if (!trimmed) {
-      debounceRef.current = setTimeout(() => {
-        if (active) {
-          setLiveResults([]);
-          setShowDropdown(false);
-        }
-      }, 0);
-      return () => {
-        active = false;
-        if (debounceRef.current) clearTimeout(debounceRef.current);
-      };
+      setLiveResults([]);
+      setShowDropdown(false);
+      return;
     }
 
     debounceRef.current = setTimeout(async () => {
-      if (!active) return;
       setIsSearching(true);
       try {
-        const res = await fetch(`/api/products?search=${encodeURIComponent(trimmed)}&limit=6`, {
-          signal: controller.signal,
-        });
-        if (res.ok && active) {
+        const res = await fetch(`/api/products?search=${encodeURIComponent(trimmed)}&limit=6`);
+        if (res.ok) {
           const data = await res.json();
-          if (active) {
-            setLiveResults(data.products || []);
-            setShowDropdown(true);
-          }
+          setLiveResults(data.products || []);
+          setShowDropdown(true);
         }
       } catch {
         // silent fail
       } finally {
-        if (active) {
-          setIsSearching(false);
-        }
+        setIsSearching(false);
       }
     }, 400);
 
     return () => {
-      active = false;
-      controller.abort();
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [searchTerm]);
@@ -296,7 +293,7 @@ export default function NavbarV4() {
                   <nav className="flex flex-col gap-6 mt-12 px-2">
                     <Logo onClick={() => setOpen(false)} className="items-center" />
                     <div className="space-y-4 pt-6 border-t font-medium tracking-tight">
-                      {navItems.map((item, index) => {
+                      {filteredNavItems.map((item, index) => {
                         const isActive = pathname === item.href;
                         return (
                           <React.Fragment key={item.href}>
@@ -314,7 +311,7 @@ export default function NavbarV4() {
                             {index === 0 && (
                               <Accordion type="single" collapsible>
                                 <AccordionItem value="cats" className="border-none">
-                                  <AccordionTrigger className="py-2 hover:no-underline uppercase text-[12px] font-bold tracking-[0.2em] text-left">{t('store.nav.categories')}</AccordionTrigger>
+                                  <AccordionTrigger className="py-2 hover:no-underline uppercase text-[12px] font-bold tracking-[0.2em] text-left">Categories</AccordionTrigger>
                                   <AccordionContent className="pt-2 pl-4 flex flex-col gap-3">
                                     {mainCategories.map(cat => (
                                       <Link
@@ -356,7 +353,7 @@ export default function NavbarV4() {
                 <input
                   id="navbar-search"
                   type="text"
-                  placeholder={isListening ? (t('store.nav.listening') as string) : (t('store.nav.search_placeholder') as string)}
+                  placeholder={isListening ? 'Listening...' : 'Search products...'}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   onFocus={() => { if (liveResults.length > 0) setShowDropdown(true); }}
@@ -381,7 +378,7 @@ export default function NavbarV4() {
                   {isSearching ? (
                     <div className="flex items-center justify-center py-6 gap-2 text-muted-foreground text-xs">
                       <div className="h-3 w-3 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-                      {t('store.nav.searching')}
+                      Searching...
                     </div>
                   ) : liveResults.length > 0 ? (
                     <>
@@ -421,14 +418,14 @@ export default function NavbarV4() {
                           className="flex items-center justify-center gap-1.5 text-xs font-semibold text-primary hover:underline"
                         >
                           <Search className="h-3 w-3" />
-                          {t('store.nav.see_all_results')} &ldquo;{searchTerm}&rdquo;
+                          See all results for &ldquo;{searchTerm}&rdquo;
                         </Link>
                       </div>
                     </>
                   ) : (
                     <div className="flex flex-col items-center py-6 text-muted-foreground text-xs gap-1">
                       <Search className="h-5 w-5 mb-1 opacity-40" />
-                      {t('store.nav.no_results')} &ldquo;{searchTerm}&rdquo;
+                      No results found for &ldquo;{searchTerm}&rdquo;
                     </div>
                   )}
                 </div>
@@ -438,8 +435,8 @@ export default function NavbarV4() {
             {/* Icons/Action Row (Right) */}
             <div className="flex items-center justify-end gap-1 flex-1 max-w-[320px]">
 
-              {/* Theme Toggle (Left of group) */}
-              <div className="hidden sm:block">
+              {/* Theme Toggle */}
+              <div>
                 <ModeToggle />
               </div>
 
@@ -447,7 +444,7 @@ export default function NavbarV4() {
 
               {/* Wishlist */}
               <Link
-                href="/dashboard/wishlist"
+                href="/dashboard/wishlist" prefetch={false}
                 className="hidden sm:flex h-10 w-10 items-center justify-center rounded-xl transition-all cursor-pointer hover:text-primary hover:scale-110"
                 aria-label="Wishlist"
                 onClick={(e) => {
@@ -500,12 +497,10 @@ export default function NavbarV4() {
                         aria-label="Account menu"
                       >
                         <div className="h-8 w-8 rounded-full border-2 border-primary/20 overflow-hidden group-hover:border-primary transition-all">
-                          <Image
-                            src={session.user?.image || `https://ui-avatars.com/api/?name=${encodeURIComponent(session.user?.name || 'U')}`}
-                            alt={session.user?.name || 'User'}
-                            width={32}
-                            height={32}
-                            className="h-full w-full object-cover"
+                          <UserAvatar
+                            src={profile?.image || session.user?.image}
+                            name={session.user?.name}
+                            size={32}
                           />
                         </div>
                         <span className="hidden sm:block text-xs font-bold text-gray-700 group-hover:text-primary transition-colors">
@@ -514,6 +509,7 @@ export default function NavbarV4() {
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-56 mt-2">
+                      <ImpersonationDropdownCard />
                       <DropdownMenuGroup>
                         <DropdownMenuLabel className="font-serif">
                           <div className="flex flex-col">
@@ -522,7 +518,7 @@ export default function NavbarV4() {
                             {profile && (
                               <div className="mt-1.5 flex items-center gap-1.5 bg-primary/10 px-2 py-0.5 rounded-full w-fit border border-primary/20">
                                 <Package className="h-3 w-3 text-primary" />
-                                <span className="text-[10px] font-bold text-primary">৳{profile.walletBalance || 0} {t('store.nav.tokens')}</span>
+                                <span className="text-[10px] font-bold text-primary">৳{profile.walletBalance || 0} Tokens</span>
                               </div>
                             )}
                           </div>
@@ -534,12 +530,12 @@ export default function NavbarV4() {
                           <>
                             <DropdownMenuItem asChild>
                               <Link href="/admin/dashboard" className="cursor-pointer">
-                                <LayoutDashboard className="mr-2 h-4 w-4" /> {t('store.nav.admin_dashboard')}
+                                <LayoutDashboard className="mr-2 h-4 w-4" /> Admin Dashboard
                               </Link>
                             </DropdownMenuItem>
                             <DropdownMenuItem asChild>
                               <Link href="/admin/system-design" className="cursor-pointer">
-                                <Settings className="mr-2 h-4 w-4" /> {t('store.nav.infrastructure')}
+                                <Settings className="mr-2 h-4 w-4" /> Infrastructure & Marketing
                               </Link>
                             </DropdownMenuItem>
                           </>
@@ -549,12 +545,32 @@ export default function NavbarV4() {
                           <>
                             <DropdownMenuItem asChild>
                               <Link href="/admin/dashboard" className="cursor-pointer">
-                                <LayoutDashboard className="mr-2 h-4 w-4" /> {t('store.nav.admin_dashboard')}
+                                <LayoutDashboard className="mr-2 h-4 w-4" /> Admin Dashboard
                               </Link>
                             </DropdownMenuItem>
                             <DropdownMenuItem asChild>
                               <Link href="/admin/orders" className="cursor-pointer">
-                                <Truck className="mr-2 h-4 w-4" /> {t('store.nav.manage_orders')}
+                                <Truck className="mr-2 h-4 w-4" /> Manage Orders
+                              </Link>
+                            </DropdownMenuItem>
+                          </>
+                        )}
+
+                        {(session.user as any)?.role === 'reseller' && (
+                          <>
+                            <DropdownMenuItem asChild>
+                              <Link href="/reseller-dashboard" className="cursor-pointer">
+                                <LayoutDashboard className="mr-2 h-4 w-4" /> Reseller Dashboard
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem asChild>
+                              <Link href="/reseller/products" className="cursor-pointer">
+                                <Store className="mr-2 h-4 w-4" /> My Products
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem asChild>
+                              <Link href="/reseller/orders" className="cursor-pointer">
+                                <Truck className="mr-2 h-4 w-4" /> Store Orders
                               </Link>
                             </DropdownMenuItem>
                           </>
@@ -564,20 +580,20 @@ export default function NavbarV4() {
                           <>
                             <DropdownMenuItem asChild>
                               <Link href="/dashboard" className="cursor-pointer">
-                                <LayoutDashboard className="mr-2 h-4 w-4" /> {t('store.nav.dashboard')}
+                                <LayoutDashboard className="mr-2 h-4 w-4" /> Dashboard
                               </Link>
                             </DropdownMenuItem>
                             <DropdownMenuItem asChild>
                               <Link href="/track-order" className="cursor-pointer">
-                                <Truck className="mr-2 h-4 w-4" /> {t('store.nav.track_order')}
+                                <Truck className="mr-2 h-4 w-4" /> Track Order
                               </Link>
                             </DropdownMenuItem>
                           </>
                         )}
                       </DropdownMenuGroup>
                       <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={() => signOut({ callbackUrl: window.location.origin })} className="text-destructive cursor-pointer">
-                        <LogOut className="mr-2 h-4 w-4" /> {t('store.nav.sign_out')}
+                      <DropdownMenuItem onClick={() => handleSignOut()} className="text-destructive cursor-pointer">
+                        <LogOut className="mr-2 h-4 w-4" /> Sign Out
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -603,7 +619,7 @@ export default function NavbarV4() {
       <nav className="hidden md:flex sticky top-0 z-40 w-full h-12 items-center justify-center border-b bg-background/95 backdrop-blur-sm shadow-sm">
         <div className="container mx-auto px-4 flex justify-center">
           <ul className="flex items-center gap-10">
-            {navItems.map((item, index) => {
+            {filteredNavItems.map((item, index) => {
               const isActive = pathname === item.href;
 
               return (

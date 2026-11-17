@@ -1,16 +1,16 @@
 'use client';
 
-import { useLanguage } from '@/contexts/LanguageContext';
 import { useState } from 'react';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { Loader2, ArrowLeft, Send } from 'lucide-react';
+import { Loader2, GalleryVerticalEnd, ArrowLeft, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 
 import { Button } from '@/components/ui/button';
+import Image from 'next/image';
 import {
   Form,
   FormControl,
@@ -26,8 +26,7 @@ const forgotPasswordSchema = z.object({
   email: z.string().email({ message: 'Invalid email address' }),
 });
 
-export default function ForgotPasswordPage() {  const { t } = useLanguage();
-
+export default function ForgotPasswordPage() {
   const [isLoading, setIsLoading] = useState(false);
 
   const form = useForm<z.infer<typeof forgotPasswordSchema>>({
@@ -62,10 +61,9 @@ export default function ForgotPasswordPage() {  const { t } = useLanguage();
   }
 
   return (
-    <div className="relative min-h-screen">
-      {/* Forgot Password Form centered */}
-      <div className="flex flex-col p-6 md:p-10 bg-background min-h-screen items-center justify-center w-full">
-        <div className="flex justify-center mb-8">
+    <div className="relative min-h-screen flex items-center justify-center bg-background p-4">
+      <div className="flex flex-col p-6 md:p-8 bg-card border rounded-2xl shadow-sm w-full max-w-md">
+        <div className="flex justify-center mb-6">
           <Logo />
         </div>
 
@@ -75,11 +73,11 @@ export default function ForgotPasswordPage() {  const { t } = useLanguage();
           transition={{ duration: 0.6, delay: 0.2 }}
           className="flex flex-1 items-center justify-center"
         >
-          <div className="w-full max-w-sm space-y-8">
+          <div className="w-full space-y-8">
             <div className="space-y-2 text-center">
-              <h1 className="text-3xl font-bold tracking-tight">{t('auth.forgot.title') || 'Forgot password?'}</h1>
+              <h1 className="text-3xl font-bold tracking-tight">Forgot password?</h1>
               <p className="text-sm text-muted-foreground text-balance">
-                Enter your email address and we&apos;ll send you a link to reset your password
+                Enter your email address and we'll send you a link to reset your password
               </p>
             </div>
 
@@ -90,7 +88,7 @@ export default function ForgotPasswordPage() {  const { t } = useLanguage();
                   name="email"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t('auth.register.email') || 'Email Address'}</FormLabel>
+                      <FormLabel>Email Address</FormLabel>
                       <FormControl>
                         <Input
                           placeholder="m@example.com"
@@ -131,12 +129,7 @@ export default function ForgotPasswordPage() {  const { t } = useLanguage();
           </div>
         </motion.div>
 
-        <div className="mt-auto pt-6 text-center text-xs text-muted-foreground">
-          Need help? Contact our{' '}
-          <Link href="/support" className="underline underline-offset-4 hover:text-primary">
-            Support Team
-          </Link>.
-        </div>
+
       </div>
     </div>
   );

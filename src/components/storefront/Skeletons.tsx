@@ -141,28 +141,6 @@ export function BlogRecentSkeleton() {
   );
 }
 
-export function FeaturesSectionSkeleton() {
-  return (
-    <section className="py-12 border-y bg-muted/20">
-      <div className="container mx-auto px-4">
-        <div className="text-center mb-16 space-y-4">
-          <Skeleton className="h-6 w-32 mx-auto rounded-full" />
-          <Skeleton className="h-12 w-96 mx-auto" />
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-8">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="flex flex-col items-center p-6 space-y-4">
-              <Skeleton className="h-14 w-14 rounded-2xl" />
-              <Skeleton className="h-4 w-24" />
-              <Skeleton className="h-3 w-32" />
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
 export function FAQSectionSkeleton() {
   return (
     <section className="py-20 bg-background">
@@ -174,24 +152,6 @@ export function FAQSectionSkeleton() {
         <div className="max-w-3xl mx-auto space-y-4">
           {Array.from({ length: 5 }).map((_, i) => (
             <Skeleton key={i} className="h-16 w-full rounded-2xl" />
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-export function TestimonialsSkeleton() {
-  return (
-    <section className="py-20 bg-muted/10">
-      <div className="container mx-auto px-4">
-        <div className="text-center mb-16 space-y-4">
-          <Skeleton className="h-6 w-32 mx-auto rounded-full" />
-          <Skeleton className="h-12 w-96 mx-auto" />
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-64 w-full rounded-3xl" />
           ))}
         </div>
       </div>

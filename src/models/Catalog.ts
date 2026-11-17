@@ -1,4 +1,4 @@
-﻿import mongoose, { Document, Model, Schema } from 'mongoose';
+import mongoose, { Document, Model, Schema } from 'mongoose';
 
 export interface ICatalogItem {
   name: string;
@@ -52,7 +52,7 @@ const CatalogSchema = new Schema<ICatalog>(
       markets: { type: String, default: 'EU, USA, Mid-East' },
       address: { type: String, default: 'Sarkarbari, Helal Market, Uttar Khan, Dhaka, Bangladesh' },
       phone: { type: String, default: '+880 1724-338581' },
-      email: { type: String, default: 'info@trishnaelectronics.com' },
+      email: { type: String, default: '' },
       corporatePresence: { type: String, default: 'LinkedIn / Alibaba / Google Business Profile' },
     },
     categories: [CatalogCategorySchema],

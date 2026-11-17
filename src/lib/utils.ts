@@ -10,33 +10,35 @@ export function getWhatsAppLink(phone: string): string {
   const digits = phone.replace(/[^0-9]/g, '');
   if (!digits) return '';
 
-  // Bangladeshi standard: 13 digits starting with 8801
   if (digits.startsWith('8801') && digits.length === 13) {
     return `https://wa.me/${digits}`;
   }
   
-  // Bangladeshi local standard: 11 digits starting with 01
   if (digits.startsWith('01') && digits.length === 11) {
     return `https://wa.me/88${digits}`;
   }
 
-  // For other fully qualified numbers with country codes (usually 10+ digits), keep as-is
   if (digits.length >= 10) {
     return `https://wa.me/${digits}`;
   }
 
   return '';
 }
-export function normalizePhoneNumber(phone: string): string {
+
+export function normalizePhoneNumber(phone?: string | null): string {
   if (!phone) return '';
   const banglaDigits = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
   const englishDigits = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
-  let normalized = phone;
+  let normalized = String(phone).trim();
   for (let i = 0; i < 10; i++) {
     normalized = normalized.replace(new RegExp(banglaDigits[i], 'g'), englishDigits[i]);
   }
   let cleaned = normalized.replace(/[^0-9]/g, '');
-  if (cleaned.startsWith('88')) {
+  if (cleaned.startsWith('880')) {
+    cleaned = cleaned.substring(2);
+  } else if (cleaned.startsWith('00880')) {
+    cleaned = cleaned.substring(4);
+  } else if (cleaned.startsWith('88')) {
     cleaned = cleaned.substring(2);
   } else if (cleaned.startsWith('0088')) {
     cleaned = cleaned.substring(4);
@@ -46,3 +48,29 @@ export function normalizePhoneNumber(phone: string): string {
   }
   return cleaned;
 }
+
+/**
+ * Check if a ledger account is a liquid payment account (Cash, Bank, MFS).
+ * Accounts Payable (AP) and Accounts Receivable (AR) are balance sheet debt tracking accounts,
+ * not liquid funds, and cannot be used for fund transfers or cash in/out payment methods.
+ */
+export function isTransferableAccount(acc: any): boolean {
+  if (!acc) return false;
+  const code = String(acc.code || '').toUpperCase().trim();
+  const name = String(acc.name || '').toLowerCase().trim();
+  if (code === 'AR' || code === 'AP') return false;
+  if (name.includes('receivable') || name.includes('payable')) return false;
+  if (code.includes('RECEIVABLE') || code.includes('PAYABLE')) return false;
+  return true;
+}
+
+/**
+ * Remove Bengali text or annotations like '(হাতে নগদ)' from account names.
+ */
+export function cleanAccountName(name?: string | null): string {
+  if (!name) return '';
+  return name.replace(/\s*\(হাতে নগদ\)/g, '').replace(/[\u0980-\u09FF]/g, '').trim();
+}
+
+
+

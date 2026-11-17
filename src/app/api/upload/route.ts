@@ -4,13 +4,30 @@ import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { r2Client, R2_BUCKET_NAME, R2_PUBLIC_URL } from '@/lib/r2';
 import crypto from 'crypto';
 
+/**
+ * Determines a strictly partitioned, multi-tenant storage folder path:
+ */
 async function resolveStoragePrefix(session: any, folder: string): Promise<string> {
   const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'trishnaelectronics.com';
-  const platform = rootDomain.split('.')[0].toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'trishnaelectronics';
+  const platform = rootDomain.split('.')[0].toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'Trishna Electronics';
   const safeFolder = folder.replace(/[^a-zA-Z0-9_-]/g, '') || 'uploads';
 
   const user = session?.user;
   const role = user?.role;
+
+  if (role === 'reseller') {
+    try {
+      const connectToDatabase = (await import('@/lib/db')).default;
+      const Reseller = (await import('@/models/Reseller')).default;
+      await connectToDatabase();
+      const reseller = await Reseller.findOne({ userId: user.id }).select('subdomain storeName').lean();
+      const slug = reseller?.subdomain || reseller?.storeName?.toLowerCase().replace(/[^a-z0-9_-]/g, '') || user.id;
+      return `${platform}/resellers/${slug}/${safeFolder}`;
+    } catch (err) {
+      console.warn('Could not resolve reseller subdomain for storage prefix:', err);
+      return `${platform}/resellers/${user?.id || 'unknown'}/${safeFolder}`;
+    }
+  }
 
   if (['admin', 'super_admin', 'manager', 'moderator'].includes(role)) {
     return `${platform}/mother/${safeFolder}`;
@@ -23,6 +40,7 @@ export async function POST(req: NextRequest) {
   try {
     const session = await auth();
 
+    // Auth check - any authenticated user can upload images (e.g. profile pictures or product/setting images)
     if (!session || !session.user) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
@@ -45,6 +63,7 @@ export async function POST(req: NextRequest) {
       contentType = image.type || 'image/jpeg';
       originalName = image.name || 'image.jpg';
     } else if (typeof image === 'string') {
+      // Base64 string
       const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
       buffer = Buffer.from(base64Data, 'base64');
       const match = image.match(/^data:(image\/\w+);base64,/);
@@ -53,6 +72,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: 'Unsupported image format' }, { status: 400 });
     }
 
+    // Strict 1 MB File Size Guard across all uploads (product, blog, banner, category, etc.)
     const MAX_ALLOWED_BYTES = 1 * 1024 * 1024; // 1 MB
     if (buffer.length > MAX_ALLOWED_BYTES) {
       const sizeMB = (buffer.length / (1024 * 1024)).toFixed(2);
@@ -62,6 +82,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Convert raster images to WebP via Sharp if not SVG or animated GIF
     const isSvg = contentType.includes('svg');
     const isGif = contentType.includes('gif');
     let ext = 'webp';
@@ -73,28 +94,24 @@ export async function POST(req: NextRequest) {
         const maxDim = isBanner ? 2160 : 1200;
         const targetSize = isBanner ? 400 * 1024 : 150 * 1024;
 
-        // Progressive passes to strictly guarantee output size <= targetSize (150KB for products, 400KB for banners)
-        const attempts = [
+        const steps = [
           { scale: 1.0, quality: 82 },
           { scale: 1.0, quality: 78 },
-          { scale: 0.92, quality: 74 },
-          { scale: 0.85, quality: 70 },
-          { scale: 0.75, quality: 65 },
-          { scale: 0.65, quality: 60 },
+          { scale: 0.94, quality: 74 },
+          { scale: 0.88, quality: 70 },
+          { scale: 0.80, quality: 65 },
+          { scale: 0.72, quality: 60 },
         ];
 
-        let optimized = buffer;
-        for (const attempt of attempts) {
-          const dim = Math.max(100, Math.round(maxDim * attempt.scale));
+        let optimized: Buffer = buffer;
+        for (const step of steps) {
+          const dim = Math.max(1, Math.round(maxDim * step.scale));
           optimized = await sharp(buffer)
             .rotate()
             .resize({ width: dim, height: dim, fit: 'inside', withoutEnlargement: true })
-            .webp({ quality: attempt.quality, effort: 5 })
+            .webp({ quality: step.quality, effort: 5 })
             .toBuffer();
-
-          if (optimized.length <= targetSize) {
-            break;
-          }
+          if (optimized.length <= targetSize) break;
         }
 
         buffer = optimized;
@@ -110,9 +127,11 @@ export async function POST(req: NextRequest) {
       ext = rawExt.replace(/[^a-z0-9]/g, '') || 'jpg';
     }
 
+    // Generate unique key inside multi-tenant folder
     const storagePrefix = await resolveStoragePrefix(session, folder);
     const fileKey = `${storagePrefix}/${Date.now()}-${crypto.randomUUID()}.${ext}`;
 
+    // Upload directly to Cloudflare R2
     const command = new PutObjectCommand({
       Bucket: R2_BUCKET_NAME,
       Key: fileKey,

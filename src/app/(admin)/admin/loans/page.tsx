@@ -1,495 +1,613 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { useLanguage } from '@/contexts/LanguageContext';
+import * as React from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Search, Trash2, CheckCircle, Landmark, Calendar } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { 
+  Building, 
+  Plus, 
+  DollarSign, 
+  Loader2, 
+  RefreshCw, 
+  ArrowLeft, 
+  CheckCircle2, 
+  Clock, 
+  Search,
+  HandCoins,
+  ArrowUpRight,
+  MoreVertical,
+  CreditCard,
+  History,
+  Trash2
+} from 'lucide-react';
+import Link from 'next/link';
+import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import Swal from 'sweetalert2';
-import { format } from 'date-fns';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { MobileDataCard, MobileDataRow } from '@/components/common/MobileDataCard';
+import { LoanRepaymentDialog } from '@/components/admin/LoanRepaymentDialog';
+import { cleanAccountName } from '@/lib/utils';
 
-export default function AllLoansPage() {
-  const { t } = useLanguage();
-  const [loans, setLoans] = useState<any[]>([]);
+export default function LoansPage() {
+  const [data, setData] = useState<any>(null);
   const [providers, setProviders] = useState<any[]>([]);
-  const [ledgerAccounts, setLedgerAccounts] = useState<any[]>([]);
+  const [accounts, setAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
 
-  // Create Modal State
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [formLoading, setFormLoading] = useState(false);
+  // Loan Repayment Modal State
+  const [selectedLoanForRepayment, setSelectedLoanForRepayment] = useState<any | null>(null);
+  const [repaymentOpen, setRepaymentOpen] = useState(false);
 
-  // Form fields
-  const [selectedProviderId, setSelectedProviderId] = useState('');
-  const [amount, setAmount] = useState<number>(0);
-  const [interestAmount, setInterestAmount] = useState<number>(0);
-  const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [expectedRepaymentDate, setExpectedRepaymentDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [receivingAccountId, setReceivingAccountId] = useState('');
-  const [repaymentType, setRepaymentType] = useState<'One-time' | 'Installment'>('One-time');
-  const [installmentCount, setInstallmentCount] = useState<number | ''>('');
-  const [installmentAmount, setInstallmentAmount] = useState<number | ''>('');
-  const [installmentDayOfMonth, setInstallmentDayOfMonth] = useState<number | ''>('');
-
-  // Payment Modal State
-  const [isPaymentOpen, setIsPaymentOpen] = useState(false);
-  const [selectedLoan, setSelectedLoan] = useState<any>(null);
-  const [paymentAmount, setPaymentAmount] = useState<number>(0);
-  const [paymentAccountId, setPaymentAccountId] = useState('');
-
-  useEffect(() => {
-    fetchLoans();
-    fetchProviders();
-    fetchLedgerAccounts();
-  }, []);
+  // New Loan Modal State
+  const [newLoanOpen, setNewLoanOpen] = useState(false);
+  const [loanForm, setLoanForm] = useState({
+    lenderId: '',
+    lenderName: '',
+    amount: '',
+    interestAmount: '0',
+    receivingAccountId: '',
+    expectedRepaymentDate: '',
+    date: new Date().toISOString().split('T')[0]
+  });
+  const [creating, setCreating] = useState(false);
 
   const fetchLoans = async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      const res = await fetch('/api/admin/business-loans');
-      if (res.ok) {
-        const data = await res.json();
-        setLoans(data);
+      const [loansRes, providersRes, accountsRes] = await Promise.all([
+        fetch('/api/admin/loans'),
+        fetch('/api/admin/loans/providers'),
+        fetch('/api/admin/accounts')
+      ]);
+
+      if (loansRes.ok) {
+        const json = await loansRes.json();
+        setData(json);
+      }
+      if (providersRes.ok) {
+        const json = await providersRes.json();
+        setProviders(json.providers || []);
+      }
+      if (accountsRes.ok) {
+        const json = await accountsRes.json();
+        setAccounts(json.accounts || []);
       }
     } catch (error) {
-      toast.error('Failed to load business loans');
+      console.error('Failed to fetch loans:', error);
+      toast.error('Failed to load loans');
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchProviders = async () => {
-    try {
-      const res = await fetch('/api/admin/loans/providers');
-      if (res.ok) {
-        const data = await res.json();
-        setProviders(data);
-      }
-    } catch (error) {
-      console.error('Error fetching providers:', error);
-    }
-  };
+  useEffect(() => {
+    fetchLoans();
+  }, []);
 
-  const fetchLedgerAccounts = async () => {
-    try {
-      const res = await fetch('/api/accounts');
-      if (res.ok) {
-        const data = await res.json();
-        setLedgerAccounts(Array.isArray(data) ? data : (data.accounts || []));
-      }
-    } catch (error) {
-      console.error('Error fetching ledger accounts:', error);
-    }
-  };
-
-  const filteredLoans = useMemo(() => {
-    return loans.filter(loan => {
-      const lender = loan.lenderId?.name || loan.lenderName || '';
-      return lender.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        loan.loanId.toLowerCase().includes(searchTerm.toLowerCase());
-    });
-  }, [loans, searchTerm]);
-
-  const handleCreate = async (e: React.FormEvent) => {
+  const handleCreateLoan = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedProviderId || amount <= 0 || !receivingAccountId) {
-      toast.error('Please fill all required fields correctly.');
+    if (!loanForm.amount || !loanForm.receivingAccountId || !loanForm.expectedRepaymentDate) {
+      toast.error('Please fill in all required loan fields');
       return;
     }
-
-    const provider = providers.find(p => p._id === selectedProviderId);
-    if (!provider) {
-      toast.error('Selected provider is invalid.');
+    if (providers.length > 0 && !loanForm.lenderId) {
+      toast.error('Please select a loan provider');
       return;
     }
-
-    const totalRepayment = Number(amount) + Number(interestAmount || 0);
-
+    if (providers.length === 0 && !loanForm.lenderName.trim()) {
+      toast.error('Please enter a lender name');
+      return;
+    }
+    setCreating(true);
     try {
-      setFormLoading(true);
-      const res = await fetch('/api/admin/business-loans', {
+      const res = await fetch('/api/admin/loans', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          lenderName: provider.name,
-          lenderId: provider._id,
-          amount,
-          date,
-          expectedRepaymentDate,
-          receivingAccountId,
-          repaymentType,
-          interestAmount,
-          totalRepaymentAmount: totalRepayment,
-          installmentCount: repaymentType === 'Installment' ? (installmentCount || 0) : undefined,
-          installmentAmount: repaymentType === 'Installment' ? (installmentAmount || 0) : undefined,
-          installmentDayOfMonth: repaymentType === 'Installment' ? (installmentDayOfMonth || 1) : undefined,
-        })
+        body: JSON.stringify(loanForm)
       });
-
       if (res.ok) {
-        Swal.fire({
-          title: 'Success!',
-          text: 'Loan added successfully',
-          icon: 'success',
-          confirmButtonColor: 'var(--primary)',
+        toast.success('Business loan recorded successfully');
+        setNewLoanOpen(false);
+        setLoanForm({
+          lenderId: '',
+          lenderName: '',
+          amount: '',
+          interestAmount: '0',
+          receivingAccountId: '',
+          expectedRepaymentDate: '',
+          date: new Date().toISOString().split('T')[0]
         });
-        setIsCreateOpen(false);
         fetchLoans();
       } else {
-        const err = await res.json().catch(() => ({}));
-        toast.error(err.message || 'Failed to create loan');
+        const err = await res.json();
+        toast.error(err.message || 'Failed to record loan');
       }
     } catch (error) {
-      toast.error('Error creating loan');
+      toast.error('Error recording loan');
     } finally {
-      setFormLoading(false);
+      setCreating(false);
     }
   };
 
-  const handlePayment = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedLoan || paymentAmount <= 0 || paymentAmount > selectedLoan.dueAmount || !paymentAccountId) {
-      toast.error('Invalid payment details');
-      return;
-    }
-
-    try {
-      setFormLoading(true);
-      const res = await fetch(`/api/admin/business-loans/${selectedLoan._id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'PAY',
-          paymentAmount,
-          paymentAccountId
-        })
-      });
-
-      if (res.ok) {
-        Swal.fire({
-          title: 'Payment Recorded!',
-          text: 'Repayment transaction completed successfully.',
-          icon: 'success',
-          confirmButtonColor: 'var(--primary)',
-        });
-        setIsPaymentOpen(false);
-        fetchLoans();
-      } else {
-        const err = await res.json().catch(() => ({}));
-        toast.error(err.message || 'Failed to record payment');
-      }
-    } catch (error) {
-      toast.error('Error recording payment');
-    } finally {
-      setFormLoading(false);
-    }
-  };
-
-  const handleDelete = async (id: string) => {
+  const handleDeleteLoan = async (loan: any) => {
     const result = await Swal.fire({
-      title: 'Are you sure?',
-      text: "This will delete the loan record.",
+      title: `Delete Loan "${loan.loanId}"?`,
+      html: `<div class="text-xs text-left space-y-2">
+        <p class="font-bold text-rose-600">⚠️ Warning: Loan Deletion & Ledger Reversal!</p>
+        <p>Deleting this loan will permanently delete:</p>
+        <ul class="list-disc pl-4 space-y-1 text-muted-foreground">
+          <li>The loan disbursement entry and loan record.</li>
+          <li><b>All repayment records</b> (Paid amount: ৳${Math.round(loan.paidAmount || 0).toLocaleString()}).</li>
+          <li>All linked <b>Ledger Transactions</b> will be deleted.</li>
+          <li>Receiving and repayment accounts (Cash, Bank, MFS) will be automatically recalculated and synced!</li>
+          <li>Outstanding liabilities and dashboard reports will be updated immediately.</li>
+        </ul>
+        <p class="font-semibold text-rose-500 pt-1">This action cannot be undone!</p>
+      </div>`,
       icon: 'warning',
       showCancelButton: true,
       confirmButtonColor: '#ef4444',
-      confirmButtonText: 'Yes, delete it!'
+      cancelButtonColor: '#6b7280',
+      confirmButtonText: 'Yes, Delete & Sync Everything!',
+      cancelButtonText: 'Cancel'
     });
 
     if (!result.isConfirmed) return;
+
     try {
-      const res = await fetch(`/api/admin/business-loans/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/admin/loans/${loan._id}`, { method: 'DELETE' });
+      const json = await res.json();
       if (res.ok) {
-        toast.success('Loan deleted');
+        toast.success(json.message || 'Loan deleted successfully');
         fetchLoans();
       } else {
-        toast.error('Failed to delete loan');
+        toast.error(json.message || 'Failed to delete loan');
       }
-    } catch (error) {
-      toast.error('Error deleting loan');
+    } catch (err) {
+      console.error('Delete loan error:', err);
+      toast.error('Failed to delete loan');
     }
   };
 
-  const openCreateDialog = () => {
-    setSelectedProviderId('');
-    setAmount(0);
-    setInterestAmount(0);
-    setDate(format(new Date(), 'yyyy-MM-dd'));
-    setExpectedRepaymentDate(format(new Date(), 'yyyy-MM-dd'));
-    setReceivingAccountId('');
-    setRepaymentType('One-time');
-    setInstallmentCount('');
-    setInstallmentAmount('');
-    setInstallmentDayOfMonth('');
-    setIsCreateOpen(true);
-  };
-
-  const openPaymentDialog = (loan: any) => {
-    setSelectedLoan(loan);
-    setPaymentAmount(loan.dueAmount);
-    setPaymentAccountId('');
-    setIsPaymentOpen(true);
-  };
+  const loans = data?.loans || [];
+  const summary = data?.summary || { totalPrincipal: 0, totalPaid: 0, totalDue: 0, activeLoansCount: 0 };
 
   return (
-    <div className="space-y-0 md:space-y-6 px-[1px] pt-[1px] pb-4 md:p-8 max-w-7xl mx-auto w-full max-w-full overflow-x-hidden">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-0 px-0 md:px-0">
-        <div className="hidden md:block">
-          <h1 className="text-3xl font-bold text-primary tracking-tight">All Business Loans</h1>
-          <p className="text-muted-foreground mt-1">Add, track, and repay active business loans</p>
+    <div className="flex-1 space-y-4 md:space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b pb-3">
+        <div>
+          <h1 className="text-xl md:text-3xl font-bold tracking-tight">Business Loans & Capital</h1>
+          <p className="text-muted-foreground text-xs md:text-sm mt-0.5">
+            Track business capital loans, loan providers, total borrowed funds and repayments.
+          </p>
         </div>
-        <Button onClick={openCreateDialog} className="w-full sm:w-auto rounded-none h-10 bg-primary hover:bg-primary/90 text-primary-foreground font-bold">
-          <Plus className="h-4 w-4 mr-2" /> Add New Loan
-        </Button>
+
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          <Link href="/admin/loans/providers">
+            <Button variant="outline" size="sm" className="gap-1.5 font-semibold h-9 text-xs">
+              <Building className="h-3.5 w-3.5 text-primary" />
+              <span>Providers ({providers.length})</span>
+            </Button>
+          </Link>
+
+          <Button size="sm" onClick={() => setNewLoanOpen(true)} className="gap-1.5 font-bold h-9 text-xs">
+            <Plus className="h-3.5 w-3.5" />
+            <span>Record Loan</span>
+          </Button>
+
+          <Button variant="outline" size="icon" onClick={fetchLoans} disabled={loading} className="h-9 w-9">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          </Button>
+        </div>
       </div>
 
-      <div className="px-0 md:px-0 !mt-[1px] md:!mt-6">
-        <Card className="border-t-4 border-t-primary shadow-md">
-          <CardHeader className="bg-slate-50/50 border-b pb-4">
-            <div className="flex flex-col sm:flex-row gap-4 justify-between items-center">
-              <CardTitle className="hidden md:flex text-lg font-semibold text-primary items-center gap-2">
-                <Landmark className="h-5 w-5" />
-                Loans List
-              </CardTitle>
-            <div className="relative w-full sm:w-72">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search lender or Loan ID..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9 bg-white"
-              />
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 md:gap-4">
+        <Card className="shadow-xs">
+          <CardContent className="p-3 md:p-4 flex items-center justify-between">
+            <div>
+              <p className="text-[10px] md:text-xs font-semibold text-muted-foreground uppercase">Borrowed Capital</p>
+              <p className="text-lg md:text-2xl font-bold text-foreground mt-0.5 md:mt-1">
+                ৳{Math.round(summary.totalPrincipal).toLocaleString()}
+              </p>
             </div>
-          </div>
+            <div className="p-2 md:p-2.5 rounded-xl bg-indigo-500/10 text-indigo-600">
+              <HandCoins className="h-4 w-4 md:h-5 md:w-5" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-xs">
+          <CardContent className="p-3 md:p-4 flex items-center justify-between">
+            <div>
+              <p className="text-[10px] md:text-xs font-semibold text-muted-foreground uppercase">Total Repaid</p>
+              <p className="text-lg md:text-2xl font-bold text-emerald-600 mt-0.5 md:mt-1">
+                ৳{Math.round(summary.totalPaid).toLocaleString()}
+              </p>
+            </div>
+            <div className="p-2 md:p-2.5 rounded-xl bg-emerald-500/10 text-emerald-600">
+              <CheckCircle2 className="h-4 w-4 md:h-5 md:w-5" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-rose-500/5 border-rose-500/20 shadow-xs">
+          <CardContent className="p-3 md:p-4 flex items-center justify-between">
+            <div>
+              <p className="text-[10px] md:text-xs font-semibold text-rose-600 uppercase">Outstanding Balance</p>
+              <p className="text-lg md:text-2xl font-black text-rose-700 dark:text-rose-400 mt-0.5 md:mt-1">
+                ৳{Math.round(summary.totalDue).toLocaleString()}
+              </p>
+            </div>
+            <div className="p-2 md:p-2.5 rounded-xl bg-rose-500/10 text-rose-600">
+              <DollarSign className="h-4 w-4 md:h-5 md:w-5" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Loans Table Card */}
+      <Card className="shadow-xs overflow-hidden">
+        <CardHeader className="bg-muted/30 py-2.5 px-3 md:py-3 md:px-4 border-b flex flex-row items-center justify-between">
+          <CardTitle className="text-sm md:text-base font-bold flex items-center gap-2">
+            <HandCoins className="h-4 w-4 text-primary" /> Active & Completed Loans
+          </CardTitle>
+          <Badge variant="outline" className="text-xs font-mono">{loans.length} Loans</Badge>
         </CardHeader>
         <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Loan ID</TableHead>
-                <TableHead>Lender</TableHead>
-                <TableHead>Repayment Type</TableHead>
-                <TableHead>Maturity</TableHead>
-                <TableHead className="text-right">Principal</TableHead>
-                <TableHead className="text-right">Interest</TableHead>
-                <TableHead className="text-right">Total Due</TableHead>
-                <TableHead className="text-right">Paid</TableHead>
-                <TableHead className="text-right">Remaining</TableHead>
-                <TableHead className="text-center">Status</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading ? (
-                <TableRow><TableCell colSpan={11} className="text-center py-6">Loading...</TableCell></TableRow>
-              ) : filteredLoans.length === 0 ? (
-                <TableRow><TableCell colSpan={11} className="text-center py-6 text-muted-foreground">No loans found</TableCell></TableRow>
-              ) : (
-                filteredLoans.map((loan) => (
-                  <TableRow key={loan._id}>
-                    <TableCell className="font-semibold">{loan.loanId}</TableCell>
-                    <TableCell className="font-medium">{loan.lenderId?.name || loan.lenderName}</TableCell>
-                    <TableCell>
-                      <span className="capitalize">{loan.repaymentType || 'One-time'}</span>
-                      {loan.repaymentType === 'Installment' && ` (${loan.installmentCount} months)`}
-                    </TableCell>
-                    <TableCell className={new Date(loan.expectedRepaymentDate) < new Date() && loan.status === 'Active' ? 'text-red-600 font-bold' : ''}>
-                      {format(new Date(loan.expectedRepaymentDate), 'dd MMM yyyy')}
-                    </TableCell>
-                    <TableCell className="text-right">৳{loan.amount.toLocaleString()}</TableCell>
-                    <TableCell className="text-right">৳{(loan.interestAmount || 0).toLocaleString()}</TableCell>
-                    <TableCell className="text-right font-medium">৳{(loan.totalRepaymentAmount || loan.amount).toLocaleString()}</TableCell>
-                    <TableCell className="text-right text-emerald-600">৳{(loan.paidAmount || 0).toLocaleString()}</TableCell>
-                    <TableCell className="text-right text-rose-600 font-semibold">৳{loan.dueAmount.toLocaleString()}</TableCell>
-                    <TableCell className="text-center">
-                      <span className={`px-2 py-1 text-xs rounded-full font-semibold ${
-                        loan.status === 'Paid' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
-                      }`}>
-                        {loan.status}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {loan.status === 'Active' && (
-                        <Button variant="ghost" size="sm" onClick={() => openPaymentDialog(loan)} className="text-emerald-600 hover:text-emerald-700 mr-2">
-                          <CheckCircle className="h-4 w-4 mr-1" /> Pay
+          {/* Desktop Table */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full text-xs md:text-sm text-center border-collapse">
+              <thead>
+                <tr className="bg-muted/20 border-b text-muted-foreground font-semibold">
+                  <th className="p-3 text-left font-bold text-foreground">Date</th>
+                  <th className="p-3 font-bold text-foreground">Loan ID</th>
+                  <th className="p-3 text-left font-bold text-foreground">Lender / Provider</th>
+                  <th className="p-3 font-bold text-foreground">Receiving Account</th>
+                  <th className="p-3 font-bold text-foreground">Principal (৳)</th>
+                  <th className="p-3 font-bold text-emerald-600">Paid (৳)</th>
+                  <th className="p-3 font-bold text-rose-600">Outstanding Due</th>
+                  <th className="p-3 font-bold text-muted-foreground">Repayment Date</th>
+                  <th className="p-3 font-bold text-right text-foreground">Status</th>
+                  <th className="p-3 font-bold text-right text-foreground">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan={10} className="p-8 text-center text-muted-foreground">
+                      <div className="flex items-center justify-center gap-2">
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                        <span>Loading loans...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : loans.length > 0 ? (
+                  loans.map((loan: any) => (
+                    <tr key={loan._id} className="border-b border-muted/30 hover:bg-muted/30 transition-colors">
+                      <td className="p-3 text-left text-muted-foreground">
+                        {new Date(loan.date).toLocaleDateString()}
+                      </td>
+                      <td className="p-3 font-mono font-bold text-foreground">{loan.loanId}</td>
+                      <td className="p-3 text-left">
+                        <div className="font-bold text-foreground">{loan.lenderName}</div>
+                        {loan.lenderId?.phone && <div className="text-[11px] text-muted-foreground">{loan.lenderId.phone}</div>}
+                      </td>
+                      <td className="p-3">
+                        <Badge variant="secondary" className="text-[10px]">
+                          {cleanAccountName(loan.receivingAccountId?.name) || 'Account'}
+                        </Badge>
+                      </td>
+                      <td className="p-3 font-bold text-foreground">৳{Math.round(loan.amount).toLocaleString()}</td>
+                      <td className="p-3 font-medium text-emerald-600">৳{Math.round(loan.paidAmount || 0).toLocaleString()}</td>
+                      <td className="p-3 font-bold text-rose-600">৳{Math.round(loan.dueAmount || 0).toLocaleString()}</td>
+                      <td className="p-3 text-muted-foreground text-xs">
+                        {loan.expectedRepaymentDate ? new Date(loan.expectedRepaymentDate).toLocaleDateString() : '-'}
+                      </td>
+                      <td className="p-3 text-right">
+                        <Badge variant={loan.status === 'Paid' ? 'secondary' : 'default'} className="text-[10px]">
+                          {loan.status}
+                        </Badge>
+                      </td>
+                      <td className="p-3 text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 p-0 hover:bg-muted">
+                              <MoreVertical className="h-4 w-4" />
+                              <span className="sr-only">Actions</span>
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-44">
+                            {loan.status === 'Active' && loan.dueAmount > 0 ? (
+                              <DropdownMenuItem
+                                className="cursor-pointer font-bold text-emerald-600 focus:text-emerald-700 text-xs"
+                                onClick={() => {
+                                  setSelectedLoanForRepayment(loan);
+                                  setRepaymentOpen(true);
+                                }}
+                              >
+                                <CreditCard className="mr-2 h-3.5 w-3.5" />
+                                Pay Loan
+                              </DropdownMenuItem>
+                            ) : null}
+                            {loan.repayments && loan.repayments.length > 0 ? (
+                              <DropdownMenuItem
+                                className="cursor-pointer text-xs"
+                                onClick={() => {
+                                  setSelectedLoanForRepayment(loan);
+                                  setRepaymentOpen(true);
+                                }}
+                              >
+                                <History className="mr-2 h-3.5 w-3.5 text-primary" />
+                                Payment History
+                              </DropdownMenuItem>
+                            ) : null}
+                            {loan.status === 'Paid' && (!loan.repayments || loan.repayments.length === 0) ? (
+                              <div className="px-2 py-1.5 text-[11px] text-muted-foreground font-medium">Fully Paid</div>
+                            ) : null}
+                            <DropdownMenuItem
+                              className="cursor-pointer text-xs text-rose-600 focus:text-rose-700 font-semibold gap-2"
+                              onClick={() => handleDeleteLoan(loan)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5 text-rose-600" />
+                              <span>Delete Loan</span>
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={10} className="p-6 text-center text-muted-foreground">No business loans recorded.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile Card List */}
+          <div className="block md:hidden p-2 space-y-2.5">
+            {loading ? (
+              <div className="p-8 text-center text-muted-foreground">
+                <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2 text-primary" />
+                <span>Loading loans...</span>
+              </div>
+            ) : loans.length > 0 ? (
+              loans.map((loan: any) => (
+                <MobileDataCard
+                  key={loan._id}
+                  title={loan.lenderName || 'Loan'}
+                  badge={
+                    <Badge variant={loan.status === 'Paid' ? 'secondary' : 'default'} className="text-[10px]">
+                      {loan.status}
+                    </Badge>
+                  }
+                  footer={
+                    <div className="flex items-center justify-between w-full font-bold text-xs pt-1">
+                      <div>
+                        <span className="text-muted-foreground">Due: </span>
+                        <span className="text-rose-600 text-sm font-black">৳{Math.round(loan.dueAmount || 0).toLocaleString()}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {loan.status === 'Active' && loan.dueAmount > 0 ? (
+                          <Button
+                            size="sm"
+                            className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-2.5"
+                            onClick={() => {
+                              setSelectedLoanForRepayment(loan);
+                              setRepaymentOpen(true);
+                            }}
+                          >
+                            <CreditCard className="h-3 w-3 mr-1" /> Pay Loan
+                          </Button>
+                        ) : loan.repayments && loan.repayments.length > 0 ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs px-2"
+                            onClick={() => {
+                              setSelectedLoanForRepayment(loan);
+                              setRepaymentOpen(true);
+                            }}
+                          >
+                            <History className="h-3 w-3 mr-1" /> History
+                          </Button>
+                        ) : null}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+                          onClick={() => handleDeleteLoan(loan)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
                         </Button>
-                      )}
-                      <Button variant="ghost" size="icon" onClick={() => handleDelete(loan._id)} className="text-rose-500 hover:text-rose-700">
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-    </div>
-
-      {/* Create Modal */}
-      <Dialog open={isCreateOpen} onOpenChange={(open) => {
-        setIsCreateOpen(open);
-        if (open) fetchLedgerAccounts();
-      }}>
-        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Add Business Loan</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleCreate} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="lenderSelect" className="text-xs font-semibold text-foreground">Select Lender / Provider *</Label>
-              <select
-                id="lenderSelect"
-                value={selectedProviderId}
-                onChange={e => setSelectedProviderId(e.target.value)}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                required
-              >
-                <option value="">-- Select Provider --</option>
-                {providers.map(p => (
-                  <option key={p._id} value={p._id}>{p.name}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="loanAmount" className="text-xs font-semibold text-foreground">Loan Amount (৳) *</Label>
-                <Input id="loanAmount" type="number" min="1" required value={amount || ''} onChange={e => setAmount(Number(e.target.value))} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="interestAmount" className="text-xs font-semibold text-foreground">Interest Amount (৳)</Label>
-                <Input id="interestAmount" type="number" min="0" value={interestAmount || ''} onChange={e => setInterestAmount(Number(e.target.value))} />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="repaymentType" className="text-xs font-semibold text-foreground">Repayment Type</Label>
-                <select
-                  id="repaymentType"
-                  value={repaymentType}
-                  onChange={e => setRepaymentType(e.target.value as any)}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      </div>
+                    </div>
+                  }
                 >
-                  <option value="One-time">One-time</option>
-                  <option value="Installment">Installment</option>
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="loanDate" className="text-xs font-semibold text-foreground">Loan Date</Label>
-                <Input id="loanDate" type="date" required value={date} onChange={e => setDate(e.target.value)} />
-              </div>
-            </div>
-
-            {repaymentType === 'One-time' ? (
-              <div className="space-y-1.5">
-                <Label htmlFor="expRepayDate" className="text-xs font-semibold text-foreground">Expected Repayment Date</Label>
-                <Input id="expRepayDate" type="date" required value={expectedRepaymentDate} onChange={e => setExpectedRepaymentDate(e.target.value)} />
-              </div>
+                  <MobileDataRow label="Loan ID" value={<span className="font-mono text-xs">{loan.loanId}</span>} />
+                  <MobileDataRow label="Disbursement Date" value={new Date(loan.date).toLocaleDateString()} />
+                  <MobileDataRow label="Principal Amount" value={<span className="font-bold">৳{Math.round(loan.amount).toLocaleString()}</span>} />
+                  <MobileDataRow label="Paid So Far" value={<span className="text-emerald-600 font-semibold">৳{Math.round(loan.paidAmount || 0).toLocaleString()}</span>} />
+                  {loan.receivingAccountId?.name && <MobileDataRow label="Account" value={cleanAccountName(loan.receivingAccountId.name)} />}
+                  {loan.expectedRepaymentDate && <MobileDataRow label="Repayment Date" value={new Date(loan.expectedRepaymentDate).toLocaleDateString()} />}
+                </MobileDataCard>
+              ))
             ) : (
-              <div className="space-y-4 border-t pt-3">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="instCount" className="text-xs font-semibold text-foreground">Installment Count (Months)</Label>
-                    <Input id="instCount" type="number" min="1" required value={installmentCount} onChange={e => setInstallmentCount(Number(e.target.value))} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="instAmount" className="text-xs font-semibold text-foreground">Installment Amount (৳)</Label>
-                    <Input id="instAmount" type="number" min="1" required value={installmentAmount} onChange={e => setInstallmentAmount(Number(e.target.value))} />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="instDay" className="text-xs font-semibold text-foreground">Day of Month (1-31)</Label>
-                    <Input id="instDay" type="number" min="1" max="31" required value={installmentDayOfMonth} onChange={e => setInstallmentDayOfMonth(Number(e.target.value))} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="maturityDate" className="text-xs font-semibold text-foreground">Final Maturity Date</Label>
-                    <Input id="maturityDate" type="date" required value={expectedRepaymentDate} onChange={e => setExpectedRepaymentDate(e.target.value)} />
-                  </div>
-                </div>
+              <div className="p-6 text-center text-muted-foreground text-xs">
+                No business loans recorded.
               </div>
             )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Record Loan Modal */}
+      <Dialog open={newLoanOpen} onOpenChange={setNewLoanOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 font-bold text-base md:text-lg">
+              <HandCoins className="h-5 w-5 text-primary" />
+              Record New Business Loan
+            </DialogTitle>
+          </DialogHeader>
+
+          <form onSubmit={handleCreateLoan} className="space-y-3.5 py-2 text-xs">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-bold">Loan Provider / Lender *</Label>
+              {providers.length > 0 ? (
+                <Select
+                  value={loanForm.lenderId}
+                  onValueChange={(val) => {
+                    if (!val) return;
+                    const p = providers.find(item => item._id === val);
+                    setLoanForm(prev => ({ ...prev, lenderId: val, lenderName: p ? p.name : '' }));
+                  }}
+                >
+                  <SelectTrigger className="w-full h-9 text-xs">
+                    <SelectValue placeholder="Select Loan Provider">
+                      {loanForm.lenderId ? (
+                        providers.find(p => p._id === loanForm.lenderId)
+                          ? `${providers.find(p => p._id === loanForm.lenderId)?.name}${providers.find(p => p._id === loanForm.lenderId)?.phone ? ` (${providers.find(p => p._id === loanForm.lenderId)?.phone})` : ''}`
+                          : loanForm.lenderName || 'Select Loan Provider'
+                      ) : 'Select Loan Provider'}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent className="w-(--anchor-width) min-w-[320px]">
+                    {providers.map(p => (
+                      <SelectItem key={p._id} value={p._id} className="text-xs py-2">
+                        <div className="flex flex-col text-left">
+                          <span className="font-semibold text-foreground">{p.name}</span>
+                          {p.phone && <span className="text-[11px] text-muted-foreground">{p.phone}</span>}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  required
+                  placeholder="Lender / Bank Name"
+                  value={loanForm.lenderName}
+                  onChange={(e) => setLoanForm(prev => ({ ...prev, lenderName: e.target.value }))}
+                  className="w-full h-9 text-xs"
+                />
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold">Loan Amount (Principal ৳) *</Label>
+                <Input
+                  required
+                  type="number"
+                  min="1"
+                  placeholder="e.g. 100000"
+                  value={loanForm.amount}
+                  onChange={(e) => setLoanForm(prev => ({ ...prev, amount: e.target.value }))}
+                  className="w-full h-9 text-xs font-semibold"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold">Interest / Fee (৳)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  placeholder="0"
+                  value={loanForm.interestAmount}
+                  onChange={(e) => setLoanForm(prev => ({ ...prev, interestAmount: e.target.value }))}
+                  className="w-full h-9 text-xs"
+                />
+              </div>
+            </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="receivingAccount" className="text-xs font-semibold text-foreground">Receiving Account (Where money is deposited) *</Label>
-              <select
-                id="receivingAccount"
-                value={receivingAccountId}
-                onChange={e => setReceivingAccountId(e.target.value)}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                required
+              <Label className="text-xs font-bold">Receiving Bank / Cash Account *</Label>
+              <Select
+                value={loanForm.receivingAccountId}
+                onValueChange={(val) => val && setLoanForm(prev => ({ ...prev, receivingAccountId: val }))}
               >
-                <option value="">-- Select Receiving Account --</option>
-                {ledgerAccounts.map(a => (
-                  <option key={a._id} value={a._id}>
-                    {a.code === 'CASH' ? '💵 ' : a.accountCategory === 'MFS' ? '📱 ' : '🏦 '}
-                    {a.name} {a.accountNo ? `(${a.accountNo})` : ''} - ৳{(a.currentBalance || 0).toLocaleString()}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className="w-full h-9 text-xs">
+                  <SelectValue placeholder="Select Account to Deposit Loan">
+                    {loanForm.receivingAccountId ? (
+                      accounts.find(a => a._id === loanForm.receivingAccountId)
+                        ? `${cleanAccountName(accounts.find(a => a._id === loanForm.receivingAccountId)?.name)} (${accounts.find(a => a._id === loanForm.receivingAccountId)?.category || accounts.find(a => a._id === loanForm.receivingAccountId)?.code || ''})`
+                        : 'Select Account to Deposit Loan'
+                    ) : 'Select Account to Deposit Loan'}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent className="w-(--anchor-width) min-w-[300px]">
+                  {accounts
+                    .filter(a => a.code !== 'AR' && a.code !== 'AP')
+                    .map(a => (
+                    <SelectItem key={a._id} value={a._id} className="text-xs py-1.5">
+                      {cleanAccountName(a.name)} ({a.category})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setIsCreateOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={formLoading}>{formLoading ? 'Saving...' : 'Add Loan'}</Button>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Disbursement Date</Label>
+                <Input
+                  type="date"
+                  value={loanForm.date}
+                  onChange={(e) => setLoanForm(prev => ({ ...prev, date: e.target.value }))}
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Expected Repayment Date *</Label>
+                <Input
+                  required
+                  type="date"
+                  value={loanForm.expectedRepaymentDate}
+                  onChange={(e) => setLoanForm(prev => ({ ...prev, expectedRepaymentDate: e.target.value }))}
+                  className="h-8 text-xs"
+                />
+              </div>
+            </div>
+
+            <DialogFooter className="pt-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setNewLoanOpen(false)}>Cancel</Button>
+              <Button type="submit" size="sm" disabled={creating} className="font-bold">
+                {creating ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+                Record Loan
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
-      {/* Payment Modal */}
-      <Dialog open={isPaymentOpen} onOpenChange={(open) => {
-        setIsPaymentOpen(open);
-        if (open) fetchLedgerAccounts();
-      }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Make Loan Repayment</DialogTitle>
-          </DialogHeader>
-          {selectedLoan && (
-            <form onSubmit={handlePayment} className="space-y-4">
-              <div className="bg-slate-50 p-3 rounded text-sm mb-4">
-                <p><strong>Lender:</strong> {selectedLoan.lenderId?.name || selectedLoan.lenderName}</p>
-                <p><strong>Due Amount:</strong> ৳{selectedLoan.dueAmount.toLocaleString()}</p>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="repayAmount" className="text-xs font-semibold text-foreground">Payment Amount (৳)</Label>
-                <Input id="repayAmount" type="number" min="1" max={selectedLoan.dueAmount} required value={paymentAmount || ''} onChange={e => setPaymentAmount(Number(e.target.value))} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="paymentFromAccount" className="text-xs font-semibold text-foreground">Payment From Account</Label>
-                <select
-                  id="paymentFromAccount"
-                  value={paymentAccountId}
-                  onChange={e => setPaymentAccountId(e.target.value)}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                  required
-                >
-                  <option value="">-- Select Account --</option>
-                  {ledgerAccounts.map(a => (
-                    <option key={a._id} value={a._id}>
-                      {a.code === 'CASH' ? '💵 ' : a.accountCategory === 'MFS' ? '📱 ' : '🏦 '}
-                      {a.name} {a.accountNo ? `(${a.accountNo})` : ''} - ৳{(a.currentBalance || 0).toLocaleString()}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setIsPaymentOpen(false)}>Cancel</Button>
-                <Button type="submit" disabled={formLoading}>{formLoading ? 'Processing...' : 'Submit Payment'}</Button>
-              </DialogFooter>
-            </form>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Loan Repayment Modal */}
+      <LoanRepaymentDialog
+        open={repaymentOpen}
+        onOpenChange={setRepaymentOpen}
+        loan={selectedLoanForRepayment}
+        accounts={accounts}
+        onSuccess={fetchLoans}
+      />
     </div>
   );
 }

@@ -19,7 +19,7 @@ const BrandSchema: Schema<IBrand> = new Schema(
   { timestamps: true }
 );
 
-// Scoped unique index
+// Scoped unique index on slug
 BrandSchema.index({ slug: 1 }, { unique: true });
 
 BrandSchema.pre('save', function (this: any) {

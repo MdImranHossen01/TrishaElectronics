@@ -1,4 +1,4 @@
-import type { MetadataRoute } from 'next';
+﻿import type { MetadataRoute } from 'next';
 import { getCachedSettings } from '@/lib/data-fetching';
 
 export const dynamic = 'force-dynamic';

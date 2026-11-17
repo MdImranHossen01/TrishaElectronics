@@ -1,20 +1,24 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { ShoppingCart, Heart, Search } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
+import { ShoppingBag, Heart, Eye, MoreVertical, Edit, Trash2, Settings } from 'lucide-react';
+import { RatingStars } from '@/components/ui/rating-stars';
 import { Button } from '@/components/ui/button';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { addToCart, clearCart } from '@/store/slices/cartSlice';
+import { addToCart } from '@/store/slices/cartSlice';
 import { toggleWishlist } from '@/store/slices/wishlistSlice';
 import { toast } from 'sonner';
-import { useSession } from 'next-auth/react';
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { QuickViewModal } from './QuickViewModal';
+import Swal from 'sweetalert2';
 import { fbEvent } from '@/lib/fpixel';
 import { ttEvent } from '@/lib/tiktok';
+import { validateAndAddToCart } from '@/lib/cart-seller';
+import { QuickViewModal } from './QuickViewModal';
+import { ProductActionMenu } from './ProductActionMenu';
 import {
   Tooltip,
   TooltipContent,
@@ -32,252 +36,312 @@ interface ProductCardProps {
     images: string[];
     isFeatured?: boolean;
     isNewArrival?: boolean;
-    isTrending?: boolean;
     stock: number;
     categories?: any[];
     variants?: any[];
     ratings?: number;
     numReviews?: number;
     sku?: string;
+    uploadedBy?: any;
   };
   isFlashSale?: boolean;
   priority?: boolean;
   layout?: string;
 }
 
-export default function ProductCardV1({ product: initialProduct, isFlashSale, priority, layout }: ProductCardProps) {
+export default function ProductCardV1({ product: initialProduct, isFlashSale, priority }: ProductCardProps) {
   const dispatch = useAppDispatch();
-  const router = useRouter();
   const { data: session, status } = useSession();
+  const cartItems = useAppSelector((state) => state.cart.items);
   const wishlist = useAppSelector((state) => state.wishlist.items);
   const isInWishlist = wishlist.includes(initialProduct._id);
+  const router = useRouter();
+  const isAdmin = (session?.user as any)?.role === 'admin' || (session?.user as any)?.role === 'super_admin';
 
-  const firstVariant = initialProduct.variants && initialProduct.variants.length > 0 ? initialProduct.variants[0] : null;
-  const product = firstVariant ? {
+  const hasVariants = Boolean(initialProduct.variants && initialProduct.variants.length > 0);
+  const firstVariant = hasVariants ? initialProduct.variants![0] : null;
+
+  const displayPrice = firstVariant && (firstVariant.price !== undefined && firstVariant.price !== null)
+    ? Number(firstVariant.price)
+    : Number(initialProduct.price ?? (initialProduct as any).retailPrice ?? 0);
+
+  // If product has variants, discount MUST come strictly from firstVariant. Never fall back to main product salePrice!
+  const rawSale = firstVariant
+    ? (firstVariant.salePrice !== undefined && firstVariant.salePrice !== null ? Number(firstVariant.salePrice) : undefined)
+    : (initialProduct.salePrice !== undefined && initialProduct.salePrice !== null ? Number(initialProduct.salePrice) : undefined);
+
+  const hasDiscount = Boolean(rawSale !== undefined && rawSale > 0 && rawSale < displayPrice);
+  const displaySalePrice = hasDiscount ? rawSale : undefined;
+
+  const product = {
     ...initialProduct,
-    price: firstVariant.price,
-    salePrice: firstVariant.salePrice,
-    stock: firstVariant.stock ?? initialProduct.stock,
-    sku: firstVariant.sku ?? initialProduct.sku,
-    images: firstVariant.image ? [firstVariant.image, ...initialProduct.images.filter((img: string) => img !== firstVariant.image)] : initialProduct.images
-  } : initialProduct;
-
-  const hasVariants = product.variants && product.variants.length > 0;
+    price: isNaN(displayPrice) ? 0 : displayPrice,
+    salePrice: displaySalePrice,
+    stock: firstVariant?.stock ?? initialProduct.stock ?? 0,
+    sku: firstVariant?.sku ?? initialProduct.sku,
+    images: firstVariant?.image ? [firstVariant.image, ...((initialProduct.images || []).filter((img: string) => img !== firstVariant.image))] : (initialProduct.images || [])
+  };
 
   const [showQuickViewModal, setShowQuickViewModal] = useState(false);
 
-  const handleAddToCart = (e: React.MouseEvent) => {
+  const discount = hasDiscount && product.salePrice
+    ? Math.round(((product.price - product.salePrice) / product.price) * 100)
+    : 0;
+
+  const handleAddToCartClick = (e: React.MouseEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     if (hasVariants) {
       setShowQuickViewModal(true);
     } else {
-      dispatch(addToCart({
-        productId: product._id,
-        name: product.name,
-        price: product.salePrice ?? product.price,
-        basePrice: product.price,
-        quantity: 1,
-        image: product.images?.[0]
-      }));
-
-      // Track AddToCart
-      const addToCartPayload = {
-        content_name: product.name,
-        content_category: product.categories?.[0]?.name || 'Uncategorized',
-        content_ids: [product._id],
-        content_type: 'product',
-        value: product.salePrice || product.price,
-        currency: 'BDT',
-        quantity: 1
-      };
-      const trackingUser = {
-        em: session?.user?.email || undefined,
-        ph: (session?.user as any)?.phone || undefined,
-        fn: session?.user?.name || undefined
-      };
-      fbEvent('AddToCart', addToCartPayload, trackingUser);
-      ttEvent('AddToCart', addToCartPayload, trackingUser);
-
-      toast.success(`${product.name} added to cart`);
+      executeAddToCart();
     }
   };
 
-  const handleBuyNow = (e: React.MouseEvent) => {
-    e.preventDefault();
-    if (hasVariants) {
-      setShowQuickViewModal(true);
-      return;
-    }
+  const executeAddToCart = async () => {
+    const displayPrice = product.price;
+    const displaySalePrice = product.salePrice;
 
-    // Clear cart first for a clean "Buy Now" experience
-    dispatch(clearCart());
-
-    dispatch(addToCart({
-      productId: product._id,
+    const itemToAdd = {
+      productId: (product as any).productId || product._id,
+      resellerProductId: (product as any).productId ? product._id : undefined,
       name: product.name,
-      price: product.salePrice ?? product.price,
-      basePrice: product.price,
+      price: (hasDiscount && displaySalePrice !== undefined && displaySalePrice > 0) ? displaySalePrice : displayPrice,
+      basePrice: displayPrice,
       quantity: 1,
-      image: product.images?.[0]
-    }));
-
-    // Track InitiateCheckout
-    const initiateCheckoutPayload = {
-      content_name: product.name,
-      content_category: product.categories?.[0]?.name || 'Uncategorized',
-      content_ids: [product._id],
-      content_type: 'product',
-      value: product.salePrice || product.price,
-      currency: 'BDT',
-      quantity: 1
+      image: product.images?.[0],
+      uploadedBy: product.uploadedBy ? String(product.uploadedBy) : null,
     };
-    const trackingUser = {
-      em: session?.user?.email || undefined,
-      ph: (session?.user as any)?.phone || undefined,
-      fn: session?.user?.name || undefined
-    };
-    fbEvent('InitiateCheckout', initiateCheckoutPayload, trackingUser);
-    ttEvent('InitiateCheckout', initiateCheckoutPayload, trackingUser);
 
-    router.push('/checkout');
+
+    await validateAndAddToCart({
+      cartItems,
+      newItem: itemToAdd,
+      dispatch,
+      onSuccess: () => {
+        // Track AddToCart
+        const addToCartPayload = {
+          content_name: product.name,
+          content_category: product.categories?.[0]?.name || 'Uncategorized',
+          content_ids: [product._id],
+          content_type: 'product',
+          value: displaySalePrice ?? displayPrice,
+          currency: 'BDT',
+          quantity: 1
+        };
+        fbEvent('AddToCart', addToCartPayload);
+        ttEvent('AddToCart', addToCartPayload);
+
+        toast.success(`${product.name} added to cart`);
+      }
+    });
   };
 
-  const handleWishlist = async (e: React.MouseEvent) => {
+  const handleFavorite = async (e: React.MouseEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     if (status === 'unauthenticated') {
-      toast.error('Please login to add to wishlist');
+      toast.error('Please login to save to wishlist');
       return;
     }
+
+    // Optimistic update
     dispatch(toggleWishlist(product._id));
+    const willBeInWishlist = !isInWishlist;
 
-    if (!isInWishlist) {
-      // Track AddToWishlist
-      const addToWishlistPayload = {
-        content_name: product.name,
-        content_category: product.categories?.[0]?.name || 'Uncategorized',
-        content_ids: [product._id],
-        content_type: 'product',
-        value: product.salePrice || product.price,
-        currency: 'BDT'
-      };
-      const trackingUser = {
-        em: session?.user?.email || undefined,
-        ph: (session?.user as any)?.phone || undefined,
-        fn: session?.user?.name || undefined
-      };
-      fbEvent('AddToWishlist', addToWishlistPayload, trackingUser);
-      ttEvent('AddToWishlist', addToWishlistPayload, trackingUser);
+    try {
+      const res = await fetch('/api/wishlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productId: product._id }),
+      });
+
+      if (!res.ok) {
+        throw new Error('Server error updating wishlist');
+      }
+
+      if (willBeInWishlist) {
+        const addToWishlistPayload = {
+          content_name: product.name,
+          content_category: product.categories?.[0]?.name || 'Uncategorized',
+          content_ids: [product._id],
+          content_type: 'product',
+          value: product.salePrice ?? product.price,
+          currency: 'BDT'
+        };
+        fbEvent('AddToWishlist', addToWishlistPayload);
+        ttEvent('AddToWishlist', addToWishlistPayload);
+        toast.success('Added to wishlist');
+      } else {
+        toast.info('Removed from wishlist');
+      }
+    } catch {
+      // Revert on failure
+      dispatch(toggleWishlist(product._id));
+      toast.error('Failed to update wishlist');
     }
-
-    toast.success(isInWishlist ? 'Removed from wishlist' : 'Added to wishlist');
   };
 
-  const discount = product.salePrice ? Math.round(((product.price - product.salePrice) / product.price) * 100) : 0;
+  const handleQuickView = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setShowQuickViewModal(true);
+  };
+
+  const handleDeleteProduct = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const result = await Swal.fire({
+      title: 'Are you sure?',
+      text: `Delete "${product.name}"? This cannot be undone.`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: 'var(--destructive, #ef4444)',
+      confirmButtonText: 'Yes, delete it!'
+    });
+
+    if (!result.isConfirmed) return;
+    try {
+      const res = await fetch(`/api/products/${product.slug}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Failed to delete product');
+      }
+      toast.success('Product removed successfully');
+      router.refresh();
+    } catch (err: any) {
+      toast.error(`Error: ${err.message || 'Failed to delete product'}`);
+    }
+  };
+
+  const mainCategory = product.categories && product.categories.length > 0 ? product.categories[0] : null;
+  const categoryName = mainCategory?.name || 'Exclusive Collection';
 
   return (
-    <div className={`group relative flex flex-col font-jost animate-in fade-in duration-700 ${layout === 'v3' ? 'lg:rounded-sm lg:overflow-hidden lg:border lg:border-border/40 lg:pb-3 lg:bg-card' : ''}`}>
-      {/* Image Container */}
-      <div className={`relative aspect-square overflow-hidden bg-muted ${layout === 'v3' ? 'lg:rounded-t-sm' : 'rounded-none'}`}>
+    <div className="w-full bg-card border border-border/60 rounded-xl overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-lg group flex flex-col h-full relative">
+      {/* Image Area */}
+      <div className="relative w-full aspect-[4/5] bg-muted/20 overflow-hidden">
         <Link prefetch={true} href={`/product/${product.slug}`} className="relative block h-full w-full">
           <Image
             src={product.images?.[0] || '/placeholder.png'}
             alt={product.name}
             fill
-            className="object-cover transition-transform duration-700 group-hover:scale-110"
+            className="object-cover w-full h-full object-center transition-transform duration-500 group-hover:scale-105"
             sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
             priority={priority}
           />
         </Link>
 
         {/* Unified Ribbon Badge (Top Left) */}
-        {(isFlashSale || discount > 0 || product.isNewArrival || product.isTrending || product.isFeatured) && (
-          <div className="absolute top-0 left-0 overflow-hidden w-24 h-24 z-10 pointer-events-none">
-            <div className={`absolute top-0 left-0 text-[10px] font-black py-1 w-32 text-center -rotate-45 -translate-x-10 translate-y-4 shadow-lg uppercase tracking-widest ${isFlashSale ? 'bg-primary text-primary-foreground animate-pulse' :
-              discount > 0 ? 'bg-primary text-primary-foreground' :
-                product.isNewArrival ? 'bg-secondary text-secondary-foreground' :
-                  product.isTrending ? 'bg-primary text-primary-foreground animate-pulse' :
-                    'bg-muted text-foreground'
+        {(isFlashSale || discount > 0 || product.isNewArrival || product.isFeatured) && (
+          <div className="absolute top-0 left-0 overflow-hidden w-20 h-20 z-10 pointer-events-none">
+            <div className={`absolute top-0 left-0 text-[8px] font-black py-0.5 w-28 text-center -rotate-45 -translate-x-8 translate-y-3.5 shadow-md uppercase tracking-wider ${isFlashSale
+              ? 'bg-orange-600 text-white animate-pulse'
+              : discount > 0
+                ? 'bg-primary text-primary-foreground'
+                : product.isNewArrival
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-secondary text-secondary-foreground'
               }`}>
-              {isFlashSale ? 'Flash' :
-                discount > 0 ? `${discount}% OFF` :
-                  product.isNewArrival ? 'New' :
-                    product.isTrending ? 'Trending' :
-                      'Featured'}
+              {isFlashSale
+                ? 'Flash'
+                : discount > 0
+                  ? `${discount}% OFF`
+                  : product.isNewArrival
+                    ? 'New'
+                    : 'Featured'}
             </div>
           </div>
         )}
 
-        {/* Hover Actions - Centered circles */}
-        <div className="absolute inset-0 hidden md:flex items-center justify-center gap-3 opacity-0 group-hover:opacity-100 transition-all duration-300 bg-black/5 backdrop-blur-[2px]">
+        {/* Quick Actions (Wishlist & Quick View) */}
+        <div className="absolute top-3 right-3 flex flex-col gap-2 z-10 opacity-0 translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300">
           <TooltipProvider>
+            {/* Wishlist Button */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   size="icon"
                   variant="secondary"
-                  className="h-12 w-12 rounded-full bg-card text-foreground hover:bg-primary hover:text-primary-foreground shadow-xl transition-all hover:scale-110"
-                  onClick={(e) => { e.preventDefault(); setShowQuickViewModal(true); }}
-                  aria-label="Quick view product"
+                  onClick={handleFavorite}
+                  className="w-8 h-8 rounded-full bg-background/90 backdrop-blur-sm text-foreground hover:text-primary hover:bg-background shadow-md border border-border/40 flex items-center justify-center transition-all duration-200"
+                  aria-label="Add to Wishlist"
                 >
-                  <Search className="h-5 w-5" />
+                  <Heart className={`h-4 w-4 ${isInWishlist ? 'fill-destructive text-destructive' : 'text-muted-foreground'}`} />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>
-                <p>Quick View</p>
+              <TooltipContent side="left">
+                <p>{isInWishlist ? 'Remove from wishlist' : 'Add to wishlist'}</p>
               </TooltipContent>
             </Tooltip>
 
+            {/* Quick View Button */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   size="icon"
                   variant="secondary"
-                  className={`h-12 w-12 rounded-full bg-card shadow-xl transition-all hover:scale-110 ${isInWishlist ? 'text-primary' : 'text-foreground hover:bg-primary hover:text-primary-foreground'}`}
-                  onClick={handleWishlist}
-                  aria-label={isInWishlist ? "Remove from wishlist" : "Add to wishlist"}
+                  onClick={handleQuickView}
+                  className="w-8 h-8 rounded-full bg-background/90 backdrop-blur-sm text-foreground hover:bg-primary hover:text-primary-foreground border border-border/40 shadow-md flex items-center justify-center transition-all duration-200"
+                  aria-label="Quick View"
                 >
-                  <Heart className={`h-5 w-5 ${isInWishlist ? 'fill-current' : ''}`} />
+                  <Eye className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>
-                <p>{isInWishlist ? 'Remove from wishlist' : 'Add to wishlist'}</p>
+              <TooltipContent side="left">
+                <p>Quick View</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
         </div>
+
+        {/* Admin & Reseller Action Menu */}
+        <ProductActionMenu product={product} />
       </div>
 
-      {/* Product Info */}
-      <div className="mt-4 text-center space-y-4 px-2 pb-2 flex-1 flex flex-col justify-between">
-        <div className="min-h-[5.25rem] sm:min-h-[4.5rem] flex flex-col justify-center">
-          <Link prefetch={true}
-            href={`/product/${product.slug}`}
-            className={`text-sm ${layout === 'v3' ? 'lg:text-xs' : 'sm:text-base'} font-semibold text-foreground hover:text-primary transition-colors leading-tight px-2 line-clamp-3 sm:line-clamp-2`}
-            title={product.name}
-          >
-            {product.name}
+      {/* Content Area */}
+      <div className="px-[2px] py-2 md:px-3 md:py-4 flex flex-col justify-between flex-grow gap-2 md:gap-4">
+        {/* Category & Title */}
+        <div className="space-y-0.5 md:space-y-1 w-full">
+          <Link href={`/shop?category=${mainCategory?.slug || ''}`} className="text-[10px] font-extrabold uppercase tracking-widest text-muted-foreground hover:text-primary transition-colors block">
+            {categoryName}
           </Link>
-          <div className="flex items-center justify-center gap-2 mt-2">
-            {product.salePrice ? (
-              <>
-                <span className={`text-foreground font-black text-sm ${layout === 'v3' ? 'lg:text-[14px]' : 'sm:text-[16px]'}`}>৳{Math.round(product.salePrice)}</span>
-                <span className={`text-muted-foreground line-through text-[11px] ${layout === 'v3' ? 'lg:text-[11px]' : 'sm:text-[13px]'} font-normal`}>৳{Math.round(product.price)}</span>
-              </>
-            ) : (
-              <span className={`text-foreground font-black text-sm ${layout === 'v3' ? 'lg:text-[14px]' : 'sm:text-[16px]'}`}>৳{Math.round(product.price)}</span>
-            )}
-          </div>
+          <Link prefetch={true} href={`/product/${product.slug}`} className="block group/title">
+            <h3 className="text-xs font-medium md:text-sm md:font-bold text-foreground line-clamp-2 min-h-[32px] md:min-h-[38px] group-hover/title:text-primary transition-colors leading-snug">
+              {product.name}
+            </h3>
+          </Link>
+
+          {/* Rating */}
+          {(product.ratings ?? 0) > 0 && (
+            <div className="flex items-center gap-1.5 pt-0.5">
+              <RatingStars rating={product.ratings || 0} starClassName="h-3 w-3" />
+              <span className="text-[10px] text-muted-foreground font-bold">
+                ({product.numReviews || 0})
+              </span>
+            </div>
+          )}
         </div>
 
-        {/* Action Buttons - Visible on hover for Desktop, Always for Mobile */}
-        <div className="flex flex-col sm:flex-row gap-2 pt-2 transition-all duration-300 sm:opacity-0 sm:translate-y-2 sm:group-hover:opacity-100 sm:group-hover:translate-y-0">
+        {/* Price & Button Stack */}
+        <div className="flex flex-col items-center gap-2 sm:gap-3 sm:flex-row sm:items-end sm:justify-between mt-auto pt-1 w-full">
+          <div className="flex flex-col items-center sm:items-start">
+            <span className="text-sm sm:text-[16px] font-black text-primary">
+              Tk {Math.round(hasDiscount && product.salePrice ? product.salePrice : (product.price || 0)).toLocaleString()}
+            </span>
+            {hasDiscount && (
+              <span className="text-[10px] sm:text-xs text-muted-foreground line-through decoration-primary/20">
+                Tk {Math.round(product.price ?? 0).toLocaleString()}
+              </span>
+            )}
+          </div>
           <Button
-            size="sm"
-            className="w-full rounded-none bg-primary hover:bg-primary/90 text-primary-foreground font-bold text-sm sm:text-base h-11 sm:h-10 shadow-lg shadow-primary/20 transition-all active:scale-95 py-2"
-            onClick={handleBuyNow}
+            onClick={handleAddToCartClick}
             disabled={product.stock === 0}
+            className="w-full sm:w-auto bg-primary text-primary-foreground hover:bg-primary/90 px-3 py-1.5 sm:px-5 sm:py-2.5 rounded-lg sm:rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors duration-200"
           >
-            {product.stock === 0 ? 'Out of Stock' : 'অর্ডার করুন'}
+            <ShoppingBag className="h-4 w-4" />
+            {product.stock === 0 ? 'Out' : 'Add'}
           </Button>
         </div>
       </div>
@@ -290,5 +354,3 @@ export default function ProductCardV1({ product: initialProduct, isFlashSale, pr
     </div>
   );
 }
-
-

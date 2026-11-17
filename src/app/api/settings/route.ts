@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidateTag, revalidatePath } from 'next/cache';
-import { purgeCloudflareCache } from '@/lib/cloudflareCache';
 import connectToDatabase from '@/lib/db';
 import GlobalSettings from '@/models/GlobalSettings';
 import { auth } from '@/auth';
+import { purgeCloudflareCache } from '@/lib/cloudflareCache';
 
 // Helper to return settings without masking sensitive data or fallback to environment variables
 const getMaskedSettings = (raw: any, masked: any) => ({
@@ -20,10 +20,16 @@ const getMaskedSettings = (raw: any, masked: any) => ({
   paymentConfig: masked.paymentConfig ? {
     ...masked.paymentConfig,
     sslcommerz: masked.paymentConfig.sslcommerz || null,
+    stripe: masked.paymentConfig.stripe ? {
+      publishableKey: masked.paymentConfig.stripe.publishableKey || '',
+      secretKey: masked.paymentConfig.stripe.secretKey ? '********************' : '',
+      webhookSecret: masked.paymentConfig.stripe.webhookSecret ? '********************' : '',
+    } : null,
   } : masked.paymentConfig,
   aiConfig: masked.aiConfig ? {
     ...masked.aiConfig,
     geminiApiKey: masked.aiConfig.geminiApiKey || null,
+    openRouterApiKey: masked.aiConfig.openRouterApiKey || null,
   } : masked.aiConfig
 });
 
@@ -36,9 +42,9 @@ export async function GET() {
       return NextResponse.json({
         brandName: process.env.NEXT_PUBLIC_STORE_NAME || "Store",
         contact: {
-          email: process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "",
-          phone: process.env.NEXT_PUBLIC_SUPPORT_PHONE || "",
-          address: ""
+          email: (process.env.NEXT_PUBLIC_ROOT_DOMAIN ? `support@${process.env.NEXT_PUBLIC_ROOT_DOMAIN}` : ""),
+          phone: "+8801234567890",
+          address: "Dhaka, Bangladesh"
         },
         socialLinks: {
           facebook: '',
@@ -49,7 +55,7 @@ export async function GET() {
           tiktok: '',
           whatsapp: ''
         },
-        marqueeText: `${process.env.NEXT_PUBLIC_STORE_NAME || "আমাদের স্টোর"}-এ আপনাকে স্বাগতম!`,
+        marqueeText: `Welcome to ${process.env.NEXT_PUBLIC_STORE_NAME || "our store"}!`,
         metaTitle: process.env.NEXT_PUBLIC_STORE_NAME || "Store",
         metaDescription: "The most popular online shop in Bangladesh.",
         logoUrl: "/logo.webp",
@@ -99,6 +105,7 @@ export async function POST(req: NextRequest) {
     const allowedFields = [
       'brandName', 'contact', 'socialLinks',
       'marqueeText', 'metaTitle', 'metaDescription',
+      'platformCommissionRate',
       'subscriptionConfig',
       'freeDeliveryThreshold',
       'deliveryChargeInsideDhaka',
@@ -116,8 +123,9 @@ export async function POST(req: NextRequest) {
       'facebookTestEventCode',
       'tiktokPixelId',
       'tiktokAccessToken',
-      'googleTagManagerId',
-      'aiConfig'
+      'tiktokDomainVerification',
+      'tiktokTestEventCode',
+      'googleTagManagerId'
     ];
 
     // Restricted fields - ONLY for super_admin
@@ -127,19 +135,20 @@ export async function POST(req: NextRequest) {
       'googleAnalyticsId',
       'googleAnalyticsPropertyId',
       'googleSearchConsoleId',
+      'aiConfig',
       'searchConsoleMeta',
       'saasSubscription',
       'superAdminNote'
     ];
 
-    const isSuperAdmin = (session.user as any).role === 'super_admin';
+    const canManageSystemFields = ['super_admin', 'admin'].includes((session.user as any).role);
     const allowedBody: any = {};
 
     Object.keys(body).forEach((key) => {
       if (allowedFields.includes(key)) {
         allowedBody[key] = body[key];
       }
-      if (superAdminFields.includes(key) && isSuperAdmin) {
+      if (superAdminFields.includes(key) && canManageSystemFields) {
         allowedBody[key] = body[key];
       }
     });

@@ -10,4 +10,3 @@ export async function getPathaoStatus(consignmentId: string, config: PathaoConfi
   const provider = new PathaoProvider(config);
   return await provider.getOrderStatus(consignmentId);
 }
-

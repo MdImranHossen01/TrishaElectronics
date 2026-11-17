@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
 import mongoose from 'mongoose';
 import { auth } from '@/auth';
@@ -12,8 +11,7 @@ export async function PUT(
   try {
     const { id } = await params;
     const session = await auth();
-    const userRole = (session?.user as any)?.role;
-    if (!session || !['admin', 'super_admin', 'manager', 'showroom_manager'].includes(userRole)) {
+    if (!session || !(['admin', 'super_admin'].includes((session?.user as any)?.role))) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
@@ -21,29 +19,9 @@ export async function PUT(
       return NextResponse.json({ message: 'Invalid ID' }, { status: 400 });
     }
 
-    await connectToDatabase();
-
-    const existingExpense = await Expense.findById(id);
-    if (!existingExpense) {
-      return NextResponse.json({ message: 'Record not found' }, { status: 404 });
-    }
-
-    // Authorization checks
-    if (userRole === 'manager' || userRole === 'showroom_manager') {
-      const Showroom = (await import('@/models/Showroom')).default;
-      const userId = (session.user as any).id || (session.user as any)._id;
-      const managedShowroom = await Showroom.findOne({ manager: userId });
-      if (!managedShowroom || existingExpense.showroom?.toString() !== managedShowroom._id.toString()) {
-        return NextResponse.json({ message: 'Unauthorized access to this showroom expense' }, { status: 401 });
-      }
-      if (existingExpense.status !== 'Pending') {
-        return NextResponse.json({ message: 'Cannot edit an expense that has already been processed' }, { status: 400 });
-      }
-    }
-
     const body = await req.json();
-    const { title, amount, category, date, description, type, status, showroom, employee, accountCode } = body;
-
+    const { title, amount, category, date, description, type } = body;
+    
     // Sanitize update data (whitelist)
     const updateData: any = {};
     if (title !== undefined) updateData.title = title;
@@ -52,82 +30,55 @@ export async function PUT(
     if (date !== undefined) updateData.date = date;
     if (description !== undefined) updateData.description = description;
     if (type !== undefined) updateData.type = type;
-    if (employee !== undefined) updateData.employee = employee;
-    if (accountCode !== undefined) updateData.accountCode = accountCode;
 
-    if (['admin', 'super_admin'].includes(userRole)) {
-      if (status !== undefined) updateData.status = status;
-      if (showroom !== undefined) updateData.showroom = showroom;
+    await connectToDatabase();
+    
+    const expense = await Expense.findOneAndUpdate(
+      { _id: id, $or: [{ resellerId: null }, { resellerId: { $exists: false } }] }, 
+      updateData, 
+      { new: true, runValidators: true }
+    );
+
+    if (!expense) {
+      return NextResponse.json({ message: 'Record not found' }, { status: 404 });
     }
 
-    const dbSession = await mongoose.startSession();
+    // Update ledger entry if amount, title or type changed
     try {
-      dbSession.startTransaction();
-
-      const expense = await Expense.findOneAndUpdate(
-        { _id: id },
-        updateData,
-        { new: true, runValidators: true, session: dbSession }
-      );
-
-      if (!expense) {
-        await dbSession.abortTransaction();
-        dbSession.endSession();
-        return NextResponse.json({ message: 'Record not found' }, { status: 404 });
-      }
-
-      // Update ledger entry if amount, title or type changed
       const LedgerTransaction = (await import('@/models/LedgerTransaction')).default;
       const { recalculateLedgerBalance, logLedgerTransaction } = await import('@/lib/ledgerHelper');
-
+      
       // Delete old ledger entries for this reference
-      await LedgerTransaction.deleteMany({ reference: id }).session(dbSession);
+      await LedgerTransaction.deleteMany({ reference: id });
 
-      // Log the updated expense/income if Approved
-      if (expense.status === 'Approved') {
-        const targetAccount = expense.accountCode || 'CASH';
-        if (expense.type === 'expense') {
-          let ledgerDescription = `Expense Paid: ${expense.title}`;
-          if (expense.category === 'Loan Paid' || expense.category === 'Profit/Interest') {
-            ledgerDescription = expense.title;
-          }
-          await logLedgerTransaction(
-            targetAccount,
-            'credit',
-            expense.amount,
-            ledgerDescription,
-            expense._id.toString(),
-            expense.date ? new Date(expense.date) : new Date()
-          );
-        } else {
-          await logLedgerTransaction(
-            targetAccount,
-            'debit',
-            expense.amount,
-            `Income Received: ${expense.title}`,
-            expense._id.toString(),
-            expense.date ? new Date(expense.date) : new Date()
-          );
-        }
+      // Log the updated expense/income
+      if (expense.type === 'expense') {
+        await logLedgerTransaction(
+          'CASH',
+          'credit',
+          expense.amount,
+          `Expense Paid: ${expense.title}`,
+          expense._id.toString()
+        );
+      } else {
+        await logLedgerTransaction(
+          'CASH',
+          'debit',
+          expense.amount,
+          `Income Received: ${expense.title}`,
+          expense._id.toString()
+        );
       }
-      // Recalculate Cash/Bank balances
-      await recalculateLedgerBalance(existingExpense.accountCode || 'CASH');
-      if (expense.accountCode && expense.accountCode !== existingExpense.accountCode) {
-        await recalculateLedgerBalance(expense.accountCode);
-      }
-
-      await dbSession.commitTransaction();
-      dbSession.endSession();
-      return NextResponse.json(expense);
-    } catch (err: any) {
-      await dbSession.abortTransaction();
-      dbSession.endSession();
+      // Recalculate Cash balance
+      await recalculateLedgerBalance('CASH');
+    } catch (err) {
       console.error('Error updating ledger on transaction update:', err);
-      return NextResponse.json({ message: 'Ledger sync failed on update', error: err.message }, { status: 500 });
     }
-  } catch (error: any) {
+    
+    return NextResponse.json(expense);
+  } catch (error) {
     console.error('Error updating transaction:', error);
-    return NextResponse.json({ message: error.message || 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ message: 'Internal Server Error' }, { status: 500 });
   }
 }
 
@@ -138,8 +89,7 @@ export async function DELETE(
   try {
     const { id } = await params;
     const session = await auth();
-    const userRole = (session?.user as any)?.role;
-    if (!session || !['admin', 'super_admin', 'manager', 'showroom_manager'].includes(userRole)) {
+    if (!session || !(['admin', 'super_admin'].includes((session?.user as any)?.role))) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
@@ -148,50 +98,58 @@ export async function DELETE(
     }
 
     await connectToDatabase();
-
-    const existingExpense = await Expense.findById(id);
-    if (!existingExpense) {
+    
+    const expense = await Expense.findOne({ _id: id, $or: [{ resellerId: null }, { resellerId: { $exists: false } }] });
+    if (!expense) {
       return NextResponse.json({ message: 'Record not found' }, { status: 404 });
     }
 
-    if (userRole === 'manager' || userRole === 'showroom_manager') {
-      const Showroom = (await import('@/models/Showroom')).default;
-      const userId = (session.user as any).id || (session.user as any)._id;
-      const managedShowroom = await Showroom.findOne({ manager: userId });
-      if (!managedShowroom || existingExpense.showroom?.toString() !== managedShowroom._id.toString()) {
-        return NextResponse.json({ message: 'Unauthorized access to this showroom expense' }, { status: 401 });
+    // If this was a client bill collection, revert the bill's paid amount & due
+    const expAny = expense as any;
+    if (expAny.category === 'Receive Client Bill' || expAny.bill || expAny.invoiceNo) {
+      try {
+        const Bill = (await import('@/models/Bill')).default;
+        let bill = null;
+        if (expAny.bill) bill = await Bill.findById(expAny.bill);
+        else if (expAny.invoiceNo) bill = await Bill.findOne({ invoiceNo: expAny.invoiceNo });
+
+        if (bill) {
+          const grandTotal = Math.round(bill.gTotal || bill.total || 0);
+          bill.cashIn = Math.max(0, (bill.cashIn || 0) - expense.amount);
+          bill.currentBillDue = Math.max(0, grandTotal - bill.cashIn);
+          bill.status = bill.currentBillDue <= 0 ? 'Paid' : 'Due';
+          await bill.save();
+        }
+
+        // Delete associated ledger entries
+        const LedgerTransaction = (await import('@/models/LedgerTransaction')).default;
+        const { recalculateLedgerBalance } = await import('@/lib/ledgerHelper');
+        const ref = expAny.invoiceNo || expAny.reference || id;
+        await LedgerTransaction.deleteMany({ reference: ref });
+        await recalculateLedgerBalance('AR');
+        await recalculateLedgerBalance('CASH');
+        await recalculateLedgerBalance('BANK');
+      } catch (err) {
+        console.error('Error reverting bill on income delete:', err);
       }
-      if (existingExpense.status !== 'Pending') {
-        return NextResponse.json({ message: 'Cannot delete an expense that has already been processed' }, { status: 400 });
+    } else {
+      // General expense/income delete
+      try {
+        const LedgerTransaction = (await import('@/models/LedgerTransaction')).default;
+        const { recalculateLedgerBalance } = await import('@/lib/ledgerHelper');
+        await LedgerTransaction.deleteMany({ reference: id });
+        const acc = expAny.accountCode || 'CASH';
+        await recalculateLedgerBalance(acc);
+      } catch (err) {
+        console.error('Error removing ledger entries on expense delete:', err);
       }
     }
 
-    const dbSession = await mongoose.startSession();
-    try {
-      dbSession.startTransaction();
-
-      await Expense.findByIdAndDelete(id).session(dbSession);
-
-      const LedgerTransaction = (await import('@/models/LedgerTransaction')).default;
-      const { recalculateLedgerBalance } = await import('@/lib/ledgerHelper');
-
-      // Delete ledger entries
-      await LedgerTransaction.deleteMany({ reference: id }).session(dbSession);
-
-      // Recalculate Cash/Bank balance
-      await recalculateLedgerBalance(existingExpense.accountCode || 'CASH');
-
-      await dbSession.commitTransaction();
-      dbSession.endSession();
-      return NextResponse.json({ message: 'Record deleted successfully' });
-    } catch (err: any) {
-      await dbSession.abortTransaction();
-      dbSession.endSession();
-      console.error('Error updating ledger on delete:', err);
-      return NextResponse.json({ message: 'Ledger sync failed on delete', error: err.message }, { status: 500 });
-    }
-  } catch (error: any) {
+    await Expense.findByIdAndDelete(id);
+    
+    return NextResponse.json({ message: 'Transaction deleted successfully' });
+  } catch (error) {
     console.error('Error deleting transaction:', error);
-    return NextResponse.json({ message: error.message || 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ message: 'Internal Server Error' }, { status: 500 });
   }
 }

@@ -8,12 +8,15 @@ import { purgeCloudflareCache } from '@/lib/cloudflareCache';
 export async function GET() {
   try {
     const session = await auth();
-    if (!session || !(['admin', 'super_admin', 'manager'].includes((session?.user as any)?.role))) {
+    if (!session || !(['admin', 'super_admin', 'manager', 'moderator'].includes((session?.user as any)?.role))) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
     await connectToDatabase();
-    const banners = await Banner.find().sort({ order: 1 });
+    // Only fetch mother shop / admin global banners (resellerId is null or not exists)
+    const banners = await Banner.find({
+      $or: [{ resellerId: null }, { resellerId: { $exists: false } }]
+    }).sort({ order: 1, createdAt: -1 });
     return NextResponse.json(banners);
   } catch (error) {
     console.error('Fetch Banners Error:', error);
@@ -24,14 +27,14 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const session = await auth();
-    if (!session || !(['admin', 'super_admin', 'manager'].includes((session?.user as any)?.role))) {
+    if (!session || !(['admin', 'super_admin', 'manager', 'moderator'].includes((session?.user as any)?.role))) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
     const body = await req.json();
     await connectToDatabase();
     
-    // Whitelist allowed fields
+    // Whitelist allowed fields and explicitly ensure resellerId is null for mother shop
     const whitelistedBanner = {
       title: body.title,
       image: body.image,
@@ -42,6 +45,7 @@ export async function POST(req: NextRequest) {
       secondaryBtnLink: body.secondaryBtnLink,
       order: body.order ?? 0,
       isActive: body.isActive !== undefined ? body.isActive : true,
+      resellerId: null as any,
     };
 
     const banner = await Banner.create(whitelistedBanner);

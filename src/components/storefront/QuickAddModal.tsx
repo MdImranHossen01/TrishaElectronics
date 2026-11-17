@@ -9,9 +9,9 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { ShoppingCart } from 'lucide-react';
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useAppDispatch } from '@/store/hooks';
-import { addToCart } from '@/store/slices/cartSlice';
+import { useCart } from '@/hooks/use-cart';
 import { toast } from 'sonner';
 import Image from 'next/image';
 import { fbEvent } from '@/lib/fpixel';
@@ -25,6 +25,7 @@ interface QuickAddModalProps {
 
 export function QuickAddModal({ product, isOpen, onClose }: QuickAddModalProps) {
   const dispatch = useAppDispatch();
+  const { addItem } = useCart();
   const [selectedColor, setSelectedColor] = useState<string | null>(null);
   const [selectedSize, setSelectedSize] = useState<string | null>(null);
 
@@ -39,9 +40,11 @@ export function QuickAddModal({ product, isOpen, onClose }: QuickAddModalProps) 
     [product.variants]
   );
 
+  const prevIsOpenRef = useRef(false);
+
   const availableSizes = useMemo(() =>
     (product.variants || [])
-      .filter((v: any) => !selectedColor || v.color === selectedColor)
+      .filter((v: any) => !selectedColor || String(v.color || '').trim().toLowerCase() === String(selectedColor).trim().toLowerCase())
       .map((v: any) => v.size)
       .filter(Boolean) as string[],
     [product.variants, selectedColor]
@@ -50,62 +53,55 @@ export function QuickAddModal({ product, isOpen, onClose }: QuickAddModalProps) 
   const activeVariant = useMemo(() =>
     (product.variants || []).find(
       (v: any) =>
-        (v.color || null) === (selectedColor || null) &&
-        (v.size || null) === (selectedSize || null)
+        String(v.color || '').trim().toLowerCase() === String(selectedColor || '').trim().toLowerCase() &&
+        String(v.size || '').trim().toLowerCase() === String(selectedSize || '').trim().toLowerCase()
     ),
     [product.variants, selectedColor, selectedSize]
   );
 
-  // Track the product ID and open status to initialize/reset local state when the modal opens or product changes
-  const [activeProductId, setActiveProductId] = useState<string | null>(null);
-  const [wasOpen, setWasOpen] = useState(false);
-
-  if (isOpen && (!wasOpen || activeProductId !== product?._id)) {
-    setWasOpen(true);
-    setActiveProductId(product?._id || null);
-
-    const initialColor = uniqueColors[0] || null;
-    setSelectedColor(initialColor);
-
-    const initialSizes = (product.variants || [])
-      .filter((v: any) => !initialColor || v.color === initialColor)
-      .map((v: any) => v.size)
-      .filter(Boolean);
-    const initialSize = initialSizes[0] || null;
-    setSelectedSize(initialSize);
-  } else if (!isOpen && wasOpen) {
-    setWasOpen(false);
-  }
-
   useEffect(() => {
-    if (isOpen && product) {
+    if (isOpen && !prevIsOpenRef.current) {
+      const defaultVar = product.variants && product.variants.length > 0 ? product.variants[0] : null;
+      const initialColor = defaultVar?.color || uniqueColors[0] || null;
+      setSelectedColor(initialColor);
+
+      const initialSizes = (product.variants || [])
+        .filter((v: any) => !initialColor || String(v.color || '').trim().toLowerCase() === String(initialColor).trim().toLowerCase())
+        .map((v: any) => v.size)
+        .filter(Boolean);
+      const initialSize = defaultVar?.size || initialSizes[0] || null;
+      setSelectedSize(initialSize);
+
       // Track ViewContent for Quick View
+      const initPrice = Number(defaultVar?.price ?? product.price ?? 0);
+      const initSale = (defaultVar?.salePrice !== undefined && defaultVar?.salePrice !== null && Number(defaultVar.salePrice) > 0 && Number(defaultVar.salePrice) < initPrice)
+        ? Number(defaultVar.salePrice)
+        : undefined;
+
       const viewContentPayload = {
         content_name: product.name,
         content_category: product.categories?.[0]?.name || 'Uncategorized',
         content_ids: [product._id],
         content_type: 'product',
-        value: product.salePrice || product.price,
+        value: initSale || initPrice,
         currency: 'BDT'
       };
       fbEvent('ViewContent', viewContentPayload);
       ttEvent('ViewContent', viewContentPayload);
     }
-  }, [isOpen, product]);
+    prevIsOpenRef.current = isOpen;
+  }, [isOpen, product._id]);
 
-  const handleColorChange = (colorName: string) => {
-    setSelectedColor(colorName);
-    const newAvailableSizes = (product.variants || [])
-      .filter((v: any) => v.color === colorName)
-      .map((v: any) => v.size)
-      .filter(Boolean) as string[];
-
-    if (selectedSize == null || !newAvailableSizes.includes(selectedSize)) {
-      setSelectedSize(newAvailableSizes[0] || null);
+  useEffect(() => {
+    if (selectedSize && availableSizes.length > 0) {
+      const match = availableSizes.some(s => String(s).trim().toLowerCase() === String(selectedSize).trim().toLowerCase());
+      if (!match) {
+        setSelectedSize(availableSizes[0] || null);
+      }
     }
-  };
+  }, [selectedColor, availableSizes]);
 
-  const handleAddToCart = (e: React.MouseEvent) => {
+  const handleAddToCart = async (e: React.MouseEvent) => {
     e.preventDefault();
     if (uniqueColors.length > 0 && !selectedColor) {
       toast.error('Please select a color');
@@ -119,7 +115,7 @@ export function QuickAddModal({ product, isOpen, onClose }: QuickAddModalProps) 
     const displayPrice = activeVariant?.price || product.price;
     const displaySalePrice = activeVariant?.salePrice || product.salePrice;
 
-    dispatch(addToCart({
+    const res = await addItem({
       productId: product._id,
       name: product.name,
       price: (displaySalePrice !== undefined && displaySalePrice !== null) ? displaySalePrice : displayPrice,
@@ -127,24 +123,29 @@ export function QuickAddModal({ product, isOpen, onClose }: QuickAddModalProps) 
       quantity: 1,
       image: activeVariant?.images?.[0] || activeVariant?.image || product.images?.[0],
       color: selectedColor || undefined,
-      size: selectedSize || undefined
-    }));
+      size: selectedSize || undefined,
+      uploadedBy: product.uploadedBy || (product.productId?.uploadedBy) || null,
+    });
 
-    // Track AddToCart
-    const addToCartPayload = {
-      content_name: product.name,
-      content_category: product.categories?.[0]?.name || 'Uncategorized',
-      content_ids: [product._id],
-      content_type: 'product',
-      value: displaySalePrice || displayPrice,
-      currency: 'BDT',
-      quantity: 1
-    };
-    fbEvent('AddToCart', addToCartPayload);
-    ttEvent('AddToCart', addToCartPayload);
+    if (res.success) {
+      // Track AddToCart
+      const addToCartPayload = {
+        content_name: product.name,
+        content_category: product.categories?.[0]?.name || 'Uncategorized',
+        content_ids: [product._id],
+        content_type: 'product',
+        value: displaySalePrice || displayPrice,
+        currency: 'BDT',
+        quantity: 1
+      };
+      fbEvent('AddToCart', addToCartPayload);
+      ttEvent('AddToCart', addToCartPayload);
 
-    toast.success(`${product.name} added to cart`);
-    onClose();
+      toast.success(`${product.name} added to cart`);
+      onClose();
+    } else if (res.error) {
+      toast.error(res.error);
+    }
   };
 
   return (
@@ -202,7 +203,7 @@ export function QuickAddModal({ product, isOpen, onClose }: QuickAddModalProps) 
                     <button
                       key={i}
                       disabled={isOutOfStock}
-                      onClick={(e) => { e.preventDefault(); handleColorChange(colorName); }}
+                      onClick={(e) => { e.preventDefault(); setSelectedColor(colorName); }}
                       title={colorName}
                       className={`relative rounded-lg overflow-hidden transition-all duration-200 border-2 ${
                         selectedColor === colorName

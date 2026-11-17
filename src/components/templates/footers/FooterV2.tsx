@@ -9,11 +9,10 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import DeveloperLogo from '@/components/ui/developerlogo';
 import { useSettings } from '@/components/SettingsProvider';
+import { formatBrandText } from '@/components/ui/logo';
 import * as SocialIcons from '@/components/ui/social-icons';
 import { Circle } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { useLanguage } from '@/contexts/LanguageContext';
-import { LanguageToggle } from '@/components/layout/LanguageToggle';
 
 const socialIconMap: Record<string, any> = {
   facebook: SocialIcons.Facebook || Circle,
@@ -26,7 +25,6 @@ const socialIconMap: Record<string, any> = {
 };
 
 export default function FooterV2() {
-  const { t } = useLanguage();
   const currentYear = new Date().getFullYear();
   const settings = useSettings();
   const socialLinks = settings?.socialLinks || {};
@@ -96,15 +94,31 @@ export default function FooterV2() {
     setDeferredPrompt(null);
   };
 
+  const isResellerStore = Boolean(
+    settings?.isReseller ||
+    (typeof window !== 'undefined' && (
+      window.location.pathname.startsWith('/store/') ||
+      (window.location.hostname !== 'localhost' &&
+       window.location.hostname !== '127.0.0.1' &&
+       (process.env.NEXT_PUBLIC_ROOT_DOMAIN ? (
+          window.location.hostname !== process.env.NEXT_PUBLIC_ROOT_DOMAIN &&
+          window.location.hostname !== `www.${process.env.NEXT_PUBLIC_ROOT_DOMAIN}`
+        ) : true))
+    ))
+  );
+
   const rawFooterNav = settings?.footerNavigation && settings.footerNavigation.length > 0
     ? settings.footerNavigation
     : [
-      { label: t('store.footer.shop_all'), href: '/shop' },
-      { label: t('store.footer.new_arrivals'), href: '/shop?filter=new' },
-      { label: t('store.footer.order_tracking'), href: '/track-order' },
-      { label: t('store.footer.contact_support'), href: '/contact' }
+      { label: 'Shop All', href: '/shop' },
+      ...(isResellerStore ? [] : [{ label: 'Become Reseller', href: '/reseller-program' }]),
+      { label: 'New Arrivals', href: '/shop?filter=new' },
+      { label: 'Order Tracking', href: '/track-order' },
+      { label: 'Contact Support', href: '/contact' }
     ];
-  const footerNav = rawFooterNav.filter((link: any) => link.label !== 'Contact Support' && link.label !== t('store.footer.contact_support'));
+  const footerNav = rawFooterNav
+    .filter((link: any) => link.label !== 'Contact Support')
+    .filter((link: any) => !(isResellerStore && (link.href === '/reseller-program' || link.label?.toLowerCase().includes('reseller'))));
 
   return (
     <footer className="bg-background border-t border-muted text-foreground pt-16 pb-8 px-6 font-jost">
@@ -114,18 +128,15 @@ export default function FooterV2() {
           {/* Brand Essence */}
           <div className="lg:col-span-4 space-y-6 flex flex-col items-center lg:items-start">
             <Link href="/" className="text-2xl md:text-3xl font-black tracking-tighter hover:scale-105 transition-all flex items-center gap-2 group text-foreground">
-              <Image src="/logo.webp" width={40} height={40} alt="Omor Auto Corner Logo" className="object-contain" />
-              {settings?.brandName || 'Omor Auto Corner'}
+              <Image src="/logo.webp" width={40} height={40} alt="Logo" className="object-contain" />
+              {formatBrandText(settings?.brandName || process.env.NEXT_PUBLIC_STORE_NAME || 'Store')}
             </Link>
-            <div className="mt-1 mb-2">
-              <LanguageToggle />
-            </div>
             <p className="text-muted-foreground text-sm max-w-sm leading-relaxed font-medium">
-              {t('store.footer.description')}
+              {settings?.siteDescription || 'Your premier destination for premium fashion, quality lifestyle products, and authentic shopping delivered right to your doorstep.'}
             </p>
 
             {/* PWA Download App Button */}
-            {!isStandalone && (
+            {!isStandalone && !isResellerStore && (
               <Button
                 onClick={handleInstallClick}
                 variant="outline"
@@ -140,7 +151,7 @@ export default function FooterV2() {
           {/* Dynamic Navigation */}
           <div className="lg:col-span-5 w-full">
             <div className="flex flex-col items-center lg:items-start space-y-6">
-              <h3 className="text-xs font-black uppercase tracking-[0.4em] text-foreground">{t('store.footer.quick_links')}</h3>
+              <h3 className="text-xs font-black uppercase tracking-[0.4em] text-foreground">Quick Links</h3>
               <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-3 w-full lg:w-auto">
                 {footerNav.map(link => (
                   <li key={link.label}>
@@ -156,7 +167,7 @@ export default function FooterV2() {
           {/* Social Icons & Policy Links */}
           <div className="lg:col-span-3 space-y-6 flex flex-col items-center lg:items-start">
             <div className="space-y-6">
-              <h3 className="text-xs font-black uppercase tracking-[0.4em] text-foreground text-center lg:text-left">{t('store.footer.contact')}</h3>
+              <h3 className="text-xs font-black uppercase tracking-[0.4em] text-foreground text-center lg:text-left">Connect With Us</h3>
               <div className="flex flex-wrap justify-center lg:justify-start gap-4">
                 {hasSocialLinks ? (
                   Object.entries(socialLinks).map(([platform, url]) => {
@@ -184,8 +195,8 @@ export default function FooterV2() {
 
               {/* Privacy & Terms Moved Here */}
               <div className="flex items-center justify-center lg:justify-start gap-6 text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground pt-2">
-                <Link href="/privacy" className="hover:text-primary transition-colors">{t('store.footer.privacy')}</Link>
-                <Link href="/terms" className="hover:text-primary transition-colors">{t('store.footer.terms')}</Link>
+                <Link href="/privacy" className="hover:text-primary transition-colors">Privacy</Link>
+                <Link href="/terms" className="hover:text-primary transition-colors">Terms</Link>
               </div>
             </div>
           </div>
@@ -193,7 +204,7 @@ export default function FooterV2() {
 
         {/* Bottom Bar - Reduced Padding & Smart Layout */}
         <div className="pt-6 border-t border-muted flex flex-col md:flex-row items-center justify-between gap-6 text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground">
-          <p className="text-center md:text-left">© {currentYear} {settings?.brandName || 'Omor Auto Corner'}. {t('store.footer.all_rights_reserved')}</p>
+          <p className="text-center md:text-left">© {currentYear} {settings?.brandName || process.env.NEXT_PUBLIC_STORE_NAME || 'Store'}. ALL RIGHTS RESERVED.</p>
           <div className="flex items-center gap-4">
             <DeveloperLogo className="opacity-50 grayscale hover:grayscale-0 hover:opacity-100 transition-all scale-90 md:scale-100" />
           </div>

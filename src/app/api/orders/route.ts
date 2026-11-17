@@ -7,8 +7,9 @@ import User from '@/models/User';
 import GlobalSettings from '@/models/GlobalSettings';
 import WalletTransaction from '@/models/WalletTransaction';
 import Coupon from '@/models/Coupon';
+import Reseller from '@/models/Reseller';
+import ResellerOrder from '@/models/ResellerOrder';
 import { auth } from '@/auth';
-import { normalizePhoneNumber } from '@/lib/utils';
 
 import { z } from 'zod';
 import mongoose from 'mongoose';
@@ -38,8 +39,8 @@ const orderSchema = z.object({
   items: z.array(orderItemSchema).min(1, 'At least one item is required'),
   shippingAddress: z.object({
     fullName: z.string().min(2, 'Full name is required'),
-    phone: z.string().transform((val) => normalizePhoneNumber(val)).refine((val) => val.length === 11, 'Invalid phone number'),
-    email: z.string().email('Invalid email address'),
+    phone: z.string().min(10, 'Invalid phone number'),
+    email: z.string().email('Invalid email address').or(z.literal('')).optional().transform(v => v || undefined),
     street: z.string().min(1, 'Street is required'),
     city: z.string().min(1, 'City is required'),
     state: z.string().min(1, 'State is required'),
@@ -55,17 +56,19 @@ const orderSchema = z.object({
       }
     }
     return val;
-  }, z.enum(['COD', 'Online', 'Manual', 'Credit'])),
+  }, z.enum(['COD', 'Online', 'Manual'])),
   deliveryCharge: z.number().min(0).nullish(),
   useWallet: z.boolean().nullish().default(false),
   couponCode: z.string().nullish(),
+  customerNote: z.string().nullish(),
+  internalNote: z.string().nullish(),
+  notes: z.string().nullish(),
+  systemNote: z.string().nullish(),
   manualPaymentDetails: z.object({
     methodName: z.string().optional(),
     senderNumber: z.string().optional(),
     transactionId: z.string().optional(),
   }).optional(),
-  isCreditOrder: z.boolean().nullish().default(false),
-  expectedPaymentDate: z.string().nullish(),
 });
 
 export async function POST(req: NextRequest) {
@@ -85,7 +88,7 @@ export async function POST(req: NextRequest) {
       }, { status: 400 });
     }
 
-    const { items, shippingAddress, paymentMethod, useWallet, couponCode, manualPaymentDetails, isCreditOrder, expectedPaymentDate } = validation.data;
+    const { items, shippingAddress, paymentMethod, useWallet, couponCode, manualPaymentDetails } = validation.data;
     const clientProvidedDeliveryCharge = validation.data.deliveryCharge;
 
     await connectToDatabase();
@@ -129,17 +132,34 @@ export async function POST(req: NextRequest) {
     session.startTransaction();
 
     let user = null;
+    const { normalizePhoneNumber } = await import('@/lib/utils');
+    const normalizedPhone = normalizePhoneNumber(shippingAddress.phone);
+    const normalizedEmail = shippingAddress.email ? shippingAddress.email.toLowerCase().trim() : '';
+
     if (sessionUser?.user?.id) {
-      user = await User.findOne({ _id: sessionUser.user.id }).session(session);
-    } else {
-      // Guest Checkout: Find or Create User by Email
-      user = await User.findOne({ email: shippingAddress.email.toLowerCase() }).session(session);
+      const loggedUser = await User.findOne({ _id: sessionUser.user.id }).session(session);
+      if (loggedUser) {
+        user = loggedUser;
+      }
+    }
+
+    if (!user) {
+      // Guest Checkout: Find or Create User by Phone or Email
+      user = await User.findOne({
+        role: 'user',
+        $or: [
+          ...(normalizedPhone ? [{ phone: normalizedPhone }] : []),
+          ...(normalizedEmail ? [{ email: normalizedEmail }] : []),
+          ...(normalizedPhone ? [{ email: `${normalizedPhone}@store.com` }] : []),
+          ...(normalizedPhone ? [{ email: `${normalizedPhone}@${process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'guest.com'}` }] : [])
+        ]
+      }).session(session);
 
       if (user) {
         // If user exists but lacks phone or address, update it
         let needsUpdate = false;
-        if (!user.phone && shippingAddress.phone) {
-          user.phone = shippingAddress.phone;
+        if (!user.phone && normalizedPhone) {
+          user.phone = normalizedPhone;
           needsUpdate = true;
         }
         if ((!user.addresses || user.addresses.length === 0) && shippingAddress.street) {
@@ -157,11 +177,12 @@ export async function POST(req: NextRequest) {
           await user.save({ session });
         }
       } else {
-        // Create a new user for this guest
+        // Create a new passwordless user for this guest order
+        const userEmail = normalizedEmail || `${normalizedPhone}@store.com`;
         const [newUser] = await User.create([{
           name: shippingAddress.fullName,
-          email: shippingAddress.email.toLowerCase(),
-          phone: shippingAddress.phone,
+          email: userEmail,
+          phone: normalizedPhone,
           role: 'user',
           addresses: [{
             street: shippingAddress.street,
@@ -176,8 +197,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
+
     let serverComputedTotal = 0;
     const validatedItems: IOrderItem[] = [];
+    const uploaderItemsMap = new Map<string, any[]>();
 
     try {
       // 2a. Group items by product/variant to avoid duplicate checks failing during deduction
@@ -193,11 +216,19 @@ export async function POST(req: NextRequest) {
 
       const uniqueItems = Object.values(groupedItems);
 
-      // 2b. Pre-check loop (ensure all items exist and have combined stock before any deductions)
+      // 2b. Pre-check loop (ensure all items exist, belong to the same seller, and have combined stock before any deductions)
+      const sellerIds = new Set<string>();
       for (const item of uniqueItems) {
         const product = await Product.findOne({ _id: item.product, isPublished: true }).session(session);
         if (!product) {
           throw new StockError(`Product not found: ${item.name}`);
+        }
+
+        const sId = product.uploadedBy ? product.uploadedBy.toString() : 'mother';
+        sellerIds.add(sId);
+
+        if (sellerIds.size > 1) {
+          throw new StockError('ভিন্ন ভিন্ন বিক্রেতার পণ্য একসাথে অর্ডার করা সম্ভব নয়। প্রতিটি শপের পণ্য ভিন্ন লোকেশন থেকে পাঠানো হয়, তাই অনুগ্রহ করে আলাদাভাবে অর্ডার সম্পন্ন করুন।');
         }
 
         if (item.color || item.size) {
@@ -223,110 +254,67 @@ export async function POST(req: NextRequest) {
         let product;
         const hasVariant = !!(item.color || item.size);
 
-        product = await Product.findOne({ _id: item.product, isPublished: true }).session(session);
-        if (!product) {
-          throw new StockError(`Product not found: ${item.name}`);
-        }
-
-        const batchesUsed: { batchNumber: string; quantity: number; }[] = [];
-        let remainingQty = item.quantity;
-
         if (hasVariant) {
-          const variant = product.variants?.find((v: any) =>
-            String(v.color || '').trim() === String(item.color || '').trim() &&
-            String(v.size || '').trim() === String(item.size || '').trim()
+          const variantQuery: any = {
+            _id: item.product,
+            isPublished: true,
+            variants: {
+              $elemMatch: {
+                ...(item.color && { color: item.color }),
+                ...(item.size && { size: item.size }),
+                stock: { $gte: item.quantity }
+              }
+            }
+          };
+
+          product = await Product.findOneAndUpdate(
+            variantQuery,
+            { $inc: { "variants.$.stock": -item.quantity } },
+            { session, new: true }
           );
 
-          if (!variant || (variant.stock || 0) < item.quantity) {
-            throw new StockError(`Stock deduction failed unexpectedly for ${item.name}.`);
-          }
-
-          variant.stock -= item.quantity;
-
-          if (variant.batches && variant.batches.length > 0) {
-            const sortedBatches = [...variant.batches].sort((a, b) => {
-              if (!a.expiryDate) return 1;
-              if (!b.expiryDate) return -1;
-              return new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime();
+          if (product) {
+            const variant = product.variants?.find((v: any) =>
+              String(v.color || '').trim() === String(item.color || '').trim() &&
+              String(v.size || '').trim() === String(item.size || '').trim()
+            );
+            successfulDeductions.push({
+              productId: product._id.toString(),
+              quantity: item.quantity,
+              variantId: (variant as any)?._id?.toString()
             });
-
-            for (const batch of sortedBatches) {
-              if (remainingQty <= 0) break;
-              if (batch.stock > 0) {
-                const qtyToTake = Math.min(batch.stock, remainingQty);
-                batchesUsed.push({ batchNumber: batch.batchNumber, quantity: qtyToTake });
-                remainingQty -= qtyToTake;
-                const originalBatch = variant.batches.find((b: any) => b.batchNumber === batch.batchNumber);
-                if (originalBatch) originalBatch.stock -= qtyToTake;
-              }
-            }
           }
-
-          successfulDeductions.push({
-            productId: product._id.toString(),
-            quantity: item.quantity,
-            variantId: (variant as any)?._id?.toString(),
-            batchesUsed
-          } as any);
-
         } else {
-          if ((product.stock || 0) < item.quantity) {
-            throw new StockError(`Stock deduction failed unexpectedly for ${item.name}.`);
-          }
+          product = await Product.findOneAndUpdate(
+            {
+              _id: item.product,
+              stock: { $gte: item.quantity },
+              isPublished: true
+            },
+            { $inc: { stock: -item.quantity } },
+            { session, new: true }
+          );
 
-          product.stock -= item.quantity;
-
-          if (product.batches && product.batches.length > 0) {
-            const sortedBatches = [...product.batches].sort((a, b) => {
-              if (!a.expiryDate) return 1;
-              if (!b.expiryDate) return -1;
-              return new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime();
+          if (product) {
+            successfulDeductions.push({
+              productId: product._id.toString(),
+              quantity: item.quantity
             });
-
-            for (const batch of sortedBatches) {
-              if (remainingQty <= 0) break;
-              if (batch.stock > 0) {
-                const qtyToTake = Math.min(batch.stock, remainingQty);
-                batchesUsed.push({ batchNumber: batch.batchNumber, quantity: qtyToTake });
-                remainingQty -= qtyToTake;
-                const originalBatch = product.batches.find((b: any) => b.batchNumber === batch.batchNumber);
-                if (originalBatch) originalBatch.stock -= qtyToTake;
-              }
-            }
           }
-
-          successfulDeductions.push({
-            productId: product._id.toString(),
-            quantity: item.quantity,
-            batchesUsed
-          } as any);
         }
 
-        await product.save({ session });
+        if (!product) {
+          throw new StockError(`Stock deduction failed unexpectedly for ${item.name}. Please try again.`);
+        }
       }
 
       // 2d. Price Verification and Validated Items List (using ORIGINAL items for order structure)
-      const isWholesalerUser = (sessionUser?.user as any)?.role === 'wholesaler';
-
       for (const item of items) {
         const product = await Product.findOne({ _id: item.product }).session(session);
         if (!product) throw new Error('Product not found during price verification');
 
         const hasVariant = !!(item.color || item.size);
-        let itemPrice = product.price;
-        if (isWholesalerUser) {
-          itemPrice = (product.wholesaleSalePrice && product.wholesaleSalePrice > 0)
-            ? product.wholesaleSalePrice
-            : (product.wholesalePrice && product.wholesalePrice > 0)
-              ? product.wholesalePrice
-              : (product.salePrice && product.salePrice > 0)
-                ? product.salePrice
-                : product.price;
-        } else {
-          itemPrice = (product.salePrice && product.salePrice > 0)
-            ? product.salePrice
-            : product.price;
-        }
+        let itemPrice = product.salePrice ?? product.price;
         let itemPurchasePrice = product.purchasePrice ?? 0;
 
         if (hasVariant) {
@@ -335,38 +323,12 @@ export async function POST(req: NextRequest) {
             String(v.size || '').trim() === String(item.size || '').trim()
           );
           if (variant) {
-            if (isWholesalerUser) {
-              itemPrice = (variant.wholesaleSalePrice && variant.wholesaleSalePrice > 0)
-                ? variant.wholesaleSalePrice
-                : (variant.wholesalePrice && variant.wholesalePrice > 0)
-                  ? variant.wholesalePrice
-                  : (variant.salePrice && variant.salePrice > 0)
-                    ? variant.salePrice
-                    : (variant.price && variant.price > 0)
-                      ? variant.price
-                      : itemPrice;
-            } else {
-              itemPrice = (variant.salePrice && variant.salePrice > 0)
-                ? variant.salePrice
-                : (variant.price && variant.price > 0)
-                  ? variant.price
-                  : itemPrice;
-            }
+            itemPrice = (variant.salePrice ?? variant.price) ?? (product.salePrice ?? product.price);
             itemPurchasePrice = variant.purchasePrice ?? product.purchasePrice ?? 0;
           }
         }
 
         serverComputedTotal += itemPrice * item.quantity;
-
-        // Find the matched deduction to get batchesUsed
-        const matchedDeduction = successfulDeductions.find(d =>
-          d.productId === product._id.toString() &&
-          (!hasVariant || d.variantId === (product.variants?.find((v: any) =>
-            String(v.color || '').trim() === String(item.color || '').trim() &&
-            String(v.size || '').trim() === String(item.size || '').trim()
-          ) as any)?._id?.toString())
-        );
-        const batchesUsed = (matchedDeduction as any)?.batchesUsed || [];
 
         validatedItems.push({
           product: product._id,
@@ -377,8 +339,25 @@ export async function POST(req: NextRequest) {
           image: item.image || product.images?.[0] || '',
           color: item.color,
           size: item.size,
-          batchesUsed: batchesUsed.length > 0 ? batchesUsed : undefined,
         });
+
+        // Track items uploaded by resellers so fulfillment & commission orders can be created
+        const uploaderId = product.uploadedBy ? product.uploadedBy.toString() : null;
+        if (uploaderId) {
+          if (!uploaderItemsMap.has(uploaderId)) {
+            uploaderItemsMap.set(uploaderId, []);
+          }
+          uploaderItemsMap.get(uploaderId)!.push({
+            productId: product._id,
+            name: product.name,
+            quantity: item.quantity,
+            retailPrice: itemPrice,
+            purchasePrice: itemPurchasePrice,
+            image: item.image || product.images?.[0] || '',
+            color: item.color,
+            size: item.size,
+          });
+        }
       }
     } catch (err: any) {
       throw err;
@@ -497,11 +476,59 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Compute reseller commission, system platform fee, and sales profit
+    const defaultPlatformCommissionRate = settings?.platformCommissionRate ?? 10;
+    const uploaderResellerIds = Array.from(uploaderItemsMap.keys());
+    const uploaderFeeMap = new Map<string, number>();
+    if (uploaderResellerIds.length > 0) {
+      const ResellerModel = (await import('@/models/Reseller')).default;
+      const uploaderResellers = await ResellerModel.find({ _id: { $in: uploaderResellerIds } })
+        .select('_id systemFeePercent commissionRate')
+        .lean();
+      uploaderResellers.forEach((r: any) => {
+        const fee = r.systemFeePercent !== undefined ? r.systemFeePercent : (r.commissionRate ?? defaultPlatformCommissionRate);
+        uploaderFeeMap.set(r._id.toString(), fee);
+      });
+    }
+
+    let orderResellerCommission = 0;
+    let orderSystemFee = 0;
+    let orderSalesProfit = 0;
+
+    const resellerProductIds = new Set<string>();
+    for (const [uploaderId, fItems] of uploaderItemsMap.entries()) {
+      const uploaderFeeRate = uploaderFeeMap.get(uploaderId) ?? defaultPlatformCommissionRate;
+      for (const it of fItems) {
+        resellerProductIds.add(it.productId.toString());
+        const qty = it.quantity;
+        const baseCost = Number(it.purchasePrice) || 0;
+        const retail = Number(it.retailPrice) || 0;
+
+        const rComm = baseCost * qty;
+        const sFee = Math.round(baseCost * (uploaderFeeRate / 100)) * qty;
+        const sProfit = Math.max(0, retail - baseCost - sFee) * qty;
+
+        orderResellerCommission += rComm;
+        orderSystemFee += sFee;
+        orderSalesProfit += sProfit;
+      }
+    }
+
+    for (const vItem of validatedItems) {
+      if (!resellerProductIds.has(vItem.product.toString())) {
+        const qty = vItem.quantity;
+        const baseCost = Number(vItem.purchasePrice) || 0;
+        const retail = Number(vItem.price) || 0;
+        orderSalesProfit += Math.max(0, retail - baseCost) * qty;
+      }
+    }
+
     // 6. Create the order
     const [newOrder] = (await Order.create(
       [
         {
           user: user?._id,
+          orderSource: 'mother',
           items: validatedItems,
           deliveryCharge: serverComputedDeliveryCharge,
           totalAmount: baseTotal,
@@ -515,9 +542,14 @@ export async function POST(req: NextRequest) {
           status: 'Order Placed',
           transactionId: paymentMethod === 'Online' ? `ORDER-${crypto.randomUUID().replace(/-/g, '').toUpperCase().slice(0, 16)}` : undefined,
           shortId: crypto.randomBytes(4).toString('hex').toUpperCase(),
+          customerNote: (validation.data as any).customerNote || (validation.data as any).notes || undefined,
+          internalNote: (validation.data as any).internalNote || undefined,
+          systemNote: (validation.data as any).systemNote || undefined,
           manualPaymentDetails,
-          isCreditOrder: !!isCreditOrder,
-          expectedPaymentDate: expectedPaymentDate ? new Date(expectedPaymentDate) : undefined,
+          resellerId: uploaderItemsMap.size === 1 ? Array.from(uploaderItemsMap.keys())[0] : undefined,
+          resellerCommission: orderResellerCommission,
+          systemFee: orderSystemFee,
+          salesProfit: orderSalesProfit,
         },
       ],
       { session }
@@ -532,13 +564,176 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // If any items were uploaded by resellers, create corresponding ResellerOrders for fulfillment & tracking
+    if (uploaderItemsMap.size > 0) {
+      const ResellerOrder = (await import('@/models/ResellerOrder')).default;
+      const ResellerProduct = (await import('@/models/ResellerProduct')).default;
+      const Reseller = (await import('@/models/Reseller')).default;
+      const ResellerWalletTransaction = (await import('@/models/ResellerWalletTransaction')).default;
+
+      let fIndex = 1;
+      for (const [uploaderId, fItems] of uploaderItemsMap.entries()) {
+        const uploaderFeeRate = uploaderFeeMap.get(uploaderId) ?? defaultPlatformCommissionRate;
+        const uploaderSubtotal = fItems.reduce((sum: number, it: any) => sum + it.retailPrice * it.quantity, 0);
+        // Base product cost payable to reseller supplier:
+        const uploaderCommission = fItems.reduce(
+          (sum: number, it: any) => sum + (Number(it.purchasePrice) || 0) * it.quantity,
+          0
+        );
+        // System platform fee:
+        const uploaderSystemFee = fItems.reduce(
+          (sum: number, it: any) => sum + Math.round((Number(it.purchasePrice) || 0) * (uploaderFeeRate / 100)) * it.quantity,
+          0
+        );
+        // Mother Shop sales profit:
+        const uploaderSalesProfit = fItems.reduce(
+          (sum: number, it: any) => {
+            const base = Number(it.purchasePrice) || 0;
+            const fee = Math.round(base * (uploaderFeeRate / 100));
+            return sum + Math.max(0, it.retailPrice - base - fee) * it.quantity;
+          },
+          0
+        );
+
+        // Resolve or create ResellerProduct for each item
+        const orderItemsWithRP = await Promise.all(
+          fItems.map(async (it: any) => {
+            let rp = await ResellerProduct.findOne({
+              resellerId: uploaderId,
+              productId: it.productId,
+            }).session(session);
+
+            if (!rp) {
+              const [newRP] = await ResellerProduct.create(
+                [
+                  {
+                    resellerId: uploaderId,
+                    productId: it.productId,
+                    retailPrice: it.retailPrice,
+                    name: it.name,
+                    slug: `product-${it.productId}`,
+                    images: it.image ? [it.image] : [],
+                    stock: 0,
+                    purchasePrice: it.purchasePrice || 0,
+                    motherPrice: it.retailPrice,
+                    isAvailableOnMother: true,
+                    isPublished: true,
+                    syncedAt: new Date(),
+                  },
+                ],
+                { session }
+              );
+              rp = newRP;
+            }
+
+            return {
+              resellerProductId: rp._id,
+              productId: it.productId,
+              name: it.name,
+              quantity: it.quantity,
+              retailPrice: it.retailPrice,
+              purchasePrice: it.purchasePrice || 0,
+              image: it.image,
+              color: it.color,
+              size: it.size,
+            };
+          })
+        );
+
+        const resellerShortId =
+          uploaderItemsMap.size === 1 ? newOrder.shortId : `${newOrder.shortId}-M${fIndex}`;
+
+        const [createdRO] = await ResellerOrder.create(
+          [
+            {
+              resellerId: uploaderId,
+              user: user?._id,
+              motherOrderId: newOrder._id,
+              customer: {
+                name: shippingAddress.fullName,
+                phone: shippingAddress.phone,
+                email: user?.email,
+                address: {
+                  street: shippingAddress.street,
+                  city: shippingAddress.city,
+                  division: shippingAddress.division,
+                  zipCode: shippingAddress.zipCode,
+                },
+              },
+              items: orderItemsWithRP,
+              subtotal: Math.max(0, baseTotal - serverComputedDeliveryCharge),
+              deliveryCharge: serverComputedDeliveryCharge,
+              totalAmount: baseTotal,
+              paymentMethod: paymentMethod || 'COD',
+              paymentStatus: newOrder.paymentStatus || 'Pending',
+              status: newOrder.status || 'Order Placed',
+              resellerCommission: uploaderCommission,
+              systemFee: uploaderSystemFee,
+              salesProfit: uploaderSalesProfit,
+              commissionStatus: 'pending',
+              customerNote: (validation.data as any).customerNote || (validation.data as any).notes || '',
+              internalNote: '',
+              systemNote: `Mother Shop Order (${newOrder.shortId}) - Base Payout: ৳${uploaderCommission}, System Fee: ৳${uploaderSystemFee}, Sales Profit: ৳${uploaderSalesProfit}`,
+              shortId: resellerShortId,
+            },
+          ],
+          { session }
+        );
+
+        // Update reseller stats atomically (reseller's revenue from mother shop sale is their base payout)
+        const isAlreadyPaidOrDelivered = newOrder.status === 'Delivered' || newOrder.paymentStatus === 'Paid';
+        await Reseller.findByIdAndUpdate(
+          uploaderId,
+          {
+            $inc: {
+              totalOrders: 1,
+              totalRevenue: uploaderCommission,
+              pendingBalance: isAlreadyPaidOrDelivered ? 0 : uploaderCommission,
+            },
+          },
+          { session }
+        );
+
+        // Record pending commission in reseller wallet
+        await ResellerWalletTransaction.create(
+          [
+            {
+              resellerId: uploaderId,
+              type: 'commission_earned',
+              amount: uploaderCommission,
+              orderId: createdRO._id,
+              description: `Payout for supplied product from Mother Shop order ${newOrder.shortId}`,
+              status: 'pending',
+            },
+          ],
+          { session }
+        );
+
+        fIndex++;
+      }
+    }
+
     await session.commitTransaction();
 
-    // Delete matching abandoned cart on successful purchase
+    // Sync updated stock to all reseller storefronts
+    try {
+      const { syncProductToResellers } = await import('@/lib/syncEngine');
+      const uniqueProductIds = Array.from(new Set(successfulDeductions.map(d => d.productId)));
+      for (const pId of uniqueProductIds) {
+        await syncProductToResellers(pId).catch(err => console.error('[Reseller Sync Error]', err));
+      }
+    } catch (syncErr) {
+      console.error('[Sync Error after mother order creation]', syncErr);
+    }
+
+    // Delete matching mother shop abandoned cart on successful purchase
     try {
       const cleanPhone = shippingAddress.phone.replace(/\s+/g, '').trim();
       const AbandonedCart = (await import('@/models/AbandonedCart')).default;
-      await AbandonedCart.findOneAndDelete({ phone: cleanPhone });
+      await AbandonedCart.deleteMany({
+        phone: cleanPhone,
+        $or: [{ resellerId: null }, { resellerId: { $exists: false } }]
+      });
     } catch (e) {
       console.error('Failed to delete matching abandoned cart:', e);
     }
@@ -549,6 +744,118 @@ export async function POST(req: NextRequest) {
       revalidateTag(CACHE_TAGS.products, 'max');
     } catch (e) {
       console.error('Failed to revalidate products cache:', e);
+    }
+
+    // Instant Telegram & Web Push Notifications Alert
+    try {
+      const { sendTelegramOrderNotification, checkAndNotifyLowStock } = await import('@/lib/telegram');
+      const { sendWebPushNotification } = await import('@/lib/webpush');
+      const { createAdminNotification, createNotification } = await import('@/lib/notifications');
+      const itemsForNotification = Array.isArray(newOrder.items)
+        ? newOrder.items.map((it: any) => ({
+            name: it.name,
+            quantity: it.quantity,
+            price: it.price,
+            size: it.size,
+            color: it.color,
+          }))
+        : [];
+      createAdminNotification({
+        title: '🛒 New Order #' + (newOrder.shortId || '') + ' (৳' + newOrder.totalAmount + ')',
+        message: shippingAddress.fullName + ' (' + shippingAddress.phone + ') — ' + itemsForNotification.length + ' item(s)',
+        type: 'order',
+        link: '/admin/orders',
+        sendPush: false,
+      }).catch(err => console.error('[Order Admin Notification Error]', err));
+
+      // Notify Supplier Resellers (whose uploaded products were ordered on the Mother Shop)
+      if (uploaderItemsMap.size > 0) {
+        let supIdx = 1;
+        for (const [uploaderId, fItems] of uploaderItemsMap.entries()) {
+          const supCommission = fItems.reduce((sum: number, it: any) => sum + (Number(it.purchasePrice) || 0) * it.quantity, 0);
+          const supItemCount = fItems.reduce((sum: number, it: any) => sum + (Number(it.quantity) || 1), 0);
+          const supShortId = uploaderItemsMap.size === 1 ? newOrder.shortId : `${newOrder.shortId}-M${supIdx}`;
+          Reseller.findById(uploaderId).select('userId').lean().then((supReseller: any) => {
+            createNotification({
+              userId: supReseller?.userId,
+              resellerId: uploaderId,
+              title: `📦 নতুন সাপ্লাই অর্ডার #${supShortId} (পে-আউট: ৳${supCommission})`,
+              message: `মাদার শপে আপনার প্রোডাক্টের ${supItemCount}টি আইটেম অর্ডার হয়েছে • আপনার সাপ্লাই পে-আউট: ৳${supCommission}`,
+              type: 'order',
+              link: '/reseller/orders',
+              sendPush: true,
+            }).catch(err => console.error('[Mother Order Supplier Notif Error]', err));
+          }).catch(() => {});
+          supIdx++;
+        }
+      }
+      const fullAddressStr = [
+        shippingAddress.street,
+        shippingAddress.city,
+        shippingAddress.state,
+        shippingAddress.division,
+      ].filter(Boolean).join(', ');
+      sendTelegramOrderNotification({
+        orderId: newOrder._id?.toString(),
+        shortId: newOrder.shortId,
+        name: shippingAddress.fullName,
+        phone: shippingAddress.phone,
+        address: fullAddressStr,
+        totalAmount: newOrder.totalAmount,
+        deliveryCharge: newOrder.deliveryCharge,
+        paymentMethod: newOrder.paymentMethod,
+        paymentStatus: newOrder.paymentStatus,
+        source: 'মাদার শপ',
+        customerNote: newOrder.customerNote,
+        items: itemsForNotification,
+      }).catch(err => console.error('[Telegram Alert Error]', err));
+
+      // Low Stock Instant Alert for Admin
+      const uniqueProductIdsForStock = Array.from(new Set(successfulDeductions.map(d => d.productId)));
+      checkAndNotifyLowStock(uniqueProductIdsForStock).catch(err => console.error('[Low Stock Telegram Alert Error]', err));
+      sendWebPushNotification(
+        {
+          title: '🛒 নতুন অর্ডার #' + (newOrder.shortId || '') + '! (৳' + newOrder.totalAmount + ')',
+          body: shippingAddress.fullName + ' (' + shippingAddress.phone + ') — ' + itemsForNotification.length + 'টি আইটেম।',
+          url: '/admin/orders',
+        },
+        { isMotherOrder: true }
+      ).catch(err => console.error('[WebPush Alert Error]', err));
+
+      // Send Order Confirmation Email to Customer (if valid email provided)
+      const customerEmail = shippingAddress.email;
+      if (customerEmail && !customerEmail.endsWith('@store.com')) {
+        const { sendCustomerOrderPlacedEmail } = await import('@/lib/mail');
+        sendCustomerOrderPlacedEmail({
+          email: customerEmail,
+          customerName: shippingAddress.fullName,
+          orderId: newOrder._id?.toString(),
+          shortId: newOrder.shortId,
+          items: validatedItems.map((it: any) => ({
+            name: it.name,
+            quantity: it.quantity,
+            price: it.price,
+            image: it.image,
+            color: it.color,
+            size: it.size,
+          })),
+          subtotal: baseTotal - serverComputedDeliveryCharge + (couponDiscountAmount || 0),
+          deliveryCharge: serverComputedDeliveryCharge,
+          couponDiscount: couponDiscountAmount,
+          totalAmount: baseTotal,
+          paymentMethod: newOrder.paymentMethod,
+          shippingAddress: {
+            fullName: shippingAddress.fullName,
+            phone: shippingAddress.phone,
+            street: shippingAddress.street,
+            city: shippingAddress.city,
+            division: shippingAddress.division,
+            thana: (shippingAddress as any).thana || shippingAddress.state || '',
+          },
+        }).catch(err => console.error('[Order Placed Customer Mail Error]', err));
+      }
+    } catch (notifErr) {
+      console.error('[Order Notification Error]', notifErr);
     }
 
     return NextResponse.json(newOrder, { status: 201 });
@@ -604,7 +911,7 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const fetchAll = searchParams.get('all') === 'true';
-    const isAdmin = ['admin', 'super_admin', 'manager'].includes((session.user as any)?.role);
+    const isAdmin = ['admin', 'super_admin', 'manager', 'moderator'].includes((session.user as any)?.role);
 
     const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
     const limit = Math.max(1, parseInt(searchParams.get('limit') || '20'));
@@ -612,26 +919,121 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get('status') || '';
     const fromDate = searchParams.get('from') || '';
     const toDate = searchParams.get('to') || '';
+    const resellerId = searchParams.get('resellerId') || '';
+    const commissionStatus = searchParams.get('commissionStatus') || '';
 
     await connectToDatabase();
+
+    // Ensure any unlinked or missing ResellerOrders are synced to Mother Order table
+    if (fetchAll && isAdmin) {
+      try {
+        const ResellerOrder = (await import('@/models/ResellerOrder')).default;
+        const recentResellerOrders = await ResellerOrder.find({ deletedAt: null }).sort({ createdAt: -1 }).limit(50).lean();
+
+        for (const ro of recentResellerOrders) {
+          let existingOrder = null;
+          if (ro.motherOrderId) {
+            existingOrder = await Order.findOne({ _id: ro.motherOrderId, deletedAt: null });
+          }
+          if (!existingOrder && ro.shortId) {
+            existingOrder = await Order.findOne({ shortId: ro.shortId, deletedAt: null });
+          }
+
+          if (!existingOrder) {
+            const created = await Order.create({
+              _id: ro.motherOrderId || new mongoose.Types.ObjectId(),
+              shortId: ro.shortId,
+              orderSource: 'reseller_storefront',
+              storefrontResellerId: ro.resellerId,
+              resellerId: ro.resellerId,
+              items: (ro.items || []).map((item: any) => ({
+                product: item.productId,
+                name: item.name,
+                quantity: item.quantity,
+                price: item.retailPrice,
+                purchasePrice: item.purchasePrice,
+                image: item.image,
+                color: item.color,
+                size: item.size,
+              })),
+              totalAmount: ro.totalAmount,
+              deliveryCharge: ro.deliveryCharge || 0,
+              resellerCommission: ro.resellerCommission || 0,
+              commissionStatus: ro.commissionStatus || 'pending',
+              shippingAddress: {
+                fullName: ro.customer?.name || 'Customer',
+                phone: ro.customer?.phone || '',
+                street: ro.customer?.address?.street || '',
+                city: ro.customer?.address?.city || '',
+                state: ro.customer?.address?.city || '',
+                division: ro.customer?.address?.division || ro.customer?.address?.city || '',
+                zipCode: ro.customer?.address?.zipCode || '0000',
+                country: 'Bangladesh',
+              },
+              paymentMethod: ro.paymentMethod || 'COD',
+              paymentStatus: ro.paymentStatus || 'Pending',
+              status: (ro.status as any) || 'Order Placed',
+              customerNote: ro.customerNote || '',
+              internalNote: ro.internalNote || '',
+              systemNote: ro.systemNote || 'Reseller Store Order',
+              deletedAt: null,
+              createdAt: ro.createdAt,
+            });
+            await ResellerOrder.findByIdAndUpdate(ro._id, { motherOrderId: created._id });
+          } else if (!ro.motherOrderId || ro.motherOrderId.toString() !== existingOrder._id.toString()) {
+            await ResellerOrder.findByIdAndUpdate(ro._id, { motherOrderId: existingOrder._id });
+          }
+        }
+      } catch (syncErr) {
+        console.error('[Orders Backfill Error]', syncErr);
+      }
+    }
 
     let query: any = { deletedAt: null };
     if (fetchAll && isAdmin) {
       if (status && status !== 'All') {
-        if (status === 'Credit') {
+        if (status === 'Paid') {
           query.$and = query.$and || [];
           query.$and.push({
-            $or: [{ paymentMethod: 'Credit' }, { isCreditOrder: true }]
-          });
-        } else if (status === 'Due') {
-          query.$and = query.$and || [];
-          query.$and.push({
-            $or: [{ paymentMethod: 'Credit' }, { isCreditOrder: true }],
-            paymentStatus: { $ne: 'Paid' }
+            $or: [{ status: 'Paid' }, { paymentStatus: 'Paid' }]
           });
         } else {
           query.status = status;
         }
+      }
+      if (resellerId && resellerId !== 'all') {
+        const ResellerOrder = (await import('@/models/ResellerOrder')).default;
+        if (resellerId === 'main') {
+          const resellerMotherIds = await ResellerOrder.find({ deletedAt: null }).distinct('motherOrderId');
+          query.$and = query.$and || [];
+          query.$and.push({
+            $or: [
+              { resellerId: null },
+              { resellerId: { $exists: false } }
+            ],
+            _id: { $nin: resellerMotherIds }
+          });
+        } else {
+          const matchingMotherIds = await ResellerOrder.find({ resellerId: resellerId, deletedAt: null }).distinct('motherOrderId');
+          query.$and = query.$and || [];
+          query.$and.push({
+            $or: [
+              { resellerId: resellerId },
+              { _id: { $in: matchingMotherIds } }
+            ]
+          });
+        }
+      }
+      if (commissionStatus && commissionStatus !== 'All') {
+        const ResellerOrder = (await import('@/models/ResellerOrder')).default;
+        const matchingMotherIds = await ResellerOrder.find({ commissionStatus: commissionStatus as any, deletedAt: null }).distinct('motherOrderId');
+        query.$and = query.$and || [];
+        query.$and.push({
+          $or: [
+            { _id: { $in: matchingMotherIds } },
+            { commissionStatus: commissionStatus }
+          ]
+        });
       }
       if (fromDate || toDate) {
         query.createdAt = {};
@@ -649,7 +1051,7 @@ export async function GET(req: NextRequest) {
             { email: { $regex: search, $options: 'i' } }
           ]
         }).select('_id');
-
+        
         const searchConditions: any[] = [
           { "shippingAddress.fullName": { $regex: search, $options: 'i' } },
           { "shippingAddress.phone": { $regex: search, $options: 'i' } }
@@ -673,93 +1075,307 @@ export async function GET(req: NextRequest) {
       if (!userId) {
         return NextResponse.json({ message: 'User ID missing from session' }, { status: 400 });
       }
-      query = { user: userId, deletedAt: null };
+
+      const { getStorefrontReseller } = await import('@/lib/resellerStore');
+      const storefrontReseller = await getStorefrontReseller(req);
+
+      const User = (await import('@/models/User')).default;
+      const userDoc = await User.findById(userId).select('phone email').lean() as any;
+      const phoneVariants = userDoc?.phone ? [
+        userDoc.phone,
+        userDoc.phone.replace(/^\+88/, ''),
+        `+88${userDoc.phone.replace(/^\+88/, '')}`,
+        `88${userDoc.phone.replace(/^\+88/, '')}`,
+      ] : [];
+
+      const userMatchConditions: any[] = [{ user: userId }];
+      if (phoneVariants.length > 0) {
+        userMatchConditions.push({ 'shippingAddress.phone': { $in: phoneVariants } });
+      }
+
+      if (storefrontReseller) {
+        // Reseller Storefront: ONLY show orders placed for this reseller's store
+        query = {
+          $or: userMatchConditions,
+          deletedAt: null,
+          storefrontResellerId: storefrontReseller._id,
+        };
+      } else {
+        // Mother Shop: ONLY show mother shop orders (exclude reseller storefront orders)
+        query = {
+          $or: userMatchConditions,
+          deletedAt: null,
+          $and: [
+            {
+              $or: [
+                { storefrontResellerId: { $exists: false } },
+                { storefrontResellerId: null },
+              ],
+            },
+            { orderSource: { $ne: 'reseller_storefront' } },
+          ],
+        };
+      }
     }
 
     const totalCount = await Order.countDocuments(query);
-
+    
     // Get counts for each status to display in tabs
     let counts = {
       all: 0,
       placed: 0,
       confirmed: 0,
       paid: 0,
+      hold: 0,
       ready: 0,
       released: 0,
       delivered: 0,
-      cancelled: 0,
-      credit: 0,
-      due: 0
+      cancelled: 0
     };
 
     if (fetchAll && isAdmin) {
-      const countQuery = { ...query };
+      const countQuery: any = { ...query };
       delete countQuery.status; // Remove status filter to count all
-      // If status was Credit or Due, also remove the condition added to $and
-      if (countQuery.$and) {
-        countQuery.$and = countQuery.$and.filter((cond: any) => {
-          if (cond.$or && cond.$or.some((o: any) => o.paymentMethod === 'Credit' || o.isCreditOrder === true)) {
-            return false;
-          }
-          return true;
-        });
-        if (countQuery.$and.length === 0) {
-          delete countQuery.$and;
-        }
+      if (Array.isArray(countQuery.$and)) {
+        countQuery.$and = countQuery.$and.filter(
+          (cond: any) => !(Array.isArray(cond?.$or) && cond.$or.some((c: any) => c.paymentStatus === 'Paid'))
+        );
+        if (countQuery.$and.length === 0) delete countQuery.$and;
       }
 
-      const statusCounts = await Order.aggregate([
-        { $match: countQuery },
-        { $group: { _id: "$status", count: { $sum: 1 } } }
+      const paidCountQuery: any = {
+        ...countQuery,
+        $and: [
+          ...(countQuery.$and || []),
+          { $or: [{ status: 'Paid' }, { paymentStatus: 'Paid' }] }
+        ]
+      };
+
+      const [statusCounts, totalAll, paidTotal] = await Promise.all([
+        Order.aggregate([
+          { $match: countQuery },
+          { $group: { _id: "$status", count: { $sum: 1 } } }
+        ]),
+        Order.countDocuments(countQuery),
+        Order.countDocuments(paidCountQuery),
       ]);
 
-      const totalAll = await Order.countDocuments(countQuery);
       counts.all = totalAll;
 
       statusCounts.forEach((sc: any) => {
         if (sc._id === 'Order Placed') counts.placed = sc.count;
         else if (sc._id === 'Confirmed') counts.confirmed = sc.count;
-        else if (sc._id === 'Paid') counts.paid = sc.count;
+        else if (sc._id === 'Hold') counts.hold = sc.count;
         else if (sc._id === 'Ready for Delivery') counts.ready = sc.count;
         else if (sc._id === 'Released for Delivery') counts.released = sc.count;
         else if (sc._id === 'Delivered') counts.delivered = sc.count;
         else if (sc._id === 'Cancelled') counts.cancelled = sc.count;
       });
-
-      // Count Credit orders
-      const creditQuery = {
-        ...countQuery,
-        $and: [
-          ...(countQuery.$and || []),
-          { $or: [{ paymentMethod: 'Credit' }, { isCreditOrder: true }] }
-        ]
-      };
-      counts.credit = await Order.countDocuments(creditQuery);
-
-      // Count Due orders
-      const dueQuery = {
-        ...countQuery,
-        $and: [
-          ...(countQuery.$and || []),
-          { $or: [{ paymentMethod: 'Credit' }, { isCreditOrder: true }], paymentStatus: { $ne: 'Paid' } }
-        ]
-      };
-      counts.due = await Order.countDocuments(dueQuery);
+      counts.paid = paidTotal;
     }
-
+    
     let ordersQuery = Order.find(query).sort({ createdAt: -1 });
 
     if (fetchAll && isAdmin) {
       ordersQuery = ordersQuery.skip((page - 1) * limit).limit(limit);
     }
 
-    const orders = await ordersQuery.populate('user', 'name email');
+    const orders = await ordersQuery
+      .populate('user', 'name email')
+      .populate('resellerId', 'storeName subdomain customDomain')
+      .populate('storefrontResellerId', 'storeName subdomain customDomain')
+      .populate({
+        path: 'items.product',
+        select: 'name slug isMotherProduct uploadedBy',
+        populate: {
+          path: 'uploadedBy',
+          select: 'storeName subdomain customDomain',
+        },
+      });
 
     let processedOrders = orders;
     if (fetchAll && isAdmin) {
+      const orderIds = orders.map((o: any) => o._id);
+      const shortIds = orders.map((o: any) => o.shortId).filter(Boolean);
+
+      const resellerOrders = await ResellerOrder.find({
+        $or: [
+          { motherOrderId: { $in: orderIds } },
+          { shortId: { $in: shortIds } }
+        ],
+        deletedAt: null
+      })
+      .select('motherOrderId shortId resellerCommission commissionStatus resellerId internalNote systemFee salesProfit')
+      .populate('resellerId', 'storeName subdomain customDomain systemFeePercent commissionRate')
+      .lean();
+
       processedOrders = await Promise.all(orders.map(async (order: any) => {
+        const orderObj = order.toObject ? order.toObject() : order;
+        
+        // Find matching reseller orders for this mother order
+        const matchingRos = resellerOrders.filter((r: any) =>
+          (r.motherOrderId && r.motherOrderId.toString() === order._id.toString()) ||
+          (order.shortId && r.shortId && (r.shortId === order.shortId || r.shortId.startsWith(order.shortId)))
+        );
+
+        // Storefront order has exact shortId or does NOT contain '-F' (fulfillment)
+        const ro = matchingRos.find((r: any) => order.shortId && r.shortId === order.shortId)
+          || matchingRos.find((r: any) => !r.shortId?.includes('-F'))
+          || matchingRos[0]
+          || null;
+
+        // Sum system fee from mother order or any fulfillment reseller orders:
+        const totalSystemFee = (orderObj.systemFee && orderObj.systemFee > 0)
+          ? orderObj.systemFee
+          : (matchingRos.reduce((sum: number, r: any) => sum + (Number(r.systemFee) || 0), 0) || (ro?.systemFee ?? 0));
+
+        const totalSalesProfit = (orderObj.salesProfit && orderObj.salesProfit > 0)
+          ? orderObj.salesProfit
+          : (ro?.salesProfit || 0);
+
+        let finalReseller = orderObj.storefrontResellerId || ro?.resellerId || orderObj.resellerId;
+
+        // If finalReseller is an unpopulated string/ObjectId, populate it
+        if (typeof finalReseller === 'string' || (finalReseller && !finalReseller.storeName && mongoose.Types.ObjectId.isValid(finalReseller))) {
+          try {
+            const found = await Reseller.findById(finalReseller).select('storeName subdomain customDomain').lean();
+            if (found) {
+              finalReseller = found;
+            }
+          } catch (e) {}
+        }
+
+        // Attach product uploader reseller to items if available
+        const itemsWithUploader = (orderObj.items || []).map((item: any) => {
+          const uploader = item.product?.uploadedBy || item.uploadedBy;
+          return {
+            ...item,
+            uploadedBy: uploader
+          };
+        });
+
+        // If no order-level reseller, but items have an uploader reseller
+        if (!finalReseller) {
+          const itemReseller = itemsWithUploader.find((i: any) => i.uploadedBy && typeof i.uploadedBy === 'object' && i.uploadedBy.storeName)?.uploadedBy;
+          if (itemReseller) {
+            finalReseller = itemReseller;
+          }
+        }
+
+        if (!orderObj.resellerId && finalReseller) {
+          const setFields: any = {
+            resellerId: typeof finalReseller === 'object' && (finalReseller as any)._id ? (finalReseller as any)._id : finalReseller
+          };
+          if (ro?.internalNote && !orderObj.internalNote) {
+            setFields.internalNote = ro.internalNote;
+          }
+          Order.findByIdAndUpdate(order._id, { $set: setFields }).exec().catch(() => {});
+        }
+
+        const finalInternalNote = orderObj.internalNote || ro?.internalNote || '';
+        if (!orderObj.internalNote && ro?.internalNote) {
+          Order.findByIdAndUpdate(order._id, { $set: { internalNote: ro.internalNote } }).exec().catch(() => {});
+        }
+
+        const finalCommission = ro?.resellerCommission ?? (orderObj.resellerCommission || 0);
+        const finalSystemFee = totalSystemFee;
+        const finalSalesProfit = totalSalesProfit;
+        const finalCommStatus = ro?.commissionStatus ?? (orderObj.commissionStatus || (finalReseller ? 'pending' : undefined));
+
+        // Fulfillment orders for supplied products:
+        const fulfillmentRos = matchingRos.filter((r: any) =>
+          r.shortId?.includes('-F') || (ro && r._id.toString() !== ro._id.toString())
+        );
+
+        const isFreeDelivery = Boolean(orderObj.isFreeDelivery || ro?.isFreeDelivery);
+        const orderValue = Math.round(Number(orderObj.totalAmount) || 0);
+        const deliveryCharge = Math.round(Number(orderObj.courierCharge || ro?.courierCharge || orderObj.deliveryCharge) || 0);
+        const motherFee = Math.round(Number(totalSystemFee) || 0);
+
+        let supplierPart: { name: string; amount: number; status?: string } | null = null;
+        if (fulfillmentRos.length > 0) {
+          const firstF = fulfillmentRos[0];
+          const supName = (firstF.resellerId as any)?.storeName || 'Supplier';
+          const totalSupAmount = fulfillmentRos.reduce((sum: number, f: any) => sum + (Number(f.resellerCommission) || 0), 0);
+          supplierPart = {
+            name: supName,
+            amount: Math.round(totalSupAmount),
+            status: firstF.commissionStatus || 'pending'
+          };
+        }
+
+        let sellerPart: { name: string; amount: number; status?: string } | null = null;
+        if (ro && (ro.shortId === orderObj.shortId || !ro.shortId?.includes('-F'))) {
+          const sellerName = (ro.resellerId as any)?.storeName || (finalReseller as any)?.storeName || 'Storefront Reseller';
+          const sellerAmount = Math.round(Number(ro.resellerCommission) || 0);
+          sellerPart = {
+            name: sellerName,
+            amount: sellerAmount,
+            status: ro.commissionStatus || 'pending'
+          };
+        } else if (finalReseller) {
+          const sellerName = (finalReseller as any)?.storeName || 'Storefront Reseller';
+          const sellerAmount = Math.round(Number(finalCommission) || (orderObj.resellerCommission ? Number(orderObj.resellerCommission) : 0));
+          if (sellerAmount > 0) {
+            sellerPart = {
+              name: sellerName,
+              amount: sellerAmount,
+              status: finalCommStatus || 'pending'
+            };
+          }
+        }
+
+        const isOwnProductSale = !supplierPart && !!sellerPart && (Number(finalSystemFee) > 0 || Number(orderObj.systemFee) > 0 || (ro && Number(ro.systemFee) > 0));
+
+        let computedMotherFee = motherFee;
+        if (computedMotherFee === 0 && supplierPart && sellerPart && sellerPart.amount > 0) {
+          const firstF = fulfillmentRos[0];
+          const supplierRate = (firstF?.resellerId as any)?.systemFeePercent !== undefined
+            ? Number((firstF.resellerId as any).systemFeePercent)
+            : ((firstF?.resellerId as any)?.commissionRate !== undefined ? Number((firstF.resellerId as any).commissionRate) : 10);
+          const feeRatio = (isNaN(supplierRate) || supplierRate <= 0) ? 0.10 : (supplierRate / 100);
+          const computedFee = Math.min(sellerPart.amount, Math.round(supplierPart.amount * feeRatio));
+          if (computedFee > 0) {
+            computedMotherFee = computedFee;
+            sellerPart.amount = Math.max(0, sellerPart.amount - computedFee);
+          }
+        }
+
+        const distributedSoFar = deliveryCharge + computedMotherFee + (supplierPart?.amount || 0) + (sellerPart?.amount || 0);
+        const motherProfit = Math.max(0, orderValue - distributedSoFar);
+
+        const disbursement = {
+          orderValue,
+          deliveryCharge,
+          courierCharge: deliveryCharge,
+          isFreeDelivery,
+          supplier: supplierPart,
+          seller: sellerPart,
+          isOwnProductSale,
+          motherFee: computedMotherFee,
+          motherProfit,
+        };
+
         const phone = order.shippingAddress?.phone;
-        if (!phone) return { ...order.toObject(), isRepeat: false, isDuplicate: false };
+        const baseResult = {
+          ...orderObj,
+          items: itemsWithUploader,
+          resellerId: finalReseller,
+          internalNote: finalInternalNote,
+          resellerCommission: finalCommission,
+          systemFee: finalSystemFee,
+          salesProfit: finalSalesProfit,
+          commissionStatus: finalCommStatus,
+          disbursement,
+        };
+
+        if (!phone) {
+          return {
+            ...baseResult,
+            isRepeat: false,
+            isDuplicate: false
+          };
+        }
 
         const otherOrders = await Order.find({
           "shippingAddress.phone": phone,
@@ -768,7 +1384,11 @@ export async function GET(req: NextRequest) {
         }).select('items');
 
         if (otherOrders.length === 0) {
-          return { ...order.toObject(), isRepeat: false, isDuplicate: false };
+          return {
+            ...baseResult,
+            isRepeat: false,
+            isDuplicate: false
+          };
         }
 
         const isDuplicate = otherOrders.some(other => {
@@ -776,15 +1396,15 @@ export async function GET(req: NextRequest) {
           return order.items.every((item: any) => {
             return other.items.some((otherItem: any) => {
               return String(otherItem.product) === String(item.product) &&
-                String(otherItem.color || '') === String(item.color || '') &&
-                String(otherItem.size || '') === String(item.size || '') &&
-                otherItem.quantity === item.quantity;
+                     String(otherItem.color || '') === String(item.color || '') &&
+                     String(otherItem.size || '') === String(item.size || '') &&
+                     otherItem.quantity === item.quantity;
             });
           });
         });
 
         return {
-          ...order.toObject(),
+          ...baseResult,
           isRepeat: true,
           isDuplicate
         };

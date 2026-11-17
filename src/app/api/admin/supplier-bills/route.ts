@@ -1,21 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import connectToDatabase from '@/lib/db';
-import Supplier from '@/models/Supplier';
 import SupplierBill from '@/models/SupplierBill';
+import Supplier from '@/models/Supplier';
+import LedgerAccount from '@/models/LedgerAccount';
+import LedgerTransaction from '@/models/LedgerTransaction';
+import crypto from 'crypto';
 
 export async function GET(req: NextRequest) {
   try {
     const session = await auth();
-    if (!session || !(['admin', 'super_admin', 'manager'].includes((session?.user as any)?.role))) {
+    if (!session || !(['admin', 'super_admin', 'manager', 'moderator'].includes((session?.user as any)?.role))) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
+    const { searchParams } = new URL(req.url);
+    const filter = searchParams.get('filter'); // 'all', 'paid', 'due'
+    const supplierId = searchParams.get('supplierId');
+
     await connectToDatabase();
 
-    const bills = await SupplierBill.find({})
-      .populate('supplier', 'name companyName phone')
-      .sort({ date: -1 });
+    const query: any = {};
+    if (filter === 'paid') {
+      query.status = 'Paid';
+    } else if (filter === 'due') {
+      query.status = 'Due';
+    }
+
+    if (supplierId) {
+      query.supplier = supplierId;
+    }
+
+    const bills = await SupplierBill.find(query)
+      .populate('supplier', 'name companyName phone email address')
+      .populate('paymentAccountId', 'accountName accountType')
+      .sort({ date: -1, createdAt: -1 })
+      .lean();
 
     return NextResponse.json(bills);
   } catch (error: any) {
@@ -27,168 +47,143 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const session = await auth();
-    if (!session || !(['admin', 'super_admin', 'manager'].includes((session?.user as any)?.role))) {
+    if (!session || !(['admin', 'super_admin', 'manager', 'moderator'].includes((session?.user as any)?.role))) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
     const body = await req.json();
-    const { supplierId, date, items, subtotal, discount, total, paidAmount, paymentMethod, paymentAccountId, expectedPaymentDate } = body;
+    const {
+      supplierId,
+      supplier: directSupplier,
+      date,
+      items,
+      discount = 0,
+      subtotal,
+      total,
+      paidAmount = 0,
+      paymentMethod = 'Cash',
+      expectedPaymentDate,
+      paymentAccountId
+    } = body;
 
-    if (!supplierId || !items || items.length === 0) {
-      return NextResponse.json({ message: 'Supplier and items are required' }, { status: 400 });
+    const supplier = supplierId || directSupplier;
+
+    if (!supplier || !items || !Array.isArray(items) || items.length === 0) {
+      return NextResponse.json({ message: 'Supplier and bill items are required' }, { status: 400 });
     }
 
     await connectToDatabase();
 
-    const mongoose = (await import('mongoose')).default;
-    const dbSession = await mongoose.startSession();
-
-    let billResult: any = null;
-    let customErrorResponse: NextResponse | null = null;
-
-    try {
-      await dbSession.withTransaction(async () => {
-        const supplier = await Supplier.findById(supplierId).session(dbSession);
-        if (!supplier) {
-          customErrorResponse = NextResponse.json({ message: 'Supplier not found' }, { status: 404 });
-          throw new Error('Supplier not found');
-        }
-
-        // Validate items and calculate subtotal
-        if (!Array.isArray(items)) {
-          customErrorResponse = NextResponse.json({ message: 'Items must be an array' }, { status: 400 });
-          throw new Error('Items must be an array');
-        }
-
-        let calculatedSubtotal = 0;
-        for (const item of items) {
-          const qty = Number(item.quantity);
-          const price = Number(item.price);
-          if (isNaN(qty) || qty <= 0 || isNaN(price) || price < 0) {
-            customErrorResponse = NextResponse.json({ message: 'Invalid item quantity or price' }, { status: 400 });
-            throw new Error('Invalid item quantity or price');
-          }
-          calculatedSubtotal += qty * price;
-        }
-
-        const discNum = Number(discount || 0);
-        if (isNaN(discNum) || discNum < 0) {
-          customErrorResponse = NextResponse.json({ message: 'Invalid discount' }, { status: 400 });
-          throw new Error('Invalid discount');
-        }
-
-        const totalNum = Math.max(0, calculatedSubtotal - discNum);
-        const paidNum = Number(paidAmount || 0);
-        if (isNaN(paidNum) || paidNum < 0) {
-          customErrorResponse = NextResponse.json({ message: 'Invalid paid amount' }, { status: 400 });
-          throw new Error('Invalid paid amount');
-        }
-
-        if (paidNum > totalNum) {
-          customErrorResponse = NextResponse.json({ message: 'Paid amount cannot exceed the total bill amount' }, { status: 400 });
-          throw new Error('Paid amount cannot exceed the total bill amount');
-        }
-
-        const dueNum = totalNum - paidNum;
-        const status = dueNum === 0 ? 'Paid' : 'Due';
-
-        // Generate sequential purchase bill number using Counter model
-        const Counter = (await import('@/models/Counter')).default;
-        const counterKey = 'purchase_bill';
-        const counter = await Counter.findOneAndUpdate(
-          { _id: counterKey },
-          { $inc: { seq: 1 } },
-          { new: true, upsert: true, setDefaultsOnInsert: true }
-        ).session(dbSession);
-        const billNo = `PUR-${counter.seq.toString().padStart(5, '0')}`;
-
-        const [bill] = await SupplierBill.create([{
-          billNo,
-          supplier: supplierId,
-          date: date ? new Date(date) : new Date(),
-          items: items.map(item => ({
-            name: String(item.name),
-            quantity: Number(item.quantity),
-            price: Number(item.price)
-          })),
-          subtotal: calculatedSubtotal,
-          discount: discNum,
-          total: totalNum,
-          paidAmount: paidNum,
-          dueAmount: dueNum,
-          paymentMethod,
-          paymentAccountId: paymentAccountId || undefined,
-          expectedPaymentDate: expectedPaymentDate ? new Date(expectedPaymentDate) : undefined,
-          status
-        }], { session: dbSession });
-
-        // Increment supplier balance by dueAmount
-        supplier.currentBalance = (supplier.currentBalance || 0) + dueNum;
-        await supplier.save({ session: dbSession });
-
-        const { logLedgerTransaction } = await import('@/lib/ledgerHelper');
-
-        if (dueNum > 0) {
-          await logLedgerTransaction(
-            'AP',
-            'credit',
-            dueNum,
-            `Supplier Bill Generated: ${billNo}`,
-            bill._id.toString(),
-            date ? new Date(date) : new Date(),
-            undefined,
-            undefined,
-            dbSession
-          );
-        }
-
-        if (paidNum > 0) {
-          let accCode = 'CASH';
-          if (paymentMethod === 'Bank' || paymentMethod === 'MFS') {
-            if (!paymentAccountId) {
-              customErrorResponse = NextResponse.json({ message: `${paymentMethod} account must be selected.` }, { status: 400 });
-              throw new Error(`${paymentMethod} account must be selected.`);
-            }
-            const LedgerAccount = (await import('@/models/LedgerAccount')).default;
-            const pAccount = await LedgerAccount.findById(paymentAccountId).session(dbSession);
-            if (!pAccount) {
-              customErrorResponse = NextResponse.json({ message: 'Selected payment account not found.' }, { status: 404 });
-              throw new Error('Selected payment account not found.');
-            }
-            accCode = pAccount.code;
-          }
-          await logLedgerTransaction(
-            accCode,
-            'credit',
-            paidNum,
-            `Supplier Bill Upfront Payment: ${billNo}`,
-            bill._id.toString(),
-            date ? new Date(date) : new Date(),
-            undefined,
-            undefined,
-            dbSession
-          );
-        }
-
-        billResult = bill;
-      });
-
-      dbSession.endSession();
-
-      if (customErrorResponse) {
-        return customErrorResponse;
-      }
-
-      return NextResponse.json(billResult, { status: 201 });
-    } catch (transactionError: any) {
-      dbSession.endSession();
-      if (customErrorResponse) {
-        return customErrorResponse;
-      }
-      throw transactionError;
+    const supplierDoc = await Supplier.findById(supplier);
+    if (!supplierDoc) {
+      return NextResponse.json({ message: 'Supplier not found' }, { status: 404 });
     }
+
+    // Auto-generate Bill Number
+    const datePrefix = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const randomSuffix = crypto.randomBytes(2).toString('hex').toUpperCase();
+    const billNo = `PB-${datePrefix}-${randomSuffix}`;
+
+    const calculatedSubtotal = items.reduce((sum: number, it: any) => sum + (Number(it.quantity) * Number(it.price)), 0);
+    const calculatedTotal = Math.max(0, calculatedSubtotal - (Number(discount) || 0));
+    const finalPaid = Math.min(calculatedTotal, Number(paidAmount) || 0);
+    const dueAmount = Math.max(0, calculatedTotal - finalPaid);
+    const status = dueAmount === 0 ? 'Paid' : 'Due';
+
+    let finalBillDate = new Date();
+    if (date) {
+      const parsed = new Date(date);
+      const now = new Date();
+      if (parsed.toDateString() === now.toDateString()) {
+        finalBillDate = now;
+      } else {
+        finalBillDate = parsed;
+      }
+    }
+
+    const newBill = await SupplierBill.create({
+      billNo,
+      supplier,
+      date: finalBillDate,
+      items: items.map((it: any) => ({
+        name: it.name.trim(),
+        quantity: Number(it.quantity) || 1,
+        price: Number(it.price) || 0
+      })),
+      subtotal: calculatedSubtotal,
+      discount: Number(discount) || 0,
+      total: calculatedTotal,
+      paidAmount: finalPaid,
+      dueAmount,
+      paymentMethod,
+      expectedPaymentDate: expectedPaymentDate ? new Date(expectedPaymentDate) : undefined,
+      paymentAccountId: paymentAccountId || undefined,
+      status
+    });
+
+    // Update supplier current balance with due amount
+    supplierDoc.currentBalance = (supplierDoc.currentBalance || 0) + dueAmount;
+    await supplierDoc.save();
+
+    // If initial paidAmount > 0, log expense/cash-out to ledger
+    if (finalPaid > 0) {
+      try {
+        const account = paymentAccountId 
+          ? await LedgerAccount.findById(paymentAccountId)
+          : (await LedgerAccount.findOne({ isDefault: true }) || await LedgerAccount.findOne());
+
+        if (account) {
+          const balanceAfter = (account.currentBalance || 0) - finalPaid;
+          account.currentBalance = balanceAfter;
+          await account.save();
+
+          await LedgerTransaction.create({
+            account: account._id,
+            date: finalBillDate,
+            description: `Purchase Bill ${billNo} Payment to ${supplierDoc.name} (${paymentMethod})`,
+            type: 'debit',
+            amount: finalPaid,
+            reference: billNo,
+            balanceAfter
+          });
+
+          // Log expense into Expense collection for /admin/expenses-incomes and daily/monthly reports
+          try {
+            const Expense = (await import('@/models/Expense')).default;
+            await Expense.create({
+              title: `Purchase Bill Payment - ${billNo}`,
+              amount: finalPaid,
+              category: 'Others Expense',
+              type: 'expense',
+              paymentAccountId: account._id,
+              date: finalBillDate,
+              reference: billNo,
+              description: `Payment for Purchase Bill ${billNo} to supplier ${supplierDoc.name}`
+            });
+          } catch (expErr) {
+            console.error('Error logging purchase bill payment to Expense collection:', expErr);
+          }
+        }
+      } catch (ledgerErr) {
+        console.error('[Ledger SupplierBill Log Error]', ledgerErr);
+      }
+    }
+
+    const populated = await SupplierBill.findById(newBill._id)
+      .populate('supplier', 'name companyName phone email address')
+      .populate('paymentAccountId', 'accountName accountType');
+
+    // Sync to Accounts Payable in ledger
+    try {
+      const { syncPayablesToLedger } = await import('@/lib/ledgerHelper');
+      await syncPayablesToLedger();
+    } catch (syncErr) {
+      console.error('[SupplierBill Sync Error]', syncErr);
+    }
+
+    return NextResponse.json(populated, { status: 201 });
   } catch (error: any) {
     console.error('Error creating supplier bill:', error);
-    return NextResponse.json({ message: 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ message: error.message || 'Internal Server Error' }, { status: 500 });
   }
 }

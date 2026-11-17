@@ -8,7 +8,6 @@ import { ProductCard } from '@/components/storefront/ProductCard';
 import Link from 'next/link';
 import useEmblaCarousel from 'embla-carousel-react';
 import Autoplay from 'embla-carousel-autoplay';
-import { useLanguage } from '@/contexts/LanguageContext';
 
 interface ProductCarouselSectionProps {
   title: string;
@@ -32,7 +31,6 @@ export function ProductCarouselSection({
   cardStyle = 'v1',
   layout
 }: ProductCarouselSectionProps) {
-  const { t } = useLanguage();
 
   // Initialize Embla Carousel with Autoplay
   const [emblaRef] = useEmblaCarousel(
@@ -48,15 +46,15 @@ export function ProductCarouselSection({
   if (!products || products.length === 0) return null;
 
   return (
-    <section className={`py-8 ${bgColor} overflow-hidden`}>
-      <div className="container mx-auto px-4 md:px-0">
+    <section className={`py-6 ${bgColor} overflow-hidden`}>
+      <div className="px-[2px] md:px-4">
 
         {/* Header */}
-        <div className="flex flex-row items-center justify-between mb-8 md:mb-10 gap-4">
+        <div className="flex flex-row items-center justify-between mb-4 md:mb-6 gap-4">
           <div className="space-y-2">
             <div className="flex items-center gap-3">
-              <h2 className="text-xl md:text-4xl font-black tracking-tighter text-foreground">
-                {t(`store.home.${title.toLowerCase().replace(/ /g, '_')}`) || title}
+              <h2 className="text-xl md:text-3xl font-bold tracking-tighter text-foreground">
+                {title}
               </h2>
               {isFlashSale && (
                 <Badge variant="default" className="hidden sm:flex bg-primary text-primary-foreground animate-pulse border-none rounded-full items-center gap-1.5 px-3">
@@ -71,9 +69,9 @@ export function ProductCarouselSection({
 
           </div>
 
-          <Button asChild variant="default" className="rounded-full font-bold group">
+          <Button asChild variant="default" className="rounded-full group">
             <Link href={viewAllLink}>
-              {t('store.home.view_all') || 'View All'}
+              View All
               <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
             </Link>
           </Button>
@@ -82,11 +80,11 @@ export function ProductCarouselSection({
         {/* Embla Carousel Viewport */}
         <div className="relative">
           <div className="overflow-hidden cursor-grab active:cursor-grabbing" ref={emblaRef}>
-            <div className="flex -ml-4">
+            <div className="flex -ml-[2px] md:-ml-4">
               {products.map((product) => (
                 <div
                   key={product._id}
-                  className="flex-[0_0_42%] min-w-0 pl-4 md:flex-[0_0_33.33%] lg:flex-[0_0_25%]"
+                  className="flex-[0_0_42%] min-w-0 pl-[2px] md:flex-[0_0_33.33%] lg:flex-[0_0_25%] md:pl-4"
                 >
                   <ProductCard product={product} isFlashSale={isFlashSale} style={cardStyle} layout={layout} />
                 </div>

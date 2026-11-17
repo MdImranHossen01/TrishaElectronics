@@ -30,7 +30,7 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { Plus, Edit, Trash, Loader2 } from 'lucide-react';
+import { Plus, Edit, Trash, Loader2, Sparkles, Tag } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -38,9 +38,7 @@ import * as z from 'zod';
 import { toast } from 'sonner';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { Badge } from '@/components/ui/badge';
-
 import Swal from 'sweetalert2';
-import { useLanguage } from '@/contexts/LanguageContext';
 import { slugify, sanitizeSlugInput } from '@/lib/slugify';
 
 const brandSchema = z.object({
@@ -58,10 +56,9 @@ export default function BrandsPage() {
   const [open, setOpen] = useState(false);
   const [editingBrand, setEditingBrand] = useState<any>(null);
   const [submitting, setSubmitting] = useState(false);
-  const { t } = useLanguage();
 
-  const form = useForm({
-    resolver: zodResolver(brandSchema),
+  const form = useForm<BrandFormValues>({
+    resolver: zodResolver(brandSchema) as any,
     defaultValues: {
       name: '',
       slug: '',
@@ -72,15 +69,15 @@ export default function BrandsPage() {
 
   const fetchBrands = async () => {
     try {
-      const response = await fetch('/api/brands');
-      if (!response.ok) {
-        toast.error(`Failed to fetch brands: ${response.status} ${response.statusText}`);
-        return;
+      setLoading(true);
+      const res = await fetch('/api/brands?all=true');
+      if (res.ok) {
+        const data = await res.json();
+        setBrands(data);
       }
-      const data = await response.json();
-      setBrands(data);
     } catch (error) {
-      toast.error('Failed to fetch brands');
+      console.error('Failed to fetch brands', error);
+      toast.error('Failed to load brands');
     } finally {
       setLoading(false);
     }
@@ -91,31 +88,30 @@ export default function BrandsPage() {
   }, []);
 
   const onSubmit = async (values: BrandFormValues) => {
-    setSubmitting(true);
     try {
-      const url = editingBrand
-        ? `/api/brands/${editingBrand._id}`
-        : '/api/brands';
+      setSubmitting(true);
+      const url = editingBrand ? `/api/brands/${editingBrand._id}` : '/api/brands';
       const method = editingBrand ? 'PUT' : 'POST';
 
-      const response = await fetch(url, {
+      const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(values),
       });
 
-      if (response.ok) {
-        toast.success(`Brand ${editingBrand ? 'updated' : 'created'} successfully`);
+      if (res.ok) {
+        toast.success(editingBrand ? 'Brand updated successfully' : 'Brand created successfully');
         setOpen(false);
-        fetchBrands();
-        form.reset();
         setEditingBrand(null);
+        form.reset();
+        fetchBrands();
       } else {
-        const error = await response.json();
-        toast.error(error.message || 'Something went wrong');
+        const err = await res.json();
+        toast.error(err.message || 'Operation failed');
       }
     } catch (error) {
-      toast.error('Failed to save brand');
+      console.error(error);
+      toast.error('An unexpected error occurred');
     } finally {
       setSubmitting(false);
     }
@@ -125,7 +121,7 @@ export default function BrandsPage() {
     setEditingBrand(brand);
     form.reset({
       name: brand.name,
-      slug: brand.slug,
+      slug: brand.slug || '',
       image: brand.image || '',
       isActive: brand.isActive,
     });
@@ -135,66 +131,60 @@ export default function BrandsPage() {
   const handleDelete = async (id: string) => {
     const result = await Swal.fire({
       title: 'Are you sure?',
-      text: "You are about to delete this brand. This may affect related products!",
+      text:"You won't be able to revert this brand delete!",
       icon: 'warning',
       showCancelButton: true,
-      confirmButtonColor: '#00D1B2',
-      cancelButtonColor: '#d33',
+      confirmButtonColor: '#d33',
+      cancelButtonColor: '#3085d6',
       confirmButtonText: 'Yes, delete it!',
-      customClass: {
-        popup: 'rounded-xl',
-        confirmButton: 'rounded-lg px-4 py-2 font-bold',
-        cancelButton: 'rounded-lg px-4 py-2 font-bold'
-      }
     });
 
     if (result.isConfirmed) {
       try {
-        const response = await fetch(`/api/brands/${id}`, {
-          method: 'DELETE',
-        });
-
-        if (response.ok) {
+        const res = await fetch(`/api/brands/${id}`, { method: 'DELETE' });
+        if (res.ok) {
           toast.success('Brand deleted successfully');
           fetchBrands();
         } else {
-          toast.error('Failed to delete brand');
+          const err = await res.json();
+          toast.error(err.message || 'Failed to delete');
         }
       } catch (error) {
-        toast.error('Error deleting brand');
+        toast.error('Failed to delete brand');
       }
     }
   };
 
-  // Watch name to generate slug
-  const nameValue = form.watch('name');
-  useEffect(() => {
-    if (nameValue && !editingBrand) {
-      form.setValue('slug', slugify(nameValue));
-    }
-  }, [nameValue, form, editingBrand]);
-
   return (
-    <div className="flex-1 space-y-0 md:space-y-6 px-[1px] pt-[1px] pb-4 md:p-6 w-full max-w-full overflow-x-hidden flex flex-col gap-0 md:gap-4">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-0 md:gap-4 px-0 md:px-0 mb-[1px] md:mb-0 w-full">
-        <h1 className="hidden md:block text-2xl font-bold tracking-tight">{t("brands.title")}</h1>
-        <Dialog open={open} onOpenChange={(val) => {
-          setOpen(val);
-          if (!val) {
-            setEditingBrand(null);
-            form.reset();
-          }
-        }}>
-          <DialogTrigger render={<Button className="w-full sm:w-auto rounded-none h-10 bg-primary text-primary-foreground font-bold flex items-center justify-center" />}>
-            <Plus className="mr-2 h-4 w-4" /> {t("brands.add_brand")}
+    <div className="flex flex-col gap-4 p-4 md:p-6 w-full max-w-full">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+            <Tag className="h-6 w-6 text-primary" />
+            Brands
+          </h1>
+          <p className="text-sm text-muted-foreground">Manage your store product brands and manufacturers</p>
+        </div>
+        <Dialog
+          open={open}
+          onOpenChange={(isOpen) => {
+            setOpen(isOpen);
+            if (!isOpen) {
+              setEditingBrand(null);
+              form.reset({ name: '', slug: '', image: '', isActive: true });
+            }
+          }}
+        >
+          <DialogTrigger render={<Button className="rounded-xl shadow-md gap-1" />}>
+            <Plus className="h-4 w-4 mr-1" /> Add Brand
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[425px]">
+          <DialogContent className="sm:max-w-[425px] rounded-2xl">
             <DialogHeader>
-              <DialogTitle>{editingBrand ? t("brands.edit_brand") : t("brands.add_brand")}</DialogTitle>
+              <DialogTitle className="text-lg font-bold">
+                {editingBrand ? 'Edit Brand' : 'Add New Brand'}
+              </DialogTitle>
               <DialogDescription>
-                {editingBrand
-                  ? t("brands.update_details")
-                  : t("brands.create_details")}
+                Fill in the brand details below.
               </DialogDescription>
             </DialogHeader>
             <Form {...form}>
@@ -204,9 +194,19 @@ export default function BrandsPage() {
                   name="name"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t("brands.name")}</FormLabel>
+                      <FormLabel className="text-xs font-bold uppercase tracking-wider">Brand Name</FormLabel>
                       <FormControl>
-                        <Input placeholder={t("brands.name_placeholder") as string} {...field} />
+                        <Input
+                          placeholder="e.g. Nike, Apex, Aarong"
+                          {...field}
+                          className="h-10 rounded-xl"
+                          onChange={(e) => {
+                            field.onChange(e);
+                            if (!editingBrand) {
+                              form.setValue('slug', slugify(e.target.value));
+                            }
+                          }}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -217,19 +217,15 @@ export default function BrandsPage() {
                   name="slug"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t("brands.slug")}</FormLabel>
+                      <FormLabel className="text-xs font-bold uppercase tracking-wider">Slug</FormLabel>
                       <FormControl>
                         <Input
-                          placeholder={t("brands.slug_placeholder") as string}
+                          placeholder="brand-slug"
                           {...field}
-                          onChange={(e) => {
-                            field.onChange(sanitizeSlugInput(e.target.value));
-                          }}
+                          className="h-10 rounded-xl font-mono text-xs"
+                          onChange={(e) => field.onChange(sanitizeSlugInput(e.target.value))}
                         />
                       </FormControl>
-                      <FormDescription>
-                        {t("brands.slug_description")}
-                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -239,7 +235,7 @@ export default function BrandsPage() {
                   name="image"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t("brands.brand_image")}</FormLabel>
+                      <FormLabel className="text-xs font-bold uppercase tracking-wider">Brand Logo / Image</FormLabel>
                       <FormControl>
                         <ImageUpload
                           value={field.value}
@@ -251,10 +247,10 @@ export default function BrandsPage() {
                     </FormItem>
                   )}
                 />
-                <DialogFooter>
-                  <Button type="submit" disabled={submitting}>
+                <DialogFooter className="pt-2">
+                  <Button type="submit" disabled={submitting} className="w-full rounded-xl">
                     {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    {editingBrand ? t("brands.update") : t("brands.create")}
+                    {editingBrand ? 'Update Brand' : 'Create Brand'}
                   </Button>
                 </DialogFooter>
               </form>
@@ -263,80 +259,79 @@ export default function BrandsPage() {
         </Dialog>
       </div>
 
-      {/* Desktop View */}
-      <div className="hidden md:block px-0 md:px-0 !mt-[1px] md:!mt-4">
-        <div className="rounded-md border bg-background overflow-x-auto">
+      {/* Desktop Table View */}
+      <div className="hidden md:block">
+        <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
           <Table>
-            <TableHeader>
+            <TableHeader className="bg-muted/40">
               <TableRow>
-                <TableHead className="w-[100px]">{t("brands.image")}</TableHead>
-                <TableHead>{t("brands.name")}</TableHead>
-                <TableHead>{t("brands.slug")}</TableHead>
-                <TableHead>{t("brands.status")}</TableHead>
-                <TableHead className="text-right">{t("brands.actions")}</TableHead>
+                <TableHead className="w-[80px]">Logo</TableHead>
+                <TableHead>Brand Name</TableHead>
+                <TableHead>Slug</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
-                Array.from({ length: 5 }).map((_, i) => (
+                Array.from({ length: 4 }).map((_, i) => (
                   <TableRow key={i}>
-                    <TableCell><Skeleton className="h-10 w-10 rounded-md" /></TableCell>
+                    <TableCell><Skeleton className="h-10 w-10 rounded-xl" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-32 rounded" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-24 rounded" /></TableCell>
                     <TableCell><Skeleton className="h-5 w-16 rounded-full" /></TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
-                        <Skeleton className="h-8 w-8 rounded-md" />
-                        <Skeleton className="h-8 w-8 rounded-md" />
+                        <Skeleton className="h-8 w-8 rounded-lg" />
+                        <Skeleton className="h-8 w-8 rounded-lg" />
                       </div>
                     </TableCell>
                   </TableRow>
                 ))
               ) : brands.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="h-24 text-center">
-                    {t("brands.no_brands_found")}
+                  <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
+                    No brands found. Click"Add Brand" to create one.
                   </TableCell>
                 </TableRow>
               ) : (
                 brands.map((brand) => (
-                  <TableRow key={brand._id}>
+                  <TableRow key={brand._id} className="hover:bg-muted/20 transition-colors">
                     <TableCell>
-                      <div className="h-10 w-10 overflow-hidden rounded-md border bg-muted">
+                      <div className="h-10 w-10 overflow-hidden rounded-xl border bg-muted flex items-center justify-center relative">
                         {brand.image ? (
-                          <Image src={brand.image} alt={brand.name} width={40} height={40} className="h-full w-full object-cover" />
+                          <Image src={brand.image} alt={brand.name} fill sizes="40px" className="object-contain p-1" />
                         ) : (
-                          <div className="flex h-full w-full items-center justify-center">
-                            <Plus className="h-4 w-4 text-muted-foreground" />
-                          </div>
+                          <Tag className="h-4 w-4 text-muted-foreground" />
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="font-medium">{brand.name}</TableCell>
-                    <TableCell>{brand.slug}</TableCell>
+                    <TableCell className="font-bold text-sm">{brand.name}</TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">{brand.slug}</TableCell>
                     <TableCell>
-                      <Badge variant={brand.isActive ? 'default' : 'secondary'}>
-                        {brand.isActive ? t("brands.active") : t("brands.inactive")}
+                      <Badge variant={brand.isActive ? 'default' : 'secondary'} className="rounded-md">
+                        {brand.isActive ? 'Active' : 'Inactive'}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleEdit(brand)}
-                        aria-label={`Edit ${brand.name}`}
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-destructive"
-                        onClick={() => handleDelete(brand._id)}
-                        aria-label={`Delete ${brand.name}`}
-                      >
-                        <Trash className="h-4 w-4" />
-                      </Button>
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 rounded-lg hover:bg-muted"
+                          onClick={() => handleEdit(brand)}
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 rounded-lg text-destructive hover:bg-destructive/10"
+                          onClick={() => handleDelete(brand._id)}
+                        >
+                          <Trash className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))
@@ -346,64 +341,46 @@ export default function BrandsPage() {
         </div>
       </div>
 
-      {/* Mobile View */}
-      <div className="block md:hidden space-y-3 px-0 md:px-0 !mt-[1px] md:!mt-4">
+      {/* Mobile Card View */}
+      <div className="block md:hidden space-y-3">
         {loading ? (
           <div className="space-y-3">
             {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="p-4 border border-border/50 rounded-xl bg-card shadow-sm space-y-2">
-                <div className="flex gap-3 items-center">
-                  <Skeleton className="h-12 w-12 rounded-md" />
-                  <div className="space-y-2 flex-1">
-                    <Skeleton className="h-4 w-1/2 rounded" />
-                    <Skeleton className="h-3.5 w-3/4 rounded" />
-                  </div>
-                </div>
+              <div key={i} className="p-4 border rounded-2xl bg-card shadow-sm space-y-2">
+                <Skeleton className="h-10 w-10 rounded-xl" />
+                <Skeleton className="h-4 w-1/2 rounded" />
               </div>
             ))}
           </div>
         ) : brands.length === 0 ? (
-          <div className="p-8 text-center text-muted-foreground bg-background rounded-xl border">
-            <p className="font-semibold text-sm">{t("brands.no_brands_found")}</p>
+          <div className="p-8 text-center text-muted-foreground bg-card rounded-2xl border">
+            No brands found.
           </div>
         ) : (
           brands.map((brand) => (
-            <div key={brand._id} className="p-4 mb-3 border border-border/50 rounded-xl bg-card shadow-sm flex flex-col gap-2.5 relative bg-white dark:bg-zinc-900">
+            <div key={brand._id} className="p-4 border rounded-2xl bg-card shadow-sm flex flex-col gap-3">
               <div className="flex items-center gap-3">
-                <div className="h-12 w-12 overflow-hidden rounded-md border bg-muted shrink-0">
+                <div className="h-12 w-12 overflow-hidden rounded-xl border bg-muted shrink-0 relative flex items-center justify-center">
                   {brand.image ? (
-                    <Image src={brand.image} alt={brand.name} width={48} height={48} className="h-full w-full object-cover" />
+                    <Image src={brand.image} alt={brand.name} fill sizes="48px" className="object-contain p-1" />
                   ) : (
-                    <div className="flex h-full w-full items-center justify-center">
-                      <Plus className="h-4 w-4 text-muted-foreground" />
-                    </div>
+                    <Tag className="h-5 w-5 text-muted-foreground" />
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="font-bold text-base text-foreground truncate">{brand.name}</div>
-                  <div className="text-xs text-muted-foreground truncate">{brand.slug}</div>
+                  <div className="font-bold text-sm truncate">{brand.name}</div>
+                  <div className="text-xs text-muted-foreground font-mono truncate">{brand.slug}</div>
                 </div>
-                <Badge variant={brand.isActive ? 'default' : 'secondary'} className="shrink-0">
-                  {brand.isActive ? t("brands.active") : t("brands.inactive")}
+                <Badge variant={brand.isActive ? 'default' : 'secondary'} className="rounded-md shrink-0">
+                  {brand.isActive ? 'Active' : 'Inactive'}
                 </Badge>
               </div>
-
-              <div className="flex items-center justify-end gap-2 border-t border-border/30 pt-2 mt-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs font-semibold"
-                  onClick={() => handleEdit(brand)}
-                >
-                  <Edit className="h-3.5 w-3.5 mr-1" /> {t("showroom_managers.edit") || "Edit"}
+              <div className="flex items-center justify-end gap-2 border-t pt-2">
+                <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" onClick={() => handleEdit(brand)}>
+                  <Edit className="h-3.5 w-3.5 mr-1" /> Edit
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs font-semibold text-destructive hover:text-destructive hover:bg-destructive/10"
-                  onClick={() => handleDelete(brand._id)}
-                >
-                  <Trash className="h-3.5 w-3.5 mr-1" /> {t("products.delete") || "Delete"}
+                <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs text-destructive hover:bg-destructive/10" onClick={() => handleDelete(brand._id)}>
+                  <Trash className="h-3.5 w-3.5 mr-1" /> Delete
                 </Button>
               </div>
             </div>
@@ -413,4 +390,3 @@ export default function BrandsPage() {
     </div>
   );
 }
-

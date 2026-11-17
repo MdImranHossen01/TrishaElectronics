@@ -32,7 +32,7 @@ export default async function ProductDetailsV1({ product }: { product: any }) {
   ]);
 
   return (
-    <div className="container px-4 md:px-0 mx-auto py-10">
+    <div className="w-full py-4 md:py-6">
       {productSchema && (
         <script
           id="product-schema"
@@ -56,7 +56,7 @@ export default async function ProductDetailsV1({ product }: { product: any }) {
         <span className="text-foreground font-medium truncate">{product.name}</span>
       </div>
 
-      <div className="p-0 md:p-4">
+      <div className="p-0">
         <ProductDetailsClient product={product} />
       </div>
     </div>

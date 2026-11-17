@@ -7,7 +7,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, ChevronRight, ArrowRight } from 'lucide-react';
 import useEmblaCarousel from 'embla-carousel-react';
 import Autoplay from 'embla-carousel-autoplay';
-import { useLanguage } from '@/contexts/LanguageContext';
 
 interface Banner {
   _id?: string;
@@ -28,7 +27,6 @@ interface HeroV4Props {
 const AUTOPLAY_DELAY = 5000;
 
 export default function HeroV4({ banners }: HeroV4Props) {
-  const { t } = useLanguage();
   const [activeIndex, setActiveIndex] = useState(0);
 
   // ── Desktop: main left slider ──────────────────────────────────────
@@ -44,16 +42,10 @@ export default function HeroV4({ banners }: HeroV4Props) {
 
   useEffect(() => {
     if (!emblaApi) return;
-    
-    // Defer the initial selection update to avoid synchronous setState during render/effect phase
-    const timeoutId = setTimeout(() => {
-      onSelect();
-    }, 0);
-
+    onSelect();
     emblaApi.on('select', onSelect);
     emblaApi.on('reInit', onSelect);
     return () => {
-      clearTimeout(timeoutId);
       emblaApi.off('select', onSelect);
       emblaApi.off('reInit', onSelect);
     };
@@ -73,16 +65,10 @@ export default function HeroV4({ banners }: HeroV4Props) {
 
   useEffect(() => {
     if (!mobileEmblaApi) return;
-    
-    // Defer the initial selection update to avoid synchronous setState during render/effect phase
-    const timeoutId = setTimeout(() => {
-      onMobileSelect();
-    }, 0);
-
+    onMobileSelect();
     mobileEmblaApi.on('select', onMobileSelect);
     mobileEmblaApi.on('reInit', onMobileSelect);
     return () => {
-      clearTimeout(timeoutId);
       mobileEmblaApi.off('select', onMobileSelect);
       mobileEmblaApi.off('reInit', onMobileSelect);
     };
@@ -124,7 +110,7 @@ export default function HeroV4({ banners }: HeroV4Props) {
           <div className="flex h-full w-full">
             {slides.map((banner, index) => {
               const primaryHref = banner.primaryBtnLink || banner.link || '/shop';
-              const primaryText = banner.primaryBtnText || (t('store.hero.shop_now') as string) || 'Shop Now';
+              const primaryText = banner.primaryBtnText || 'Shop Now';
               const secondaryHref = banner.secondaryBtnLink || '/categories';
               const secondaryText = banner.secondaryBtnText;
               const isActive = index === mobileActiveIndex;

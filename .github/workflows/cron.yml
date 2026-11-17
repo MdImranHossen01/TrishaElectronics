@@ -24,20 +24,3 @@ jobs:
           else
             echo "✅ Courier sync completed successfully"
           fi
-
-  auto-attendance:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Auto Fill Missing Attendance
-        run: |
-          response=$(curl -s -o /dev/null -w "%{http_code}" \
-            -X GET \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "https://www.trishnaelectronics.com/api/cron/auto-attendance")
-          echo "Response HTTP status: $response"
-          if [ "$response" != "200" ]; then
-            echo "❌ Auto attendance failed with HTTP $response"
-            exit 1
-          else
-            echo "✅ Auto attendance completed successfully"
-          fi

@@ -1,4 +1,5 @@
 import { format, isValid } from 'date-fns';
+import { getSellingStoreInfo } from './invoice-generator';
 
 function generateBarcodeHtml(value: string): string {
   const CODE39_MAP: Record<string, string> = {
@@ -51,7 +52,7 @@ export async function printStickerInvoice(orderOrOrders: any | any[], settings: 
   const orders = Array.isArray(orderOrOrders) ? orderOrOrders : [orderOrOrders];
   if (orders.length === 0) return;
 
-  const storeName: string = settings?.siteName || settings?.brandName || process.env.NEXT_PUBLIC_STORE_NAME || 'Store';
+  const defaultStoreName: string = settings?.siteName || settings?.brandName || process.env.NEXT_PUBLIC_STORE_NAME || process.env.NEXT_PUBLIC_STORE_NAME || 'Store';
 
   // Dynamic theme variables
   let primary = '#00D1B2';
@@ -80,34 +81,38 @@ export async function printStickerInvoice(orderOrOrders: any | any[], settings: 
   }
 
   const stickersHtml = orders.map((order, index) => {
-    const orderId = String(order.shortId || order._id || '').slice(-8).toUpperCase();
+    const orderId = order.shortId || order.orderId || String(order._id || '').slice(-8).toUpperCase();
     const createdAt = order.createdAt ? new Date(order.createdAt) : null;
     const dateStr = createdAt && isValid(createdAt) ? format(createdAt, 'dd/MM/yyyy hh:mm a') : 'N/A';
-    const consignmentId: string = order.shippingDetails?.consignmentId || order.shippingDetails?.trackingId || '';
+    const consignmentId: string = order.shippingDetails?.consignmentId || order.shippingDetails?.trackingId || order.trackingNumber || '';
     const courierName: string = order.shippingDetails?.courierName || 'Steadfast';
     const items: any[] = Array.isArray(order.items) ? order.items : [];
 
-    const codAmount = order.paymentStatus === 'Paid' ? 0 : Math.round(order.totalAmount);
-    const qrData = consignmentId || orderId;
+    const store = getSellingStoreInfo(order, settings);
+    const storeName = store.name || defaultStoreName;
+
+    const totalAmount = order.totalAmount !== undefined ? Number(order.totalAmount) : Number(order.total) || 0;
+    const codAmount = order.paymentStatus === 'Paid' ? 0 : Math.round(totalAmount);
+    const qrData = consignmentId ? consignmentId : orderId;
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(qrData)}`;
 
-    const recipientName = order.shippingAddress?.fullName || 'Customer';
-    const recipientPhone = order.shippingAddress?.phone || '';
-    
-    // Clean address removing 'Outside Dhaka' / 'Inside Dhaka' placeholders
-    const street = order.shippingAddress?.street || '';
+    const recipientName = order.shippingAddress?.fullName || order.customerName || order.customer?.name || 'Customer';
+    const recipientPhone = order.shippingAddress?.phone || order.customerPhone || order.customer?.phone || '';
+
+    // Clean address removing placeholders
+    const street = order.shippingAddress?.street || order.customer?.address?.street || '';
     const area = order.shippingAddress?.area || '';
     const thana = order.shippingAddress?.thana || '';
-    const district = order.shippingAddress?.district || '';
-    const city = order.shippingAddress?.city || '';
-    
+    const district = order.shippingAddress?.district || order.shippingAddress?.division || order.customer?.address?.division || '';
+    const city = order.shippingAddress?.city || order.customer?.address?.city || '';
+
     const addrParts = [
       street,
       area && area !== 'Inside Dhaka' && area !== 'Outside Dhaka' ? area : '',
       thana,
       district || (city !== 'Inside Dhaka' && city !== 'Outside Dhaka' ? city : '')
     ].filter(Boolean);
-    
+
     let fullAddress = addrParts.join(', ').replace(/,?\s*(Outside Dhaka|Inside Dhaka)/gi, '').trim();
     if (fullAddress.endsWith(',')) fullAddress = fullAddress.slice(0, -1).trim();
     if (!fullAddress) fullAddress = street || city || '';
@@ -115,7 +120,7 @@ export async function printStickerInvoice(orderOrOrders: any | any[], settings: 
     return `
       <div class="sticker-container" style="${index < orders.length - 1 ? 'page-break-after: always; break-after: page;' : ''}">
         <div>
-          <div class="top-header">RTN &gt; ${storeName} - ${orderId}</div>
+          <div class="top-header">${storeName}</div>
           <div class="invoice-label">Invoice: #${orderId}</div>
 
           ${consignmentId ? `
@@ -157,8 +162,8 @@ export async function printStickerInvoice(orderOrOrders: any | any[], settings: 
           <div style="font-weight: 700; margin-bottom: 2px;">ITEMS (${items.length}):</div>
           ${items.slice(0, 3).map(item => `
             <div class="item-line">
-              <span>• ${item.name}${item.size ? ` (${item.size})` : ''}</span>
-              <span style="font-weight: 700;">Qty: ${item.quantity}</span>
+              <span>• ${item.name || item.title || 'Item'}${item.size ? ` (${item.size})` : ''}</span>
+              <span style="font-weight: 700;">Qty: ${item.quantity || 1}</span>
             </div>
           `).join('')}
           ${items.length > 3 ? `
@@ -267,50 +272,6 @@ export async function printStickerInvoice(orderOrOrders: any | any[], settings: 
             display: flex;
             flex-direction: column;
           }
-          .table-header {
-            background-color: #000000;
-            color: #ffffff;
-            font-weight: 700;
-            font-size: 11px;
-            text-align: center;
-            padding: 3px;
-            text-transform: uppercase;
-          }
-          .table-row {
-            display: flex;
-            border-bottom: 1px solid #000000;
-            font-size: 10px;
-          }
-          .table-row:last-child {
-            border-bottom: none;
-          }
-          .table-cell {
-            padding: 3px 5px;
-            flex: 1;
-          }
-          .table-cell-bold {
-            font-weight: 700;
-          }
-          .table-cell-split {
-            display: flex;
-            justify-content: space-between;
-            width: 100%;
-          }
-          .recipient-details {
-            font-size: 11px;
-            margin-bottom: 6px;
-            line-height: 1.3;
-          }
-          .recipient-name {
-            font-weight: 700;
-            font-size: 12px;
-            margin-bottom: 1px;
-          }
-          .recipient-phone {
-            font-weight: 700;
-            font-size: 12px;
-            margin-bottom: 2px;
-          }
           .items-section {
             font-size: 9px;
             border-top: 1px dashed #000000;
@@ -360,7 +321,7 @@ export async function printStickerInvoice(orderOrOrders: any | any[], settings: 
   if (printWindow) {
     printWindow.document.write(htmlContent);
     printWindow.document.close();
-    
+
     let hasPrinted = false;
     const triggerPrint = () => {
       if (hasPrinted) return;
@@ -375,7 +336,7 @@ export async function printStickerInvoice(orderOrOrders: any | any[], settings: 
     };
 
     printWindow.onload = triggerPrint;
-    
+
     setTimeout(() => {
       if (!hasPrinted) {
         triggerPrint();
@@ -383,4 +344,3 @@ export async function printStickerInvoice(orderOrOrders: any | any[], settings: 
     }, 500);
   }
 }
-

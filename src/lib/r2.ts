@@ -1,10 +1,10 @@
 import { S3Client, DeleteObjectCommand, DeleteObjectsCommand } from '@aws-sdk/client-s3';
 
-const accountId = process.env.R2_ACCOUNT_ID || '2a9302464bab79b94f3b96091e05eaa5';
-const accessKeyId = process.env.R2_ACCESS_KEY_ID || '8d6ad7c48293e166cbf8f9d2ec9fd48e';
-const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY || '53554534cf0a5d79d00bb925cd285f3c9568788b1d86dec6384170c5bd0e3d22';
-export const R2_BUCKET_NAME = process.env.R2_BUCKET_NAME || 'trishnaelectronics';
-export const R2_PUBLIC_URL = process.env.NEXT_PUBLIC_R2_PUBLIC_URL || 'https://pub-3468370979394c8999e3bfe9c173f721.r2.dev';
+const accountId = process.env.R2_ACCOUNT_ID || '';
+const accessKeyId = process.env.R2_ACCESS_KEY_ID || '';
+const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY || '';
+export const R2_BUCKET_NAME = process.env.R2_BUCKET_NAME || 'jiapixelmedia';
+export const R2_PUBLIC_URL = process.env.NEXT_PUBLIC_R2_PUBLIC_URL || 'https://pub-0dadb28394cd4ea8b1f69260c1774617.r2.dev';
 
 export const r2Client = new S3Client({
   region: 'auto',
@@ -15,6 +15,10 @@ export const r2Client = new S3Client({
   },
 });
 
+/**
+ * Extracts the storage key from a full public R2 URL or relative path.
+ * e.g., "https://pub-xxx.r2.dev/products/abc.webp" -> "products/abc.webp"
+ */
 export function extractR2Key(urlOrKey: string): string | null {
   if (!urlOrKey) return null;
   const trimmed = urlOrKey.trim();
@@ -31,6 +35,9 @@ export function extractR2Key(urlOrKey: string): string | null {
   }
 }
 
+/**
+ * Delete a single object from Cloudflare R2
+ */
 export async function deleteFromR2(urlOrKey: string): Promise<boolean> {
   const key = extractR2Key(urlOrKey);
   if (!key) return false;
@@ -49,6 +56,9 @@ export async function deleteFromR2(urlOrKey: string): Promise<boolean> {
   }
 }
 
+/**
+ * Delete multiple objects from Cloudflare R2 in a single batch
+ */
 export async function deleteMultipleFromR2(urlsOrKeys: string[]): Promise<number> {
   if (!Array.isArray(urlsOrKeys) || urlsOrKeys.length === 0) return 0;
 
@@ -63,6 +73,7 @@ export async function deleteMultipleFromR2(urlsOrKeys: string[]): Promise<number
   if (validKeys.length === 0) return 0;
 
   try {
+    // S3 DeleteObjects accepts up to 1000 items per request
     const chunks: string[][] = [];
     for (let i = 0; i < validKeys.length; i += 1000) {
       chunks.push(validKeys.slice(i, i + 1000));

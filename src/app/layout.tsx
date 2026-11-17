@@ -11,13 +11,14 @@ import "./prosemirror.css";
 import Script from "next/script";
 import { PWARegistry } from "@/components/pwa-registry";
 import GoogleTagManager from "./components/GoogleTagManager";
-import { SmoothScroll } from "@/components/layout/SmoothScroll";
 import { ScrollProgress } from "@/components/layout/ScrollProgress";
 import { generateOrganizationSchema } from "@/lib/seo";
 import FacebookPixel from "./components/FacebookPixel";
 import TikTokPixel from "./components/TikTokPixel";
 import { headers } from "next/headers";
 import { getCachedSettings } from "@/lib/data-fetching";
+import dbConnect from "@/lib/db";
+import Reseller from "@/models/Reseller";
 
 
 const geistSans = Geist({
@@ -76,12 +77,92 @@ function getGoogleFontsUrl(fonts: string[]) {
 
 export const dynamic = 'force-dynamic';
 
+async function getResellerFromHeaders(headersList: Headers) {
+  try {
+    const resellerSubdomain = headersList.get('x-reseller-subdomain');
+    await dbConnect();
+    if (resellerSubdomain) {
+      const reseller = await Reseller.findOne({ subdomain: resellerSubdomain })
+        .select('storeName logoUrl faviconUrl description subdomain customDomain seoConfig')
+        .lean();
+      if (reseller) return reseller;
+    }
+
+    const hostname = headersList.get('host') || '';
+    const cleanHost = hostname.split(':')[0].toLowerCase();
+
+    const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN;
+    if (cleanHost && cleanHost !== 'localhost' && cleanHost !== '127.0.0.1' && !/^\d+\.\d+\.\d+\.\d+$/.test(cleanHost)) {
+      if (rootDomain && cleanHost.endsWith(`.${rootDomain}`)) {
+        const sub = cleanHost.replace(`.${rootDomain}`, '');
+        if (sub && sub !== 'www' && sub !== 'admin' && sub !== 'app') {
+          return await Reseller.findOne({ subdomain: sub })
+            .select('storeName logoUrl faviconUrl description subdomain customDomain seoConfig')
+            .lean();
+        }
+      } else if (!rootDomain || (cleanHost !== rootDomain && cleanHost !== `www.${rootDomain}`)) {
+        const withoutWww = cleanHost.replace(/^www\./, '');
+        return await Reseller.findOne({
+          $or: [
+            { customDomain: cleanHost },
+            { customDomain: withoutWww },
+            { customDomain: `www.${withoutWww}` }
+          ],
+          status: 'active'
+        })
+        .select('storeName logoUrl faviconUrl description subdomain customDomain seoConfig')
+        .lean();
+      }
+    }
+  } catch (err) {
+    console.error('Error resolving reseller in layout:', err);
+  }
+  return null;
+}
+
 export async function generateMetadata(): Promise<Metadata> {
   const headersList = await headers();
   const hostname = headersList.get('host') || 'localhost';
   const baseUrl = `https://${hostname}`;
 
   try {
+    const reseller = await getResellerFromHeaders(headersList);
+    if (reseller) {
+      const favicon = (reseller as any).faviconUrl || (reseller as any).logoUrl || '/favicon.ico';
+      const rawVerification = (reseller as any).seoConfig?.googleSiteVerification?.trim() || '';
+      const match = rawVerification.match(/content=["']([^"']+)["']/i);
+      const googleVerification = match ? match[1] : rawVerification;
+
+      return {
+        metadataBase: new URL(baseUrl),
+        title: {
+          default: reseller.storeName || 'Online Store',
+          template: `%s | ${reseller.storeName || 'Store'}`,
+        },
+        description: reseller.description || `Shop at ${reseller.storeName}`,
+        verification: googleVerification ? { google: googleVerification } : undefined,
+        icons: {
+          icon: [
+            { url: favicon },
+            { url: favicon, sizes: '32x32' },
+            { url: favicon, sizes: '16x16' },
+            { url: favicon, sizes: '192x192' },
+            { url: favicon, sizes: '512x512' },
+          ],
+          shortcut: favicon,
+          apple: (reseller as any).logoUrl || favicon,
+        },
+        openGraph: {
+          title: reseller.storeName,
+          description: reseller.description || `Shop at ${reseller.storeName}`,
+          url: baseUrl,
+          siteName: reseller.storeName,
+          images: (reseller as any).logoUrl ? [{ url: (reseller as any).logoUrl }] : [],
+          type: 'website',
+        },
+      };
+    }
+
     const settings = await getCachedSettings();
 
     if (!settings) throw new Error("No settings found");
@@ -113,17 +194,24 @@ export async function generateMetadata(): Promise<Metadata> {
         url: baseUrl,
         siteName: settings.brandName || process.env.NEXT_PUBLIC_STORE_NAME || "Store",
         type: 'website',
+        images: settings.logoUrl
+          ? [{ url: settings.logoUrl.startsWith('http') ? settings.logoUrl : `${baseUrl}${settings.logoUrl}`, width: 1200, height: 630, alt: settings.brandName || process.env.NEXT_PUBLIC_STORE_NAME || 'Store' }]
+          : [],
       },
       twitter: {
         card: 'summary_large_image',
         title: settings.metaTitle || settings.brandName || process.env.NEXT_PUBLIC_STORE_NAME || "Store",
         description: settings.metaDescription || settings.brandName || "Your ultimate destination for quality products.",
+        site: settings.socialLinks?.twitter ? `@${settings.socialLinks.twitter.replace(/.*twitter\.com\//, '').replace(/.*x\.com\//, '').replace('@', '')}` : undefined,
+        images: settings.logoUrl
+          ? [settings.logoUrl.startsWith('http') ? settings.logoUrl : `${baseUrl}${settings.logoUrl}`]
+          : [],
       },
       verification: {
         google: settings.searchConsoleMeta,
       },
       alternates: {
-        canonical: './',
+        canonical: baseUrl,
       },
       other: {
         ...(settings.facebookDomainVerification
@@ -144,6 +232,11 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const headersList = await headers();
+  const reseller = await getResellerFromHeaders(headersList);
+  const isResellerStorePage = !!reseller;
+  const resellerFavicon = reseller?.faviconUrl || reseller?.logoUrl || null;
+
   const settings = await getCachedSettings();
 
   let jsonLd = null;
@@ -176,12 +269,24 @@ export default async function RootLayout({
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         {googleFontsUrl && <link rel="stylesheet" href={googleFontsUrl} />}
+        {resellerFavicon ? (
+          <>
+            <link rel="icon" href={resellerFavicon} sizes="any" />
+            <link rel="shortcut icon" href={resellerFavicon} />
+            <link rel="apple-touch-icon" href={resellerFavicon} />
+          </>
+        ) : (
+          <>
+            <link rel="icon" href="/favicon.ico" sizes="any" />
+            <link rel="shortcut icon" href="/favicon.ico" />
+          </>
+        )}
         <link rel="preload" as="image" href="/assets/login_banner_v2.webp" />
         <link rel="preload" as="image" href="/assets/register_banner_v2.webp" />
         <link rel="preload" as="image" href="/assets/forgetpassrod.webp" />
       </head>
       <body
-        className="antialiased min-h-full flex flex-col overflow-x-hidden font-sans"
+        className="antialiased min-h-full flex flex-col overflow-x-clip font-sans"
         suppressHydrationWarning
       >
         <PWARegistry />
@@ -197,7 +302,9 @@ export default async function RootLayout({
             <GoogleTagManager gtmId={settings.googleTagManagerId} />
           )}
 
-          {settings?.metaPixelId && (
+          {/* Mother-shop pixels — suppressed on reseller storefront pages to prevent
+              window.fbq conflicts that block the reseller's own pixel from initialising. */}
+          {!isResellerStorePage && settings?.metaPixelId && (
             <Suspense fallback={null}>
               <FacebookPixel
                 pixelId={settings.metaPixelId}
@@ -205,7 +312,7 @@ export default async function RootLayout({
             </Suspense>
           )}
 
-          {settings?.tiktokPixelId && (
+          {!isResellerStorePage && settings?.tiktokPixelId && (
             <Suspense fallback={null}>
               <TikTokPixel
                 pixelId={settings.tiktokPixelId}
@@ -213,7 +320,7 @@ export default async function RootLayout({
             </Suspense>
           )}
 
-          {isValidGAId(gaId) && (
+          {!isResellerStorePage && isValidGAId(gaId) && (
             <>
               <Script
                 id="google-analytics"
@@ -234,11 +341,9 @@ export default async function RootLayout({
               />
             </>
           )}
-
-          <SmoothScroll>
             {children}
             <ScrollProgress />
-          </SmoothScroll>
+
         </Providers>
         <Toaster position="bottom-right" richColors />
       </body>

@@ -1,10 +1,6 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
-import { revalidateTag, revalidatePath } from 'next/cache';
-import mongoose from 'mongoose';
 import connectToDatabase from '@/lib/db';
 import Brand from '@/models/Brand';
-import Product from '@/models/Product';
 import { auth } from '@/auth';
 
 // GET a single brand
@@ -15,21 +11,20 @@ export async function GET(
   try {
     const { id } = await params;
     await connectToDatabase();
-    const query = mongoose.Types.ObjectId.isValid(id) ? { _id: id } : { slug: id };
-    const brand = await Brand.findOne(query);
 
+    const brand = await Brand.findById(id).lean();
     if (!brand) {
       return NextResponse.json({ message: 'Brand not found' }, { status: 404 });
     }
 
     return NextResponse.json(brand);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching brand:', error);
     return NextResponse.json({ message: 'Internal Server Error' }, { status: 500 });
   }
 }
 
-// PUT update a brand (Admin only)
+// PUT update a brand
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -37,60 +32,36 @@ export async function PUT(
   try {
     const { id } = await params;
     const session = await auth();
+    const role = (session?.user as any)?.role;
 
-    if (!session || !session.user || !(['admin', 'super_admin', 'manager'].includes((session.user as any)?.role))) {
+    if (!session || !session.user || !['admin', 'super_admin', 'manager', 'moderator'].includes(role)) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
     const body = await req.json();
-
-    // Whitelist allowed fields to prevent mass-assignment
-    const allowedFields = ['name', 'slug', 'image', 'isActive'];
-    const updateData: any = {};
-
-    Object.keys(body).forEach((key) => {
-      if (allowedFields.includes(key)) {
-        updateData[key] = body[key];
-      }
-    });
-
-    if (Object.keys(updateData).length === 0) {
-      return NextResponse.json({ message: 'No valid fields provided for update' }, { status: 400 });
-    }
+    const { name, slug, image, isActive } = body;
 
     await connectToDatabase();
 
-    const query = mongoose.Types.ObjectId.isValid(id) ? { _id: id } : { slug: id };
+    const updateData: any = {};
+    if (name) updateData.name = name.trim();
+    if (slug) updateData.slug = slug.trim();
+    if (image !== undefined) updateData.image = image;
+    if (isActive !== undefined) updateData.isActive = isActive;
 
-    // Check if new slug already exists for another brand
-    if (updateData.slug) {
-      const existingBrand = await Brand.findOne({ slug: updateData.slug });
-      if (existingBrand && existingBrand._id.toString() !== id && existingBrand.slug !== id) {
-        return NextResponse.json({ message: 'Brand with this slug already exists' }, { status: 400 });
-      }
-    }
-
-    const updatedBrand = await Brand.findOneAndUpdate(
-      query,
-      { $set: updateData },
-      { new: true, runValidators: true }
-    );
-
-    if (!updatedBrand) {
+    const updated = await Brand.findByIdAndUpdate(id, updateData, { new: true }).lean();
+    if (!updated) {
       return NextResponse.json({ message: 'Brand not found' }, { status: 404 });
     }
 
-    revalidateTag('brands', 'max');
-    revalidatePath('/');
-
-    return NextResponse.json(updatedBrand);
-  } catch (error) {
+    return NextResponse.json(updated);
+  } catch (error: any) {
     console.error('Error updating brand:', error);
-    return NextResponse.json({ message: 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ message: error.message || 'Internal Server Error' }, { status: 500 });
   }
 }
 
-// DELETE a brand (Admin only)
+// DELETE a brand
 export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -98,37 +69,32 @@ export async function DELETE(
   try {
     const { id } = await params;
     const session = await auth();
+    const role = (session?.user as any)?.role;
 
-    if (!session || !session.user || !(['admin', 'super_admin', 'manager'].includes((session.user as any)?.role))) {
+    if (!session || !session.user || !['admin', 'super_admin'].includes(role)) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
     await connectToDatabase();
 
-    const query = mongoose.Types.ObjectId.isValid(id) ? { _id: id } : { slug: id };
-    
-    // Find the brand first to get its _id
-    const brand = await Brand.findOne(query);
-    if (!brand) {
+    const deleted = await Brand.findByIdAndDelete(id).lean();
+    if (!deleted) {
       return NextResponse.json({ message: 'Brand not found' }, { status: 404 });
     }
 
-    // Check if brand is associated with any products
-    const associatedProducts = await Product.countDocuments({ brand: brand._id });
-    if (associatedProducts > 0) {
-      return NextResponse.json({ 
-        message: `Cannot delete brand. It is associated with ${associatedProducts} product(s).` 
-      }, { status: 400 });
+    const brandImg = (deleted as any).image || (deleted as any).logo;
+    if (brandImg) {
+      try {
+        const { deleteFromR2 } = await import('@/lib/r2');
+        await deleteFromR2(brandImg);
+      } catch (r2Err) {
+        console.error('Failed to delete brand image from Cloudflare R2:', r2Err);
+      }
     }
 
-    await Brand.deleteOne({ _id: brand._id });
-
-    revalidateTag('brands', 'max');
-    revalidatePath('/');
-
     return NextResponse.json({ message: 'Brand deleted successfully' });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error deleting brand:', error);
-    return NextResponse.json({ message: 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ message: error.message || 'Internal Server Error' }, { status: 500 });
   }
 }

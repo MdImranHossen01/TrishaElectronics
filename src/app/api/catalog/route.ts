@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db';
 import Catalog from '@/models/Catalog';
 import { auth } from '@/auth';
@@ -29,14 +29,14 @@ const DEFAULT_SPEC = makeBulletDesc(
 // Default catalog data for first-time use
 const DEFAULT_CATALOG = {
   companyInfo: {
-    about: 'Trishna Electronics is a leading manufacturer specializing in men\'s underwear with over 10 years of experience in the textile and garment industry. We focus on quality, comfort, and innovation, providing premium innerwear solutions to global brands, wholesalers, and retailers. We offer OEM (Original Equipment Manufacturer) and ODM (Original Design Manufacturer) services.',
+    about: 'We are a leading manufacturer specializing in men\'s underwear with over 10 years of experience in the textile and garment industry. We focus on quality, comfort, and innovation, providing premium innerwear solutions to global brands, wholesalers, and retailers. We offer OEM (Original Equipment Manufacturer) and ODM (Original Design Manufacturer) services.',
     capacity: '5,00,000 pcs/m',
     established: 'Since 2014',
     certifications: 'ISO, BSCI Certified',
     markets: 'EU, USA, Mid-East',
     address: 'Sarkarbari, Helal Market, Uttar Khan, Dhaka, Bangladesh',
     phone: '+880 1724-338581',
-    email: 'info@trishnaelectronics.com',
+    email: (process.env.NEXT_PUBLIC_ROOT_DOMAIN ? `info@${process.env.NEXT_PUBLIC_ROOT_DOMAIN}` : ''),
     corporatePresence: 'LinkedIn / Alibaba / Google Business Profile',
   },
   categories: [
@@ -140,7 +140,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const session = await auth();
-    if (!session || !['admin', 'super_admin', 'manager'].includes((session.user as any)?.role)) {
+    if (!session || !['admin', 'super_admin', 'manager', 'moderator'].includes((session.user as any)?.role)) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 

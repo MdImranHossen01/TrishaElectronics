@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
     const session = await auth();
     const userRole = (session?.user as any)?.role;
 
-    if (!session || (userRole !== 'admin' && userRole !== 'super_admin' && userRole !== 'manager')) {
+    if (!session || (userRole !== 'admin' && userRole !== 'super_admin' && userRole !== 'manager' && userRole !== 'moderator')) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
@@ -20,43 +20,81 @@ export async function GET(req: NextRequest) {
     const limit = limitParam === 'all' ? 100000 : Math.max(1, parseInt(limitParam));
     const from = searchParams.get('from') || '';
     const to = searchParams.get('to') || '';
+    const tab = searchParams.get('tab') || 'mother';
+    const resellerId = searchParams.get('resellerId');
 
     await connectToDatabase();
 
-    const query: any = {};
+    const andConditions: any[] = [];
+
+    // Tenant / Scope Isolation:
+    // Mother Shop view must strictly only show Mother Shop's own abandoned carts by default.
+    if (resellerId && resellerId !== 'all') {
+      if (resellerId === 'mother' || resellerId === 'main') {
+        andConditions.push({
+          $or: [{ resellerId: null }, { resellerId: { $exists: false } }]
+        });
+      } else {
+        andConditions.push({ resellerId });
+      }
+    } else if (tab === 'mother') {
+      andConditions.push({
+        $or: [{ resellerId: null }, { resellerId: { $exists: false } }]
+      });
+    } else if (tab === 'reseller') {
+      andConditions.push({
+        resellerId: { $ne: null, $exists: true }
+      });
+    }
+
     if (search) {
-      query.$or = [
-        { fullName: { $regex: search, $options: 'i' } },
-        { phone: { $regex: search, $options: 'i' } },
-      ];
+      andConditions.push({
+        $or: [
+          { fullName: { $regex: search, $options: 'i' } },
+          { phone: { $regex: search, $options: 'i' } },
+        ]
+      });
     }
 
     if (from || to) {
-      query.createdAt = {};
-      if (from) {
-        query.createdAt.$gte = new Date(from);
-      }
+      const dateQuery: any = {};
+      if (from) dateQuery.$gte = new Date(from);
       if (to) {
         const toDate = new Date(to);
         toDate.setHours(23, 59, 59, 999);
-        query.createdAt.$lte = toDate;
+        dateQuery.$lte = toDate;
       }
+      andConditions.push({ createdAt: dateQuery });
     }
 
-    const totalCount = await AbandonedCart.countDocuments(query);
+    const query = andConditions.length > 0 ? { $and: andConditions } : {};
+
+    const [totalCount, motherCount, resellerCount, allCount] = await Promise.all([
+      AbandonedCart.countDocuments(query),
+      AbandonedCart.countDocuments({ $or: [{ resellerId: null }, { resellerId: { $exists: false } }] }),
+      AbandonedCart.countDocuments({ resellerId: { $ne: null, $exists: true } }),
+      AbandonedCart.countDocuments(),
+    ]);
+
     const totalPages = Math.ceil(totalCount / limit);
 
     const carts = await AbandonedCart.find(query)
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
-      .populate('user', 'name email');
+      .populate('user', 'name email')
+      .populate('resellerId', 'storeName subdomain customDomain');
 
     return NextResponse.json({
       carts,
       totalPages,
       totalCount,
-      currentPage: page
+      currentPage: page,
+      counts: {
+        mother: motherCount,
+        reseller: resellerCount,
+        all: allCount
+      }
     });
   } catch (error) {
     console.error('Error fetching abandoned carts:', error);
@@ -68,7 +106,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { fullName, phone, email, street, deliveryArea, items, totalAmount } = body;
+    const { fullName, phone, email, street, deliveryArea, items, totalAmount, resellerId: bodyResellerId } = body;
 
     if (!phone || !fullName || !items || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ message: 'Missing required checkout information' }, { status: 400 });
@@ -82,8 +120,15 @@ export async function POST(req: NextRequest) {
     // Clean phone number (remove whitespace, formatting)
     const cleanPhone = phone.replace(/\s+/g, '').trim();
 
-    // Check if an abandoned cart already exists for this phone number
-    let cart = await AbandonedCart.findOne({ phone: cleanPhone });
+    const resellerId = bodyResellerId || (items.length > 0 && items[0].uploadedBy ? items[0].uploadedBy : undefined);
+
+    // Multi-Tenant Isolation:
+    // Partition abandoned carts by phone AND store context so carts from different stores do not overwrite each other.
+    const cartLookup = resellerId
+      ? { phone: cleanPhone, resellerId }
+      : { phone: cleanPhone, $or: [{ resellerId: null }, { resellerId: { $exists: false } }] };
+
+    let cart = await AbandonedCart.findOne(cartLookup);
 
     if (cart) {
       // Update existing draft cart
@@ -93,6 +138,7 @@ export async function POST(req: NextRequest) {
       cart.deliveryArea = deliveryArea || cart.deliveryArea;
       cart.items = items;
       cart.totalAmount = totalAmount;
+      if (resellerId) cart.resellerId = resellerId;
       if (userId) cart.user = userId as any;
       
       await cart.save();
@@ -100,6 +146,7 @@ export async function POST(req: NextRequest) {
       // Create new draft cart
       cart = await AbandonedCart.create({
         user: userId || undefined,
+        resellerId: resellerId || undefined,
         fullName: fullName.trim(),
         phone: cleanPhone,
         email: email?.trim(),
@@ -123,7 +170,7 @@ export async function DELETE(req: NextRequest) {
     const session = await auth();
     const userRole = (session?.user as any)?.role;
 
-    if (!session || (userRole !== 'admin' && userRole !== 'super_admin' && userRole !== 'manager')) {
+    if (!session || (userRole !== 'admin' && userRole !== 'super_admin' && userRole !== 'manager' && userRole !== 'moderator')) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 

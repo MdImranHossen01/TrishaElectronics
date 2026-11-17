@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -17,145 +17,73 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Loader2 } from 'lucide-react';
-import { useSearchParams } from 'next/navigation';
-import { useSession } from 'next-auth/react';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { useLanguage } from '@/contexts/LanguageContext';
+import { Loader2, ArrowRightLeft, ReceiptText } from 'lucide-react';
+import { cn, isTransferableAccount, cleanAccountName } from '@/lib/utils';
 
 const transactionSchema = z.object({
   type: z.enum(['expense', 'income']),
-  title: z.string().min(3, 'Title must be at least 3 characters'),
+  title: z.string().min(2, 'Title must be at least 2 characters'),
   amount: z.preprocess(
     (val) => (val === '' || val === undefined ? undefined : Number(val)),
     z.number({ message: 'Amount is required' }).min(1, 'Amount must be at least 1')
   ),
   category: z.string().min(1, 'Category is required'),
+  paymentAccountId: z.string().optional(),
   date: z.string().min(1, 'Date is required').refine(s => !isNaN(Date.parse(s)), { message: 'Invalid date format' }),
   description: z.string().optional(),
-  showroom: z.string().optional(),
-  employee: z.string().optional(),
-  accountCode: z.string().min(1, 'Account is required').default('CASH'),
 });
 
 type TransactionFormValues = z.infer<typeof transactionSchema>;
 
 interface TransactionFormProps {
   initialData?: any;
+  presetType?: 'expense' | 'income';
+  presetAccountId?: string;
+  presetTab?: 'journal' | 'transfer';
+  apiPrefix?: string;
   onSuccess: (wasEdit: boolean) => void;
 }
 
-export function TransactionForm({ initialData, onSuccess }: TransactionFormProps) {
-  const searchParams = useSearchParams();
-  const presetType = searchParams.get('type') as 'expense' | 'income' | null;
-  const presetAccountCode = searchParams.get('accountCode') as 'CASH' | null;
-  const presetCategory = searchParams.get('category') || '';
-  const presetTab = searchParams.get('tab') as 'transaction' | 'transfer' | null;
-
-  const { data: session } = useSession();
+export function TransactionForm({ 
+  initialData, 
+  presetType, 
+  presetAccountId, 
+  presetTab, 
+  apiPrefix = '/api/admin',
+  onSuccess 
+}: TransactionFormProps) {
+  const [activeTab, setActiveTab] = useState<'journal' | 'transfer'>(presetTab || 'journal');
   const [loading, setLoading] = useState(false);
-  const [showrooms, setShowrooms] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
-  const [employees, setEmployees] = useState<any[]>([]);
-  const [loanProviders, setLoanProviders] = useState<any[]>([]);
-  const [selectedProviderId, setSelectedProviderId] = useState<string>('');
-  const loanProviderRef = useRef<HTMLButtonElement>(null);
-
-  const [dueCustomers, setDueCustomers] = useState<any[]>([]);
-  const [selectedCustomerPhone, setSelectedCustomerPhone] = useState<string>('');
-  const [suppliers, setSuppliers] = useState<any[]>([]);
-  const [selectedSupplierId, setSelectedSupplierId] = useState<string>('');
-
-  const userRole = (session?.user as any)?.role;
-  const isAdmin = ['admin', 'super_admin'].includes(userRole);
-  const isSuperAdmin = userRole === 'super_admin';
-  const { t } = useLanguage();
-
-  // Tabs state
-  const [activeTab, setActiveTab] = useState<'transaction' | 'transfer'>(presetTab || 'transaction');
-
-  // Transfer state
-  const [transferDate, setTransferDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [fromAccountCode, setFromAccountCode] = useState<string>('CASH');
-  const [toAccountCode, setToAccountCode] = useState<string>('CASH');
-  const [transferTitle, setTransferTitle] = useState('');
-  const [transferAmount, setTransferAmount] = useState('');
   const [accounts, setAccounts] = useState<any[]>([]);
-  const [transferSubmitLoading, setTransferSubmitLoading] = useState(false);
+  const transferableAccounts = useMemo(() => accounts.filter(isTransferableAccount), [accounts]);
 
-  const handleTransferSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!transferTitle.trim()) {
-      toast.error('Title is required');
-      return;
-    }
-    const amtVal = parseFloat(transferAmount) || 0;
-    if (amtVal <= 0) {
-      toast.error('Please enter a positive transfer amount.');
-      return;
-    }
-    if (fromAccountCode === toAccountCode) {
-      toast.error('From and To accounts must be different.');
-      return;
-    }
-    const fromAcc = accounts.find(a => a.code === fromAccountCode);
-    if (fromAcc && amtVal > fromAcc.currentBalance) {
-      toast.error(`Insufficient balance in ${fromAcc.name}. Available: ৳${fromAcc.currentBalance.toLocaleString()}`);
-      return;
-    }
+  // Account Transfer Form State
+  const [transferDate, setTransferDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [fromAccountId, setFromAccountId] = useState<string>(presetAccountId || '');
+  const [toAccountId, setToAccountId] = useState<string>('');
+  const [transferTitle, setTransferTitle] = useState<string>('Account Transfer');
+  const [transferAmount, setTransferAmount] = useState<string>('');
+  const [transferLoading, setTransferLoading] = useState(false);
 
-    setTransferSubmitLoading(true);
-    try {
-      const payload = {
-        entryType: 'transfer',
-        amount: amtVal,
-        description: transferTitle,
-        date: transferDate,
-        fromAccountCode,
-        toAccountCode,
-      };
-
-      const res = await fetch('/api/admin/ledger/transactions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || 'Transfer failed');
-      }
-
-      toast.success('Account transfer recorded successfully!');
-      setTransferTitle('');
-      setTransferAmount('');
-      onSuccess(false);
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to save transfer');
-    } finally {
-      setTransferSubmitLoading(false);
-    }
-  };
-
-  // Refs for keyboard navigation
-  const titleRef = useRef<HTMLInputElement>(null);
-  const categoryRef = useRef<HTMLButtonElement>(null);
-  const employeeRef = useRef<HTMLButtonElement>(null);
-  const amountRef = useRef<HTMLInputElement>(null);
+  // Keyboard navigation refs (Journal form)
   const dateRef = useRef<HTMLInputElement>(null);
-  const showroomRef = useRef<HTMLButtonElement>(null);
-  const accountRef = useRef<HTMLButtonElement>(null);
-  const customerRef = useRef<HTMLButtonElement>(null);
-  const supplierRef = useRef<HTMLButtonElement>(null);
+  const categoryTriggerRef = useRef<HTMLButtonElement>(null);
+  const titleRef = useRef<HTMLInputElement>(null);
+  const amountRef = useRef<HTMLInputElement>(null);
+  const accountTriggerRef = useRef<HTMLButtonElement>(null);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
   const submitBtnRef = useRef<HTMLButtonElement>(null);
+
+  // Keyboard navigation refs (Transfer form)
+  const tDateRef = useRef<HTMLInputElement>(null);
+  const tFromTriggerRef = useRef<HTMLButtonElement>(null);
+  const tToTriggerRef = useRef<HTMLButtonElement>(null);
+  const tTitleRef = useRef<HTMLInputElement>(null);
+  const tAmountRef = useRef<HTMLInputElement>(null);
+  const tSubmitBtnRef = useRef<HTMLButtonElement>(null);
 
   const form = useForm<TransactionFormValues>({
     resolver: zodResolver(transactionSchema) as any,
@@ -163,188 +91,107 @@ export function TransactionForm({ initialData, onSuccess }: TransactionFormProps
       type: initialData?.type || presetType || 'expense',
       title: initialData?.title || '',
       amount: initialData?.amount !== undefined ? initialData.amount : '',
-      category: initialData?.category || presetCategory || '',
+      category: initialData?.category || '',
+      paymentAccountId: initialData?.paymentAccountId?._id || initialData?.paymentAccountId || presetAccountId || '',
       date: initialData?.date ? new Date(initialData.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
       description: initialData?.description || '',
-      showroom: initialData?.showroom || undefined,
-      employee: initialData?.employee?._id || initialData?.employee || undefined,
-      accountCode: initialData?.accountCode || presetAccountCode || 'CASH',
     },
   });
 
-  useEffect(() => {
-    if (isAdmin) {
-      fetch('/api/admin/showrooms')
-        .then((res) => res.json())
-        .then((data) => setShowrooms(data.showrooms || []))
-        .catch((err) => console.error('Error fetching showrooms:', err));
-
-      fetch('/api/admin/employees')
-        .then((res) => res.json())
-        .then((data) => setEmployees(data.employees || []))
-        .catch((err) => console.error('Error fetching employees:', err));
-    }
-
-    fetch('/api/admin/transaction-categories')
-      .then((res) => res.json())
-      .then((data) => {
-        if (Array.isArray(data)) setCategories(data);
-      })
-      .catch((err) => console.error('Error fetching categories:', err));
-
-    fetch('/api/accounts')
-      .then((res) => res.json())
-      .then((data) => {
-        if (Array.isArray(data)) setAccounts(data);
-      })
-      .catch((err) => console.error('Error fetching accounts:', err));
-
-    fetch('/api/admin/loans/providers')
-      .then((res) => res.json())
-      .then((data) => {
-        const providers = data || [];
-        setLoanProviders(providers);
-        if (initialData && ['Loan Paid', 'Profit/Interest'].includes(initialData.category)) {
-          const match = providers.find((p: any) => initialData.title.endsWith(p.name));
-          if (match) {
-            setSelectedProviderId(match._id);
-          }
-        }
-      })
-      .catch((err) => console.error('Error fetching loan providers:', err));
-
-    fetch('/api/admin/customers/due')
-      .then((res) => res.json())
-      .then((data) => {
-        const customers = data.customers || [];
-        setDueCustomers(customers);
-        if (initialData && initialData.category === 'Account receivable') {
-          const match = customers.find((c: any) => initialData.title.endsWith(c.name));
-          if (match) {
-            setSelectedCustomerPhone(match.phone);
-          }
-        }
-      })
-      .catch((err) => console.error('Error fetching due customers:', err));
-
-    fetch('/api/admin/suppliers')
-      .then((res) => res.json())
-      .then((data) => {
-        const suppliersList = data || [];
-        setSuppliers(suppliersList);
-        if (initialData && initialData.category === 'Account payable') {
-          const match = suppliersList.find((s: any) => initialData.title.endsWith(s.name) || initialData.title.endsWith(s.companyName));
-          if (match) {
-            setSelectedSupplierId(match._id);
-          }
-        }
-      })
-      .catch((err) => console.error('Error fetching suppliers:', err));
-  }, [isAdmin, initialData]);
-
   const selectedType = form.watch('type');
   const selectedCategory = form.watch('category');
-  const selectedEmployeeId = form.watch('employee');
   const selectedAmount = Number(form.watch('amount')) || 0;
-  const filteredCategories = categories.filter(c => c.type === selectedType);
+  const selectedAccountId = form.watch('paymentAccountId');
 
-  useEffect(() => {
-    if (!initialData) {
-      if (['Staff Salary', 'Wages'].includes(selectedCategory) && selectedEmployeeId && selectedEmployeeId !== 'none') {
-        const emp = employees.find(e => e._id === selectedEmployeeId);
-        if (emp) {
-          const prefix = selectedCategory === 'Staff Salary' ? 'Staff salary' : 'Wages';
-          form.setValue('title', `${prefix} paid to ${emp.name}`, { shouldValidate: true });
-        }
-      } else if (['Loan Paid', 'Profit/Interest'].includes(selectedCategory) && selectedProviderId) {
-        const provider = loanProviders.find(p => p._id === selectedProviderId);
-        if (provider) {
-          const prefix = selectedCategory === 'Loan Paid' ? 'Loan paid to' : 'Interest/profit paid to';
-          form.setValue('title', `${prefix} ${provider.name}`, { shouldValidate: true });
-        }
-      } else if (selectedCategory === 'Account receivable' && selectedCustomerPhone) {
-        const customer = dueCustomers.find(c => c.phone === selectedCustomerPhone);
-        if (customer) {
-          form.setValue('title', `Account receivable from ${customer.name}`, { shouldValidate: true });
-        }
-      } else if (selectedCategory === 'Account payable' && selectedSupplierId) {
-        const supplier = suppliers.find(s => s._id === selectedSupplierId);
-        if (supplier) {
-          form.setValue('title', `Account payable to ${supplier.name || supplier.companyName}`, { shouldValidate: true });
-        }
-      } else if (selectedCategory) {
-        form.setValue('title', selectedCategory, { shouldValidate: true });
-      }
-    }
-  }, [selectedCategory, selectedEmployeeId, selectedProviderId, selectedCustomerPhone, selectedSupplierId, employees, loanProviders, dueCustomers, suppliers, form, initialData]);
-
-  const onSubmit = async (values: TransactionFormValues) => {
-    if (values.type === 'expense') {
-      const selectedAcc = accounts.find(a => a.code === values.accountCode);
-      if (selectedAcc) {
-        const isEditCurrentAccount = initialData && initialData.accountCode === values.accountCode && initialData.type === 'expense';
-        const effectiveBalance = selectedAcc.currentBalance + (isEditCurrentAccount ? initialData.amount : 0);
-        if (values.amount > effectiveBalance) {
-          toast.error(`Insufficient balance in ${selectedAcc.name}. Available: ৳${effectiveBalance.toLocaleString()}`);
-          return;
-        }
-      }
-    }
-    setLoading(true);
+  // Load Categories & Accounts
+  const loadAccountsAndCategories = async () => {
     try {
-      const url = initialData ? `/api/admin/expenses-incomes/${initialData._id}` : '/api/admin/expenses-incomes';
-      const method = initialData ? 'PUT' : 'POST';
+      const [catRes, accRes] = await Promise.all([
+        fetch(`${apiPrefix}/expenses-incomes/categories?type=${selectedType}`),
+        fetch(`${apiPrefix}/accounts`)
+      ]);
 
-      const payload = {
-        ...values,
-        supplier: values.category === 'Account payable' ? selectedSupplierId : undefined,
-        customerPhone: values.category === 'Account receivable' ? selectedCustomerPhone : undefined,
-      };
+      if (catRes.ok) {
+        const cData = await catRes.json();
+        const loadedCategories = cData.categories || [];
+        setCategories(loadedCategories);
 
-      const response = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (response.ok) {
-        toast.success(`Transaction ${initialData ? 'updated' : 'created'} successfully`);
-        if (initialData) {
-          onSuccess(true);
-        } else {
-          form.reset({
-            type: form.getValues('type'),
-            title: '',
-            amount: '' as any,
-            category: '',
-            date: form.getValues('date'),
-            description: '',
-            showroom: undefined,
-            employee: undefined,
-            accountCode: 'CASH',
-          });
-          setSelectedCustomerPhone('');
-          setSelectedSupplierId('');
-          onSuccess(false);
-          setTimeout(() => {
-            dateRef.current?.focus();
-          }, 50);
+        const currentCategory = form.getValues('category');
+        const isCurrentValid = loadedCategories.some((c: any) => c.name === currentCategory);
+        if (!isCurrentValid && loadedCategories.length > 0 && !initialData) {
+          form.setValue('category', loadedCategories[0].name);
+          // Auto-fill title with first category if title is empty
+          if (!form.getValues('title')) {
+            form.setValue('title', loadedCategories[0].name, { shouldValidate: true });
+          }
         }
-      } else {
-        toast.error('Failed to save transaction');
       }
-    } catch (error) {
-      console.error('Error saving transaction:', error);
-      toast.error('Something went wrong');
-    } finally {
-      setLoading(false);
+
+      if (accRes.ok) {
+        const aData = await accRes.json();
+        const loadedAccounts = aData.accounts || [];
+        setAccounts(loadedAccounts);
+
+        const liquidAccounts = loadedAccounts.filter(isTransferableAccount);
+        const positiveAccounts = liquidAccounts.filter((a: any) => (a.currentBalance || 0) > 0);
+
+        // Set default transfer accounts from liquid/transferable accounts with positive balance
+        if (liquidAccounts.length > 0) {
+          setFromAccountId((prev) => (positiveAccounts.some((a: any) => a._id === prev) ? prev : (positiveAccounts[0]?._id || '')));
+          if (liquidAccounts.length > 1) {
+            setToAccountId((prev) => {
+              if (prev && liquidAccounts.some((a: any) => a._id === prev && a._id !== (positiveAccounts[0]?._id || liquidAccounts[0]._id))) {
+                return prev;
+              }
+              return liquidAccounts.find((a: any) => a._id !== (positiveAccounts[0]?._id || liquidAccounts[0]._id))?._id || liquidAccounts[1]._id;
+            });
+          } else {
+            setToAccountId(liquidAccounts[0]._id);
+          }
+
+          // Default payment account for journal
+          const currentAcc = form.getValues('paymentAccountId');
+          if (selectedType === 'expense') {
+            if (!currentAcc || !positiveAccounts.some((a: any) => a._id === currentAcc)) {
+              form.setValue('paymentAccountId', positiveAccounts[0]?._id || '');
+            }
+          } else {
+            if ((!currentAcc || !liquidAccounts.some((a: any) => a._id === currentAcc)) && !initialData) {
+              form.setValue('paymentAccountId', liquidAccounts[0]._id);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Meta load error in TransactionForm:', err);
     }
   };
 
+  useEffect(() => {
+    loadAccountsAndCategories();
+  }, [selectedType]);
+
+  // Title Auto-fill when category changes (for new entries)
+  const handleCategoryChange = (categoryName: string | null) => {
+    if (!categoryName) return;
+    form.setValue('category', categoryName);
+    if (!initialData) {
+      form.setValue('title', categoryName, { shouldValidate: true });
+    }
+  };
+
+  // Keyboard navigation event handlers (Journal Form)
   const handleDateKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      categoryRef.current?.focus();
+      categoryTriggerRef.current?.focus();
+    }
+  };
+
+  const handleCategoryKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      titleRef.current?.focus();
     }
   };
 
@@ -355,66 +202,10 @@ export function TransactionForm({ initialData, onSuccess }: TransactionFormProps
     }
   };
 
-  const handleCategoryKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      if (['Staff Salary', 'Wages'].includes(selectedCategory)) {
-        employeeRef.current?.focus();
-      } else if (['Loan Paid', 'Profit/Interest'].includes(selectedCategory)) {
-        loanProviderRef.current?.focus();
-      } else if (selectedCategory === 'Account receivable') {
-        customerRef.current?.focus();
-      } else if (selectedCategory === 'Account payable') {
-        supplierRef.current?.focus();
-      } else {
-        titleRef.current?.focus();
-      }
-    }
-  };
-
-  const handleCustomerKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      titleRef.current?.focus();
-    }
-  };
-
-  const handleSupplierKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      titleRef.current?.focus();
-    }
-  };
-
-  const handleLoanProviderKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      titleRef.current?.focus();
-    }
-  };
-
-  const handleEmployeeKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      titleRef.current?.focus();
-    }
-  };
-
   const handleAmountKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      if (isAdmin && showrooms.length > 0) {
-        showroomRef.current?.focus();
-      } else {
-        accountRef.current?.focus();
-      }
-    }
-  };
-
-  const handleShowroomKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      accountRef.current?.focus();
+      accountTriggerRef.current?.focus();
     }
   };
 
@@ -428,533 +219,637 @@ export function TransactionForm({ initialData, onSuccess }: TransactionFormProps
   const handleDescriptionKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      submitBtnRef.current?.click();
+      submitBtnRef.current?.focus();
+      form.handleSubmit(onSubmit)();
+    }
+  };
+
+  // Global Ctrl+Enter submit for journal form
+  const handleJournalFormKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      form.handleSubmit(onSubmit)();
+    }
+  };
+
+  // Journal Form Submit Handler
+  const onSubmit = async (values: TransactionFormValues) => {
+    // Strict balance check for expense
+    if (values.type === 'expense') {
+      if (!values.paymentAccountId) {
+        toast.error('Please select an account for this expense.');
+        return;
+      }
+      const selectedAcc = accounts.find((a) => a._id === values.paymentAccountId);
+      if (selectedAcc) {
+        const isEditSame = initialData && initialData.paymentAccountId?._id === selectedAcc._id && initialData.type === 'expense';
+        const effectiveBalance = (selectedAcc.currentBalance || 0) + (isEditSame ? initialData.amount : 0);
+        if (effectiveBalance <= 0) {
+          toast.error(`Cannot record expense: ${cleanAccountName(selectedAcc.name)} has zero or negative balance (৳${Math.round(effectiveBalance).toLocaleString()}).`);
+          return;
+        }
+        if (values.amount > effectiveBalance) {
+          toast.error(`Insufficient balance in ${cleanAccountName(selectedAcc.name)}. Available: ৳${Math.round(effectiveBalance).toLocaleString()}`);
+          return;
+        }
+      }
+    }
+
+    setLoading(true);
+    try {
+      const url = initialData ? `${apiPrefix}/expenses-incomes/${initialData._id}` : `${apiPrefix}/expenses-incomes`;
+      const method = initialData ? 'PUT' : 'POST';
+
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(values),
+      });
+
+      if (response.ok) {
+        toast.success(`Transaction ${initialData ? 'updated' : 'recorded'} successfully!`);
+        if (initialData) {
+          onSuccess(true);
+        } else {
+          // Reset fields for rapid consecutive entries while keeping the form open
+          const defaultCat = categories.length > 0 ? categories[0].name : '';
+          form.reset({
+            type: form.getValues('type'),
+            title: defaultCat,
+            amount: '' as any,
+            category: defaultCat,
+            paymentAccountId: form.getValues('paymentAccountId'),
+            date: form.getValues('date'),
+            description: '',
+          });
+          onSuccess(false);
+          loadAccountsAndCategories();
+          setTimeout(() => {
+            dateRef.current?.focus();
+          }, 60);
+        }
+      } else {
+        const err = await response.json().catch(() => ({}));
+        toast.error(err.message || 'Failed to save transaction');
+      }
+    } catch (error) {
+      console.error('Error saving transaction:', error);
+      toast.error('Something went wrong');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Keyboard navigation for Transfer Form
+  const handleTransferFormKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      handleTransferSubmit(e as any);
+    }
+  };
+
+  const handleTDateKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      tFromTriggerRef.current?.focus();
+    }
+  };
+
+  const handleTFromKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      tToTriggerRef.current?.focus();
+    }
+  };
+
+  const handleTToKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      tTitleRef.current?.focus();
+    }
+  };
+
+  const handleTTitleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      tAmountRef.current?.focus();
+    }
+  };
+
+  const handleTAmountKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      tSubmitBtnRef.current?.focus();
+      handleTransferSubmit(e as any);
+    }
+  };
+
+  // Account Transfer Submit Handler
+  const handleTransferSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const amt = Number(transferAmount);
+    if (!amt || amt <= 0) {
+      toast.error('Please enter a valid transfer amount');
+      tAmountRef.current?.focus();
+      return;
+    }
+
+    if (!fromAccountId || !toAccountId) {
+      toast.error('Please select both source and destination accounts');
+      return;
+    }
+
+    if (fromAccountId === toAccountId) {
+      toast.error('Source and destination accounts cannot be the same');
+      return;
+    }
+
+    const sourceAcc = transferableAccounts.find((a) => a._id === fromAccountId);
+    const destAcc = transferableAccounts.find((a) => a._id === toAccountId);
+    if (!sourceAcc || !destAcc) {
+      toast.error('Accounts Payable and Accounts Receivable cannot be used for fund transfers. Transfers are only allowed between Cash, Bank, or MFS accounts.');
+      return;
+    }
+    const sourceBal = sourceAcc.currentBalance || 0;
+    if (sourceBal <= 0) {
+      toast.error(`Cannot transfer funds: ${cleanAccountName(sourceAcc.name)} has zero or negative balance (৳${Math.round(sourceBal).toLocaleString()}).`);
+      return;
+    }
+    if (amt > sourceBal) {
+      toast.error(`Insufficient balance in ${cleanAccountName(sourceAcc.name)}. Available: ৳${Math.round(sourceBal).toLocaleString()}`);
+      return;
+    }
+
+    setTransferLoading(true);
+    try {
+      const res = await fetch(`${apiPrefix}/accounts/transfer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fromAccountId,
+          toAccountId,
+          amount: amt,
+          note: transferTitle,
+          date: transferDate,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || 'Transfer failed');
+      }
+
+      toast.success(data.message || 'Account transfer recorded successfully!');
+      // Reset transfer inputs and keep open
+      setTransferAmount('');
+      setTransferTitle('Account Transfer');
+      onSuccess(false);
+      loadAccountsAndCategories();
+      setTimeout(() => {
+        tDateRef.current?.focus();
+      }, 60);
+    } catch (error: any) {
+      console.error('Transfer error:', error);
+      toast.error(error.message || 'Failed to complete transfer');
+    } finally {
+      setTransferLoading(false);
     }
   };
 
   return (
-    <div className="space-y-4">
-      {/* Custom Tabs */}
-      {isSuperAdmin && !initialData && (
-        <div className="flex border-b border-muted">
+    <div className="space-y-3">
+      {/* Top Tab Switcher (Only visible when adding a new record) */}
+      {!initialData && (
+        <div className="flex border-b border-border pb-1 mb-2">
           <button
             type="button"
-            className={`flex-1 py-2 text-sm font-semibold border-b-2 transition-all ${
-              activeTab === 'transaction'
-                ? 'border-primary text-primary font-bold'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-            onClick={() => setActiveTab('transaction')}
+            onClick={() => setActiveTab('journal')}
+            className={cn(
+              "flex-1 flex items-center justify-center gap-2 pb-2 text-xs font-semibold border-b-2 transition-all cursor-pointer",
+              activeTab === 'journal'
+                ? "border-primary text-primary font-bold"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
           >
-            {t("ledger.cash_in_out")}
+            <ReceiptText className="h-3.5 w-3.5" />
+            Cash In / Out (Journal)
           </button>
           <button
             type="button"
-            className={`flex-1 py-2 text-sm font-semibold border-b-2 transition-all ${
-              activeTab === 'transfer'
-                ? 'border-primary text-primary font-bold'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
             onClick={() => setActiveTab('transfer')}
+            className={cn(
+              "flex-1 flex items-center justify-center gap-2 pb-2 text-xs font-semibold border-b-2 transition-all cursor-pointer",
+              activeTab === 'transfer'
+                ? "border-primary text-primary font-bold"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
           >
-            {t("ledger.account_transfer")}
+            <ArrowRightLeft className="h-3.5 w-3.5" />
+            Account Transfer
           </button>
         </div>
       )}
 
-      {activeTab === 'transaction' ? (
+      {/* 1. Cash In / Out (Journal) Form */}
+      {activeTab === 'journal' || initialData ? (
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-2.5 md:space-y-4">
-        <FormField
-          control={form.control}
-          name="date"
-          render={({ field }) => (
-            <FormItem className="space-y-1">
-              <FormLabel className="text-xs md:text-sm">Date</FormLabel>
-              <FormControl>
-                <Input 
-                  onKeyDown={handleDateKeyDown}
-                  type="date" 
-                  className="h-8 md:h-10 text-xs md:text-sm"
-                  {...field} 
-                  ref={(e) => {
-                    field.ref(e);
-                    dateRef.current = e;
-                  }}
-                  autoFocus
-                />
-              </FormControl>
-              <FormMessage className="text-[10px] md:text-xs" />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="type"
-          render={({ field }) => (
-            <FormItem className="space-y-1.5">
-              <FormLabel className="text-xs md:text-sm">Type</FormLabel>
-              <FormControl>
-                <RadioGroup
-                  value={field.value}
-                  onValueChange={field.onChange}
-                  className="flex items-center gap-6 pt-0.5"
-                >
-                  <div className="flex items-center space-x-1.5">
-                    <RadioGroupItem value="income" id="type-income" className="h-3.5 w-3.5" />
-                    <Label htmlFor="type-income" className="text-emerald-600 dark:text-emerald-400 font-semibold cursor-pointer select-none text-xs md:text-sm">
-                      Income
-                    </Label>
-                  </div>
-                  <div className="flex items-center space-x-1.5">
-                    <RadioGroupItem value="expense" id="type-expense" className="h-3.5 w-3.5" />
-                    <Label htmlFor="type-expense" className="text-rose-600 dark:text-rose-400 font-semibold cursor-pointer select-none text-xs md:text-sm">
-                      Expense
-                    </Label>
-                  </div>
-                </RadioGroup>
-              </FormControl>
-              <FormMessage className="text-[10px] md:text-xs" />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="category"
-          render={({ field }) => (
-            <FormItem className="space-y-1">
-              <FormLabel className="text-xs md:text-sm">Category</FormLabel>
-              <Select value={field.value || ''} onValueChange={field.onChange}>
-                <FormControl>
-                  <SelectTrigger 
-                    className="h-8 md:h-10 text-xs md:text-sm" 
-                    ref={categoryRef}
-                    onKeyDown={handleCategoryKeyDown}
-                  >
-                    <SelectValue placeholder="Select Category">
-                      {field.value ? field.value : "Select Category"}
-                    </SelectValue>
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  {filteredCategories.length === 0 ? (
-                    <SelectItem value="none" disabled className="text-xs md:text-sm">
-                      No categories found
-                    </SelectItem>
-                  ) : (
-                    filteredCategories.map((cat) => (
-                      <SelectItem key={cat._id} value={cat.name} className="text-xs md:text-sm">
-                        {cat.name}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-              <FormMessage className="text-[10px] md:text-xs" />
-            </FormItem>
-          )}
-        />
-        {['Staff Salary', 'Wages'].includes(selectedCategory) && (
-          <FormField
-            control={form.control}
-            name="employee"
-            render={({ field }) => (
-              <FormItem className="space-y-1">
-                <FormLabel className="text-xs md:text-sm">Employee</FormLabel>
-                <Select value={field.value || ''} onValueChange={field.onChange}>
+          <form 
+            onSubmit={form.handleSubmit(onSubmit)} 
+            onKeyDown={handleJournalFormKeyDown} 
+            className="space-y-3 text-xs"
+          >
+            <FormField
+              control={form.control}
+              name="date"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-xs">Date</FormLabel>
                   <FormControl>
-                  <SelectTrigger 
-                    className="h-8 md:h-10 text-xs md:text-sm"
-                    ref={employeeRef}
-                    onKeyDown={handleEmployeeKeyDown}
-                  >
-                    <SelectValue placeholder="Select Employee">
-                        {field.value && field.value !== 'none' 
-                          ? employees.find(e => e._id === field.value)?.name 
-                          : "Select Employee"}
-                      </SelectValue>
-                    </SelectTrigger>
+                    <Input 
+                      type="date" 
+                      {...field} 
+                      ref={(e) => {
+                        field.ref(e);
+                        dateRef.current = e;
+                      }}
+                      onKeyDown={handleDateKeyDown}
+                      className="h-8 text-xs"
+                      autoFocus
+                    />
                   </FormControl>
-                  <SelectContent>
-                    {employees.filter(emp => selectedCategory === 'Staff Salary' ? emp.employeeType === 'monthly' : emp.employeeType === 'task-based').length === 0 ? (
-                      <SelectItem value="none" disabled className="text-xs md:text-sm">
-                        No employees found
-                      </SelectItem>
-                    ) : (
-                      employees.filter(emp => selectedCategory === 'Staff Salary' ? emp.employeeType === 'monthly' : emp.employeeType === 'task-based').map((emp) => (
-                        <SelectItem key={emp._id} value={emp._id} className="text-xs md:text-sm">
-                          {emp.name}
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
-                <FormMessage className="text-[10px] md:text-xs" />
-              </FormItem>
-            )}
-          />
-        )}
-        {['Loan Paid', 'Profit/Interest'].includes(selectedCategory) && (
-          <div className="space-y-1">
-            <Label className="text-xs md:text-sm">Loan Provider</Label>
-            <Select value={selectedProviderId} onValueChange={(val) => setSelectedProviderId(val || '')}>
-              <SelectTrigger 
-                className="h-8 md:h-10 text-xs md:text-sm"
-                ref={loanProviderRef}
-                onKeyDown={handleLoanProviderKeyDown}
-              >
-                <SelectValue placeholder="Select Loan Provider">
-                  {selectedProviderId ? loanProviders.find(p => p._id === selectedProviderId)?.name : "Select Loan Provider"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {loanProviders.length === 0 ? (
-                  <SelectItem value="none" disabled className="text-xs md:text-sm">
-                    No loan providers found
-                  </SelectItem>
-                ) : (
-                  loanProviders.map((provider) => (
-                    <SelectItem key={provider._id} value={provider._id} className="text-xs md:text-sm">
-                      {provider.name}
-                    </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
-        {selectedCategory === 'Account receivable' && (
-          <div className="space-y-1">
-            <Label className="text-xs md:text-sm">Customer (Due)</Label>
-            <Select value={selectedCustomerPhone} onValueChange={(val) => setSelectedCustomerPhone(val || '')}>
-              <SelectTrigger 
-                className="h-8 md:h-10 text-xs md:text-sm"
-                ref={customerRef}
-                onKeyDown={handleCustomerKeyDown}
-              >
-                <SelectValue placeholder="Select Customer">
-                  {selectedCustomerPhone ? (() => {
-                    const match = dueCustomers.find(c => c.phone === selectedCustomerPhone);
-                    return match ? `${match.name} (Due: ৳${match.due})` : "Select Customer";
-                  })() : "Select Customer"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {dueCustomers.length === 0 ? (
-                  <SelectItem value="none" disabled className="text-xs md:text-sm">
-                    No customers with outstanding dues
-                  </SelectItem>
-                ) : (
-                  dueCustomers.map((customer) => (
-                    <SelectItem key={customer.phone} value={customer.phone} className="text-xs md:text-sm">
-                      {customer.name} ({customer.phone}) - Due: ৳{customer.due}
-                    </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-
-        {selectedCategory === 'Account payable' && (
-          <div className="space-y-1">
-            <Label className="text-xs md:text-sm">Supplier</Label>
-            <Select value={selectedSupplierId} onValueChange={(val) => setSelectedSupplierId(val || '')}>
-              <SelectTrigger 
-                className="h-8 md:h-10 text-xs md:text-sm"
-                ref={supplierRef}
-                onKeyDown={handleSupplierKeyDown}
-              >
-                <SelectValue placeholder="Select Supplier">
-                  {selectedSupplierId ? (() => {
-                    const match = suppliers.find(s => s._id === selectedSupplierId);
-                    return match ? `${match.name || match.companyName} (Due: ৳${match.currentBalance})` : "Select Supplier";
-                  })() : "Select Supplier"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {suppliers.length === 0 ? (
-                  <SelectItem value="none" disabled className="text-xs md:text-sm">
-                    No suppliers found
-                  </SelectItem>
-                ) : (
-                  suppliers.map((supplier) => (
-                    <SelectItem key={supplier._id} value={supplier._id} className="text-xs md:text-sm">
-                      {supplier.name || supplier.companyName} ({supplier.phone}) - Due: ৳{supplier.currentBalance}
-                    </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-        <FormField
-          control={form.control}
-          name="title"
-          render={({ field }) => (
-            <FormItem className="space-y-1">
-              <FormLabel className="text-xs md:text-sm">Title</FormLabel>
-              <FormControl>
-                <Input 
-                  onKeyDown={handleTitleKeyDown}
-                  placeholder={selectedType === 'expense' ? 'e.g. Facebook Ads April' : 'e.g. Client Project Payment'} 
-                  className="h-8 md:h-10 text-xs md:text-sm"
-                  {...field} 
-                  ref={(e) => {
-                    field.ref(e);
-                    titleRef.current = e;
-                  }}
-                />
-              </FormControl>
-              <FormMessage className="text-[10px] md:text-xs" />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="amount"
-          render={({ field }) => (
-            <FormItem className="space-y-1">
-              <FormLabel className="text-xs md:text-sm">Amount (Tk)</FormLabel>
-              <FormControl>
-                <Input 
-                  onKeyDown={handleAmountKeyDown}
-                  type="number" 
-                  placeholder="Enter amount"
-                  className="h-8 md:h-10 text-xs md:text-sm"
-                  {...field} 
-                  onChange={(e) => field.onChange(e.target.value === '' ? '' : Number(e.target.value))}
-                  ref={(e) => {
-                    field.ref(e);
-                    amountRef.current = e;
-                  }}
-                />
-              </FormControl>
-              <FormMessage className="text-[10px] md:text-xs" />
-            </FormItem>
-          )}
-        />
-        {isAdmin && showrooms.length > 0 && (
-          <FormField
-            control={form.control}
-            name="showroom"
-            render={({ field }) => (
-              <FormItem className="space-y-1">
-                <FormLabel className="text-xs md:text-sm">Showroom (Optional)</FormLabel>
-                <Select value={field.value || 'none'} onValueChange={(val) => field.onChange(val === 'none' ? undefined : val)}>
+            <FormField
+              control={form.control}
+              name="type"
+              render={({ field }) => (
+                <FormItem className="space-y-1">
+                  <FormLabel className="text-xs">Transaction Type</FormLabel>
                   <FormControl>
-                    <SelectTrigger 
-                      className="h-8 md:h-10 text-xs md:text-sm"
-                      ref={showroomRef}
-                      onKeyDown={handleShowroomKeyDown}
+                    <RadioGroup
+                      value={field.value}
+                      onValueChange={(val: 'expense' | 'income') => {
+                        field.onChange(val);
+                        if (val === 'expense') {
+                          const currentId = form.getValues('paymentAccountId');
+                          const currentAcc = accounts.find(a => a._id === currentId);
+                          if (!currentAcc || (currentAcc.currentBalance || 0) <= 0) {
+                            const firstPositive = transferableAccounts.find(a => (a.currentBalance || 0) > 0);
+                            form.setValue('paymentAccountId', firstPositive?._id || '');
+                          }
+                        }
+                      }}
+                      className="flex items-center gap-6 pt-0.5"
                     >
-                      <SelectValue placeholder="Select Showroom">
-                        {field.value && field.value !== 'none'
-                          ? showrooms.find(s => s._id === field.value)?.name
-                          : "None (Global)"}
-                      </SelectValue>
-                    </SelectTrigger>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="expense" id="type-expense" />
+                        <Label htmlFor="type-expense" className="text-rose-600 dark:text-rose-400 font-bold cursor-pointer text-xs select-none">
+                          Expense
+                        </Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="income" id="type-income" />
+                        <Label htmlFor="type-income" className="text-emerald-600 dark:text-emerald-400 font-bold cursor-pointer text-xs select-none">
+                          Income
+                        </Label>
+                      </div>
+                    </RadioGroup>
                   </FormControl>
-                  <SelectContent>
-                    <SelectItem value="none" className="text-xs md:text-sm">None (Global)</SelectItem>
-                    {showrooms.map((showroom) => (
-                      <SelectItem key={showroom._id} value={showroom._id} className="text-xs md:text-sm">
-                        {showroom.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage className="text-[10px] md:text-xs" />
-              </FormItem>
-            )}
-          />
-        )}
-        <FormField
-          control={form.control}
-          name="accountCode"
-          render={({ field }) => (
-            <FormItem className="space-y-1">
-              <FormLabel className="text-xs md:text-sm">Adjust Account</FormLabel>
-              <Select value={field.value} onValueChange={field.onChange}>
-                <FormControl>
-                  <SelectTrigger 
-                    className="h-8 md:h-10 text-xs md:text-sm"
-                    ref={accountRef}
-                    onKeyDown={handleAccountKeyDown}
-                  >
-                    <SelectValue placeholder="Select Account">
-                     {field.value
-                       ? (() => {
-                           const acc = accounts.find((a) => a.code === field.value);
-                           if (!acc) return field.value;
-                           const isEditCurrentAccount = initialData && initialData.accountCode === acc.code && initialData.type === 'expense';
-                           const effectiveBalance = acc.currentBalance + (isEditCurrentAccount ? initialData.amount : 0);
-                           return `${acc.name} (৳${effectiveBalance.toLocaleString()})`;
-                         })()
-                       : "Select Account"}
-                    </SelectValue>
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  {accounts.map((acc) => {
-                    const isEditCurrentAccount = initialData && initialData.accountCode === acc.code && initialData.type === 'expense';
-                    const effectiveBalance = acc.currentBalance + (isEditCurrentAccount ? initialData.amount : 0);
-                    const hasInsufficientBalance = selectedType === 'expense' && selectedAmount > effectiveBalance;
-                    return (
-                      <SelectItem 
-                        key={acc.code} 
-                        value={acc.code} 
-                        disabled={hasInsufficientBalance}
-                        className="text-xs md:text-sm"
-                      >
-                        {acc.name} (৳{effectiveBalance.toLocaleString()}) {hasInsufficientBalance && " - Insufficient Balance"}
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
-              <FormMessage className="text-[10px] md:text-xs" />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="description"
-          render={({ field }) => (
-            <FormItem className="space-y-1">
-              <FormLabel className="text-xs md:text-sm">Description</FormLabel>
-              <FormControl>
-                <Textarea 
-                  onKeyDown={handleDescriptionKeyDown}
-                  placeholder="Additional details..." 
-                  className="min-h-[50px] md:min-h-[80px] text-xs md:text-sm py-1.5 md:py-2"
-                  {...field} 
-                  ref={(e) => {
-                    field.ref(e);
-                    descriptionRef.current = e;
-                  }}
-                />
-              </FormControl>
-              <FormMessage className="text-[10px] md:text-xs" />
-            </FormItem>
-          )}
-        />
-        <Button ref={submitBtnRef} type="submit" className="w-full h-8 md:h-10 text-xs md:text-sm mt-1" disabled={loading}>
-          {loading && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
-          {initialData ? 'Update' : 'Create'} {selectedType === 'expense' ? 'Expense' : 'Income'}
-        </Button>
-      </form>
-    </Form>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <div className="grid grid-cols-2 gap-2">
+              <FormField
+                control={form.control}
+                name="category"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">Category *</FormLabel>
+                    <Select value={field.value} onValueChange={handleCategoryChange}>
+                      <FormControl>
+                        <SelectTrigger 
+                          ref={categoryTriggerRef}
+                          onKeyDown={handleCategoryKeyDown}
+                          className="h-8 text-xs"
+                        >
+                          <SelectValue placeholder="Select Category">
+                            {field.value || "Select Category"}
+                          </SelectValue>
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {categories.map((c) => (
+                          <SelectItem key={c._id} value={c.name} className="text-xs">
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                        {categories.length === 0 && (
+                          <SelectItem value="Others" className="text-xs">Others</SelectItem>
+                        )}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="paymentAccountId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">Bank / Cash Account</FormLabel>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger 
+                          ref={accountTriggerRef}
+                          onKeyDown={handleAccountKeyDown}
+                          className="h-8 text-xs"
+                        >
+                          <SelectValue placeholder="Select Account">
+                            {field.value
+                              ? transferableAccounts.find((a) => a._id === field.value)
+                                ? `${cleanAccountName(transferableAccounts.find((a) => a._id === field.value)?.name)} (৳${Math.round(transferableAccounts.find((a) => a._id === field.value)?.currentBalance || 0).toLocaleString()})`
+                                : "Select Account"
+                              : "Select Account"}
+                          </SelectValue>
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {transferableAccounts.map((a) => {
+                          const bal = a.currentBalance || 0;
+                          const isZeroOrNeg = bal <= 0;
+                          const isDisabled = selectedType === 'expense' && isZeroOrNeg;
+                          const hasInsufficient = selectedType === 'expense' && !isZeroOrNeg && selectedAmount > bal;
+                          return (
+                            <SelectItem 
+                              key={a._id} 
+                              value={a._id} 
+                              disabled={isDisabled}
+                              className={cn("text-xs", isDisabled && "opacity-50 cursor-not-allowed text-muted-foreground")}
+                            >
+                              {cleanAccountName(a.name)} (৳${Math.round(bal).toLocaleString()})
+                              {isDisabled 
+                                ? " (Zero / Insufficient Balance)" 
+                                : hasInsufficient 
+                                ? " ⚠️ (Low Balance)" 
+                                : ""}
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                    {selectedType === 'expense' && (() => {
+                      const selAcc = transferableAccounts.find((a) => a._id === field.value);
+                      if (selAcc && (selAcc.currentBalance || 0) <= 0) {
+                        return (
+                          <p className="text-[11px] font-semibold text-destructive mt-1">
+                            ⚠️ This account has zero or negative balance (৳{Math.round(selAcc.currentBalance || 0).toLocaleString()}). Expenses cannot be recorded from it.
+                          </p>
+                        );
+                      }
+                      return null;
+                    })()}
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <FormField
+              control={form.control}
+              name="title"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-xs">Title / Reason *</FormLabel>
+                  <FormControl>
+                    <Input 
+                      placeholder={selectedType === 'expense' ? 'e.g. Facebook Ads Campaign / Office Rent' : 'e.g. Direct Sales / Partner Inflow'} 
+                      {...field} 
+                      ref={(e) => {
+                        field.ref(e);
+                        titleRef.current = e;
+                      }}
+                      onKeyDown={handleTitleKeyDown}
+                      className="h-8 text-xs"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="amount"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-xs">Amount (৳) *</FormLabel>
+                  <FormControl>
+                    <Input 
+                      type="number" 
+                      placeholder="Enter amount"
+                      {...field} 
+                      onChange={(e) => field.onChange(e.target.value === '' ? '' : Number(e.target.value))}
+                      ref={(e) => {
+                        field.ref(e);
+                        amountRef.current = e;
+                      }}
+                      onKeyDown={handleAmountKeyDown}
+                      className="h-8 text-xs text-right font-bold"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="description"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-xs">Description / Note</FormLabel>
+                  <FormControl>
+                    <Textarea 
+                      placeholder="Optional additional notes..." 
+                      {...field} 
+                      ref={(e) => {
+                        field.ref(e);
+                        descriptionRef.current = e;
+                      }}
+                      onKeyDown={handleDescriptionKeyDown}
+                      className="text-xs min-h-[50px]"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <Button 
+              ref={submitBtnRef} 
+              type="submit" 
+              className="w-full h-8 font-bold text-xs" 
+              disabled={loading}
+            >
+              {loading && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
+              {initialData ? 'Update' : 'Confirm & Record'} {selectedType === 'expense' ? 'Expense' : 'Income'}
+            </Button>
+          </form>
+        </Form>
       ) : (
-        <form onSubmit={handleTransferSubmit} className="space-y-4 pt-2">
-          <div className="space-y-2">
-            <Label htmlFor="transferDate">{t("ledger.transaction_date")}</Label>
+        /* 2. Account Transfer Form */
+        <form 
+          onSubmit={handleTransferSubmit} 
+          onKeyDown={handleTransferFormKeyDown}
+          className="space-y-3 text-xs"
+        >
+          <div className="space-y-1">
+            <Label htmlFor="transferDate" className="text-xs">Transaction Date *</Label>
             <Input
               id="transferDate"
+              ref={tDateRef}
               type="date"
-              className="h-8 md:h-10 text-xs md:text-sm"
+              className="h-8 text-xs"
               value={transferDate}
               onChange={(e) => setTransferDate(e.target.value)}
+              onKeyDown={handleTDateKeyDown}
               required
+              autoFocus
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="fromAcc">{t("ledger.from_account")}</Label>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label className="text-xs">From Account *</Label>
               <Select
-                value={fromAccountCode}
-                onValueChange={(val: any) => {
-                  setFromAccountCode(val);
-                  if (val === toAccountCode) {
-                    const nextAcc = accounts.find(a => a.code !== val);
-                    setToAccountCode(nextAcc ? nextAcc.code : val);
+                value={fromAccountId}
+                onValueChange={(val) => {
+                  const value = val || '';
+                  setFromAccountId(value);
+                  if (value === toAccountId) {
+                    const nextAcc = transferableAccounts.find((a) => a._id !== value);
+                    if (nextAcc) setToAccountId(nextAcc._id);
                   }
                 }}
               >
-                <SelectTrigger id="fromAcc" className="h-8 md:h-10 text-xs md:text-sm">
-                  <SelectValue>
-                    {fromAccountCode ? (() => {
-                      const acc = accounts.find(a => a.code === fromAccountCode);
-                      return acc ? `${acc.name} (৳${acc.currentBalance.toLocaleString()})` : fromAccountCode;
-                    })() : ""}
+                <SelectTrigger 
+                  ref={tFromTriggerRef}
+                  onKeyDown={handleTFromKeyDown}
+                  className="h-8 text-xs"
+                >
+                  <SelectValue placeholder="Select Source">
+                    {fromAccountId
+                      ? transferableAccounts.find((a) => a._id === fromAccountId)
+                        ? `${cleanAccountName(transferableAccounts.find((a) => a._id === fromAccountId)?.name)} (৳${Math.round(transferableAccounts.find((a) => a._id === fromAccountId)?.currentBalance || 0).toLocaleString()})`
+                        : "Select Source"
+                      : "Select Source"}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {accounts.map((acc) => {
-                    const transferAmtVal = parseFloat(transferAmount) || 0;
-                    const hasInsufficient = transferAmtVal > acc.currentBalance;
+                  {transferableAccounts.map((acc) => {
+                    const amtVal = parseFloat(transferAmount) || 0;
+                    const bal = acc.currentBalance || 0;
+                    const isZeroOrNeg = bal <= 0;
+                    const hasInsufficient = !isZeroOrNeg && amtVal > bal;
                     return (
                       <SelectItem 
-                        key={acc.code} 
-                        value={acc.code} 
-                        disabled={hasInsufficient}
-                        className="text-xs md:text-sm"
+                        key={acc._id} 
+                        value={acc._id} 
+                        disabled={isZeroOrNeg}
+                        className={cn("text-xs", isZeroOrNeg && "opacity-50 cursor-not-allowed text-muted-foreground")}
                       >
-                        {acc.name} (৳{acc.currentBalance.toLocaleString()}) {hasInsufficient && " - Insufficient Balance"}
+                        {cleanAccountName(acc.name)} (৳${Math.round(bal).toLocaleString()})
+                        {isZeroOrNeg ? " (Zero Balance)" : hasInsufficient ? " ⚠️ (Low Balance)" : ""}
                       </SelectItem>
                     );
                   })}
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="toAcc">{t("ledger.to_account")}</Label>
+
+            <div className="space-y-1">
+              <Label className="text-xs">To Account *</Label>
               <Select
-                value={toAccountCode}
-                onValueChange={(val: any) => {
-                  setToAccountCode(val);
-                  if (val === fromAccountCode) {
-                    const nextAcc = accounts.find(a => a.code !== val);
-                    setFromAccountCode(nextAcc ? nextAcc.code : val);
+                value={toAccountId}
+                onValueChange={(val) => {
+                  const value = val || '';
+                  setToAccountId(value);
+                  if (value === fromAccountId) {
+                    const nextAcc = transferableAccounts.find((a) => a._id !== value);
+                    if (nextAcc) setFromAccountId(nextAcc._id);
                   }
                 }}
               >
-                <SelectTrigger id="toAcc" className="h-8 md:h-10 text-xs md:text-sm">
-                  <SelectValue>
-                    {toAccountCode ? (() => {
-                      const acc = accounts.find(a => a.code === toAccountCode);
-                      return acc ? `${acc.name} (৳${acc.currentBalance.toLocaleString()})` : toAccountCode;
-                    })() : ""}
+                <SelectTrigger 
+                  ref={tToTriggerRef}
+                  onKeyDown={handleTToKeyDown}
+                  className="h-8 text-xs"
+                >
+                  <SelectValue placeholder="Select Destination">
+                    {toAccountId
+                      ? transferableAccounts.find((a) => a._id === toAccountId)
+                        ? `${cleanAccountName(transferableAccounts.find((a) => a._id === toAccountId)?.name)} (৳${Math.round(transferableAccounts.find((a) => a._id === toAccountId)?.currentBalance || 0).toLocaleString()})`
+                        : "Select Destination"
+                      : "Select Destination"}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {accounts.map((acc) => (
-                    <SelectItem key={acc.code} value={acc.code} className="text-xs md:text-sm">
-                      {acc.name} (৳{acc.currentBalance.toLocaleString()})
+                  {transferableAccounts.map((acc) => (
+                    <SelectItem key={acc._id} value={acc._id} className="text-xs">
+                      {cleanAccountName(acc.name)} (৳${Math.round(acc.currentBalance || 0).toLocaleString()})
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="transferTitle">{t("ledger.title_description")}</Label>
+
+          <div className="space-y-1">
+            <Label htmlFor="transferTitle" className="text-xs">Title / Description *</Label>
             <Input
               id="transferTitle"
+              ref={tTitleRef}
               placeholder="e.g. Account Transfer"
-              className="h-8 md:h-10 text-xs md:text-sm"
+              className="h-8 text-xs"
               value={transferTitle}
               onChange={(e) => setTransferTitle(e.target.value)}
+              onKeyDown={handleTTitleKeyDown}
               required
             />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="transferAmt">{t("ledger.transfer_amount")}</Label>
+
+          <div className="space-y-1">
+            <Label htmlFor="transferAmt" className="text-xs">Transfer Amount (৳) *</Label>
             <Input
               id="transferAmt"
+              ref={tAmountRef}
               type="number"
               min="1"
               placeholder="0.00"
-              className="h-8 md:h-10 text-xs md:text-sm"
+              className="h-8 text-xs text-right font-bold"
               value={transferAmount}
               onChange={(e) => setTransferAmount(e.target.value)}
+              onKeyDown={handleTAmountKeyDown}
               required
             />
           </div>
-          <Button type="submit" className="w-full h-8 md:h-10 text-xs md:text-sm mt-1" disabled={transferSubmitLoading}>
-            {transferSubmitLoading && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
-            {t("ledger.log_transaction")}
+
+          <Button 
+            ref={tSubmitBtnRef}
+            type="submit" 
+            className="w-full h-8 font-bold text-xs" 
+            disabled={transferLoading}
+          >
+            {transferLoading && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
+            Log Transfer Transaction
           </Button>
         </form>
       )}

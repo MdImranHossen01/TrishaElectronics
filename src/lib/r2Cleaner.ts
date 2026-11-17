@@ -3,10 +3,14 @@ import { r2Client, R2_BUCKET_NAME, R2_PUBLIC_URL, deleteMultipleFromR2 } from '@
 import connectToDatabase from '@/lib/db';
 import Product from '@/models/Product';
 import Category from '@/models/Category';
+import Brand from '@/models/Brand';
 import Banner from '@/models/Banner';
+import Slider from '@/models/Slider';
 import Blog from '@/models/Blog';
 import User from '@/models/User';
+import Reseller from '@/models/Reseller';
 import GlobalSettings from '@/models/GlobalSettings';
+import LandingPage from '@/models/LandingPage';
 
 export interface OrphanImageItem {
   key: string;
@@ -38,12 +42,20 @@ function formatBytes(bytes: number, decimals = 2): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 }
 
+/**
+ * Returns the default platform storage prefix (e.g. "swapnobaz/", "dhakafairprice/", or "jiapixel/")
+ */
 export function getPlatformStoragePrefix(): string {
   const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'trishnaelectronics.com';
-  const platform = rootDomain.split('.')[0].toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'trishnaelectronics';
+  const platform = rootDomain.split('.')[0].toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'Trishna Electronics';
   return `${platform}/`;
 }
 
+/**
+ * Scans Cloudflare R2 bucket for unused (orphaned) images.
+ * Only flags images that are NOT referenced anywhere in the MongoDB database
+ * and are older than minAgeMinutes (default: 60 minutes) to avoid race conditions with active drafting.
+ */
 export async function scanOrphanR2Images(options?: {
   prefix?: string;
   minAgeMinutes?: number;
@@ -52,6 +64,7 @@ export async function scanOrphanR2Images(options?: {
   const minAgeMinutes = options?.minAgeMinutes ?? 60;
   const cutoffTime = Date.now() - minAgeMinutes * 60 * 1000;
 
+  // 1. Fetch all objects from R2 under targetPrefix
   const r2Objects: Array<{ Key: string; Size: number; LastModified: Date }> = [];
   let continuationToken: string | undefined = undefined;
 
@@ -80,18 +93,8 @@ export async function scanOrphanR2Images(options?: {
   const totalObjects = r2Objects.length;
   const totalSize = r2Objects.reduce((acc, curr) => acc + curr.Size, 0);
 
+  // 2. Fetch all image-containing documents from MongoDB
   await connectToDatabase();
-
-  // Safely import optional models
-  let BrandModel: any = null;
-  // @ts-ignore
-  try { BrandModel = (await import("@/models/Brand")).default; } catch {}
-  let SliderModel: any = null;
-  // @ts-ignore
-  try { SliderModel = (await import("@/models/Slider")).default; } catch {}
-  let LandingPageModel: any = null;
-  // @ts-ignore
-  try { LandingPageModel = (await import("@/models/LandingPage")).default; } catch {}
 
   const [
     products,
@@ -101,20 +104,23 @@ export async function scanOrphanR2Images(options?: {
     sliders,
     blogs,
     users,
+    resellers,
     settings,
     landingPages,
   ] = await Promise.all([
     Product.find({}, { images: 1, featuredImage: 1, thumbnail: 1, description: 1 }).lean().catch(() => []),
     Category.find({}, { image: 1, banner: 1 }).lean().catch(() => []),
-    BrandModel ? BrandModel.find({}, { logo: 1 }).lean().catch(() => []) : Promise.resolve([]),
+    Brand.find({}, { logo: 1 }).lean().catch(() => []),
     Banner.find({}, { imageUrl: 1, mobileImageUrl: 1 }).lean().catch(() => []),
-    SliderModel ? SliderModel.find({}, { image: 1, mobileImage: 1 }).lean().catch(() => []) : Promise.resolve([]),
+    Slider.find({}, { image: 1, mobileImage: 1 }).lean().catch(() => []),
     Blog.find({}, { featuredImage: 1, content: 1 }).lean().catch(() => []),
     User.find({}, { image: 1, avatar: 1 }).lean().catch(() => []),
+    Reseller.find({}, { logo: 1, banner: 1, nidImages: 1 }).lean().catch(() => []),
     GlobalSettings.find({}).lean().catch(() => []),
-    LandingPageModel ? LandingPageModel.find({}).lean().catch(() => []) : Promise.resolve([]),
+    LandingPage.find({}).lean().catch(() => []),
   ]);
 
+  // Aggregate all database JSON text for instant filename search
   const combinedDbText = JSON.stringify({
     products,
     categories,
@@ -123,21 +129,26 @@ export async function scanOrphanR2Images(options?: {
     sliders,
     blogs,
     users,
+    resellers,
     settings,
     landingPages,
   });
 
+  // 3. Find orphaned files (files not found in database and older than cutoffTime)
   const orphans: OrphanImageItem[] = [];
   let orphanSize = 0;
 
   for (const obj of r2Objects) {
+    // Filename component (e.g. 1793593494459-8be59971-4ef4-4b98-a1ea-5d34b684b47a.webp)
     const filename = obj.Key.split('/').pop();
     if (!filename) continue;
 
+    // Skip recently uploaded files (within minAgeMinutes)
     if (obj.LastModified.getTime() > cutoffTime) {
       continue;
     }
 
+    // Check if filename appears anywhere in the database text
     const isReferenced = combinedDbText.includes(filename);
 
     if (!isReferenced) {
@@ -166,6 +177,9 @@ export async function scanOrphanR2Images(options?: {
   };
 }
 
+/**
+ * Deletes specified orphaned keys from Cloudflare R2
+ */
 export async function purgeOrphanR2Images(keys: string[]): Promise<{
   success: boolean;
   deletedCount: number;

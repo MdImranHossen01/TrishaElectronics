@@ -1,6 +1,6 @@
-﻿import { headers } from 'next/headers';
+import { headers } from 'next/headers';
 import { Suspense } from 'react';
-import { getCachedProducts, getCachedCategories, getCachedSettings } from '@/lib/data-fetching';
+import { getCachedProducts, getCachedCategories, getCachedBrands, getCachedSettings } from '@/lib/data-fetching';
 import { ShopHeaderSkeleton, ProductCardSkeleton } from '@/components/storefront/Skeletons';
 import { ShopListingSelector } from '@/components/templates/ServerRegistry';
 
@@ -8,15 +8,15 @@ import { Metadata } from 'next';
 
 export async function generateMetadata(): Promise<Metadata> {
   const settings = await getCachedSettings();
-  const brandName = settings?.brandName || 'Omor Auto Corner';
+  const brandName = settings?.brandName || process.env.NEXT_PUBLIC_STORE_NAME || 'Store';
   const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
   const headersList = await headers();
   const hostname = headersList.get('host') || 'localhost';
   const baseUrl = `${protocol}://${hostname}`;
 
   return {
-    title: `Shop Premium Healthcare & Medicines | ${brandName}`,
-    description: `Buy high-quality prescription medicines, OTC daily healthcare, surgical instruments, diagnostic devices, baby care, and personal wellness essentials online at ${brandName}. Fast home delivery and 100% authentic products.`,
+    title: `Shop All Products | ${brandName}`,
+    description: `Explore and buy high quality products online at ${brandName}. Fast home delivery, best deals and 100% authentic items.`,
     openGraph: {
       title: `Shop | ${brandName}`,
       description: `Explore the wide range of products at ${brandName}.`,
@@ -34,9 +34,10 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function ShopPage({ searchParams }: { searchParams: Promise<{ [key: string]: string | string[] | undefined }> }) {
   // Fetch initial data on the server with caching
-  const [initialProducts, initialCategories, settings] = await Promise.all([
+  const [initialProducts, initialCategories, initialBrands, settings] = await Promise.all([
     getCachedProducts({}, 1000),
     getCachedCategories(),
+    getCachedBrands(),
     getCachedSettings()
   ]);
 
@@ -50,6 +51,7 @@ export default async function ShopPage({ searchParams }: { searchParams: Promise
         productCardStyle={productCardStyle}
         products={initialProducts}
         categories={initialCategories}
+        brands={initialBrands}
         searchParams={searchParams}
       />
     </Suspense>
@@ -75,7 +77,7 @@ function ShopFallback() {
           </div>
         </aside>
         <div className="flex-1">
-          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
             {[...Array(8)].map((_, i) => (
               <ProductCardSkeleton key={i} />
             ))}

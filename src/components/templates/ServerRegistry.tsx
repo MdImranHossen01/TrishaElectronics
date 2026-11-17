@@ -6,7 +6,6 @@ import FooterV2 from './footers/FooterV2';
 import FooterV3 from './footers/FooterV3';
 import FooterV4 from './footers/FooterV4';
 import FooterV5 from './footers/FooterV5';
-import FooterAarong from './footers/FooterAarong';
 
 export const FooterSelector = ({ style }: { style: string }) => {
   switch (style) {
@@ -15,7 +14,6 @@ export const FooterSelector = ({ style }: { style: string }) => {
     case 'v3': return <FooterV3 />;
     case 'v4': return <FooterV4 />;
     case 'v5': return <FooterV5 />;
-    case 'aarong': return <FooterAarong />;
     default: return <FooterV1 />;
   }
 };
@@ -26,7 +24,6 @@ import ProductDetailsV2 from './product-details/ProductDetailsV2';
 import ProductDetailsV3 from './product-details/ProductDetailsV3';
 import ProductDetailsV4 from './product-details/ProductDetailsV4';
 import ProductDetailsV5 from './product-details/ProductDetailsV5';
-import ProductDetailsAarong from './product-details/ProductDetailsAarong';
 
 export const ProductDetailsSelector = ({ style, product }: { style: string, product: any }) => {
   switch (style) {
@@ -35,7 +32,6 @@ export const ProductDetailsSelector = ({ style, product }: { style: string, prod
     case 'v3': return <ProductDetailsV3 product={product} />;
     case 'v4': return <ProductDetailsV4 product={product} />;
     case 'v5': return <ProductDetailsV5 product={product} />;
-    case 'aarong': return <ProductDetailsAarong product={product} />;
     default: return <ProductDetailsV1 product={product} />;
   }
 };
@@ -61,33 +57,33 @@ export const BlogDetailsSelector = ({ style, blog, readingTime }: { style: strin
 // --- SHOP LISTING ---
 const ShopV1 = dynamic(() => import('./shop-page/ShopV1'));
 
-export const ShopListingSelector = ({ style, productCardStyle, products, categories, searchParams }: { style: string, productCardStyle?: string, products: any[], categories: any[], searchParams: any }) => {
+export const ShopListingSelector = ({ style, productCardStyle, products, categories, brands, searchParams }: { style: string, productCardStyle?: string, products: any[], categories: any[], brands?: any[], searchParams: any }) => {
   const activeStyle = style || 'v1';
   switch (activeStyle) {
-    case 'v1': return <ShopV1 products={products} categories={categories} searchParams={searchParams} style={activeStyle} productCardStyle={productCardStyle} />;
-    default: return <ShopV1 products={products} categories={categories} searchParams={searchParams} style={activeStyle} productCardStyle={productCardStyle} />;
+    case 'v1': return <ShopV1 products={products} categories={categories} brands={brands} searchParams={searchParams} style={activeStyle} productCardStyle={productCardStyle} />;
+    default: return <ShopV1 products={products} categories={categories} brands={brands} searchParams={searchParams} style={activeStyle} productCardStyle={productCardStyle} />;
   }
 };
 
 // --- BLOG LISTING ---
 const BlogListingV1 = dynamic(() => import('./blog-listing/BlogListingV1'));
 
-export const BlogListingSelector = ({ 
-  style, 
+export const BlogListingSelector = ({
+  style,
   variant,
-  blogs, 
-  totalBlogs, 
-  totalPages, 
-  currentPage, 
+  blogs,
+  totalBlogs,
+  totalPages,
+  currentPage,
   q,
   searchTerm
-}: { 
-  style?: string, 
+}: {
+  style?: string,
   variant?: string,
-  blogs: any[], 
-  totalBlogs: number, 
-  totalPages: number, 
-  currentPage: number, 
+  blogs: any[],
+  totalBlogs: number,
+  totalPages: number,
+  currentPage: number,
   q?: string,
   searchTerm?: string
 }) => {

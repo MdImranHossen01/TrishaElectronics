@@ -7,12 +7,13 @@ import {
 import { Button } from '@/components/ui/button';
 import { ShoppingCart, Heart, X, Plus, Minus } from 'lucide-react';
 import { RatingStars } from '@/components/ui/rating-stars';
-import { useState, useMemo, useEffect, useReducer } from 'react';
-import { useAppDispatch } from '@/store/hooks';
+import { useState, useMemo, useEffect, useRef } from 'react';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { addToCart } from '@/store/slices/cartSlice';
 import { toast } from 'sonner';
 import { fbEvent } from '@/lib/fpixel';
 import { ttEvent } from '@/lib/tiktok';
+import { validateAndAddToCart } from '@/lib/cart-seller';
 import { Badge } from '@/components/ui/badge';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -25,50 +26,14 @@ interface QuickViewModalProps {
   onClose: () => void;
 }
 
-type VariantState = {
-  selectedColor: string | null;
-  selectedSize: string | null;
-  quantity: number;
-  activeImage: string;
-};
-type VariantAction =
-  | { type: 'RESET'; payload: VariantState }
-  | { type: 'SET_COLOR'; color: string | null }
-  | { type: 'SET_SIZE'; size: string | null }
-  | { type: 'SET_QUANTITY'; quantity: number }
-  | { type: 'SET_IMAGE'; image: string };
-
-function variantReducer(state: VariantState, action: VariantAction): VariantState {
-  switch (action.type) {
-    case 'RESET':        return action.payload;
-    case 'SET_COLOR':    return { ...state, selectedColor: action.color };
-    case 'SET_SIZE':     return { ...state, selectedSize: action.size };
-    case 'SET_QUANTITY': return { ...state, quantity: action.quantity };
-    case 'SET_IMAGE':    return { ...state, activeImage: action.image };
-    default:             return state;
-  }
-}
-
 export function QuickViewModal({ product, isOpen, onClose }: QuickViewModalProps) {
   const dispatch = useAppDispatch();
+  const cartItems = useAppSelector((state) => state.cart.items);
   const { data: session } = useSession();
-
-  const [variantState, variantDispatch] = useReducer(variantReducer, {
-    selectedColor: null,
-    selectedSize: null,
-    quantity: 1,
-    activeImage: product.images?.[0] || '/placeholder.jpg',
-  });
-
-  const selectedColor = variantState.selectedColor;
-  const selectedSize  = variantState.selectedSize;
-  const quantity      = variantState.quantity;
-  const activeImage   = variantState.activeImage;
-
-  const setSelectedColor = (color: string | null) => variantDispatch({ type: 'SET_COLOR', color });
-  const setSelectedSize  = (size:  string | null) => variantDispatch({ type: 'SET_SIZE',  size });
-  const setQuantity      = (q: number)            => variantDispatch({ type: 'SET_QUANTITY', quantity: q });
-  const setActiveImage   = (image: string)        => variantDispatch({ type: 'SET_IMAGE', image });
+  const [selectedColor, setSelectedColor] = useState<string | null>(null);
+  const [selectedSize, setSelectedSize] = useState<string | null>(null);
+  const [quantity, setQuantity] = useState(1);
+  const [activeImage, setActiveImage] = useState(product.images?.[0] || '/placeholder.jpg');
 
   // Derive available options from variants
   const uniqueColors = useMemo(() =>
@@ -81,9 +46,11 @@ export function QuickViewModal({ product, isOpen, onClose }: QuickViewModalProps
     [product.variants]
   );
 
+  const prevIsOpenRef = useRef(false);
+
   const availableSizes = useMemo(() =>
     (product.variants || [])
-      .filter((v: any) => !selectedColor || v.color === selectedColor)
+      .filter((v: any) => !selectedColor || String(v.color || '').trim().toLowerCase() === String(selectedColor).trim().toLowerCase())
       .map((v: any) => v.size)
       .filter(Boolean) as string[],
     [product.variants, selectedColor]
@@ -92,8 +59,8 @@ export function QuickViewModal({ product, isOpen, onClose }: QuickViewModalProps
   const activeVariant = useMemo(() =>
     (product.variants || []).find(
       (v: any) =>
-        (v.color || null) === (selectedColor || null) &&
-        (v.size || null) === (selectedSize || null)
+        String(v.color || '').trim().toLowerCase() === String(selectedColor || '').trim().toLowerCase() &&
+        String(v.size || '').trim().toLowerCase() === String(selectedSize || '').trim().toLowerCase()
     ),
     [product.variants, selectedColor, selectedSize]
   );
@@ -101,8 +68,18 @@ export function QuickViewModal({ product, isOpen, onClose }: QuickViewModalProps
   const hasVariants = product.variants && product.variants.length > 0;
   const currentVariant = activeVariant || (hasVariants ? product.variants[0] : null);
 
-  const displayPrice = hasVariants ? (currentVariant?.price ?? 0) : product.price;
-  const displaySalePrice = hasVariants ? currentVariant?.salePrice : product.salePrice;
+  const fallbackBase = Number(product.price ?? (product as any).retailPrice ?? 0);
+  const rawProductSale = product.salePrice !== undefined && product.salePrice !== null ? Number(product.salePrice) : undefined;
+  const effectiveProductSale = (rawProductSale !== undefined && rawProductSale > 0 && rawProductSale < fallbackBase) ? rawProductSale : undefined;
+
+  const displayPrice = hasVariants && currentVariant?.price !== undefined ? Number(currentVariant.price) : fallbackBase;
+  const rawVarSale = hasVariants && currentVariant?.salePrice !== undefined && currentVariant?.salePrice !== null ? Number(currentVariant.salePrice) : undefined;
+  const displaySalePrice = hasVariants
+    ? (rawVarSale !== undefined && rawVarSale > 0 && rawVarSale < displayPrice ? rawVarSale : undefined)
+    : (effectiveProductSale !== undefined && effectiveProductSale > 0 && effectiveProductSale < displayPrice ? effectiveProductSale : undefined);
+
+  const hasDiscount = Boolean(displaySalePrice !== undefined && displaySalePrice > 0 && displaySalePrice < displayPrice);
+  const finalPrice = hasDiscount ? displaySalePrice! : displayPrice;
   const displayStock = hasVariants ? (currentVariant?.stock ?? 0) : (product.stock ?? 0);
   const displaySku = hasVariants ? (currentVariant?.sku ?? '') : product.sku;
 
@@ -111,7 +88,7 @@ export function QuickViewModal({ product, isOpen, onClose }: QuickViewModalProps
       const variantImgs = Array.from(
         new Set((product.variants || []).map((v: any) => v.image).filter(Boolean))
       ) as string[];
-
+      
       if (activeVariant?.image) {
         const idx = variantImgs.indexOf(activeVariant.image);
         if (idx > -1) {
@@ -124,78 +101,34 @@ export function QuickViewModal({ product, isOpen, onClose }: QuickViewModalProps
     return product.images || [];
   }, [product.images, product.variants, activeVariant, hasVariants]);
 
-  // Reset state when modal opens or product changes.
-  // Uses a single reducer dispatch so all state updates are batched into one render.
   useEffect(() => {
-    if (isOpen) {
-      const initialColor = uniqueColors[0] || null;
+    if (isOpen && !prevIsOpenRef.current) {
+      const defaultVar = product.variants && product.variants.length > 0 ? product.variants[0] : null;
+      const initialColor = defaultVar?.color || uniqueColors[0] || null;
+      setSelectedColor(initialColor);
+
       const initialSizes = (product.variants || [])
-        .filter((v: any) => !initialColor || v.color === initialColor)
+        .filter((v: any) => !initialColor || String(v.color || '').trim().toLowerCase() === String(initialColor).trim().toLowerCase())
         .map((v: any) => v.size)
         .filter(Boolean);
-      const initialSize = initialSizes[0] || null;
-      const defaultVar = product.variants && product.variants.length > 0 ? product.variants[0] : null;
-      const initialImg = defaultVar?.image || product.images?.[0] || '/placeholder.jpg';
-      variantDispatch({
-        type: 'RESET',
-        payload: {
-          selectedColor: initialColor,
-          selectedSize: initialSize,
-          quantity: 1,
-          activeImage: initialImg,
-        },
-      });
-    } else {
-      variantDispatch({
-        type: 'RESET',
-        payload: {
-          selectedColor: null,
-          selectedSize: null,
-          quantity: 1,
-          activeImage: product.images?.[0] || '/placeholder.jpg',
-        },
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, product?._id]);
+      const initialSize = defaultVar?.size || initialSizes[0] || null;
+      setSelectedSize(initialSize);
+      setQuantity(1);
 
-  // Sync activeImage when active variant changes — done via useEffect
-  useEffect(() => {
-    if (!isOpen) return;
-    if (activeVariant?.image) {
-      setActiveImage(activeVariant.image);
-    } else if (hasVariants) {
-      const firstVarWithImg = (product.variants || []).find((v: any) => v.image);
-      setActiveImage(firstVarWithImg?.image || product.images?.[0] || '/placeholder.jpg');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeVariant]);
+      setActiveImage(defaultVar?.image || product.images?.[0] || '/placeholder.jpg');
 
-  // Fix selectedSize if out of available sizes — done via useEffect
-  useEffect(() => {
-    if (!isOpen) return;
-    if (selectedSize == null || !availableSizes.includes(selectedSize)) {
-      setSelectedSize(availableSizes[0] || null);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [availableSizes]);
-
-  // Clamp quantity to available stock — derived during render, no effect needed
-  const effectiveQuantity =
-    isOpen && displayStock > 0 && quantity > displayStock
-      ? displayStock
-      : quantity;
-
-
-  useEffect(() => {
-    if (isOpen) {
       // Track ViewContent for Quick View
+      const initPrice = Number(defaultVar?.price ?? product.price ?? 0);
+      const initSale = (defaultVar?.salePrice !== undefined && defaultVar?.salePrice !== null && Number(defaultVar.salePrice) > 0 && Number(defaultVar.salePrice) < initPrice)
+        ? Number(defaultVar.salePrice)
+        : undefined;
+
       const viewContentPayload = {
         content_name: product.name,
         content_category: product.categories?.[0]?.name || 'Uncategorized',
         content_ids: [product._id],
         content_type: 'product',
-        value: displaySalePrice || displayPrice,
+        value: initSale || initPrice,
         currency: 'BDT'
       };
       const trackingUser = {
@@ -206,51 +139,92 @@ export function QuickViewModal({ product, isOpen, onClose }: QuickViewModalProps
       fbEvent('ViewContent', viewContentPayload, trackingUser);
       ttEvent('ViewContent', viewContentPayload, trackingUser);
     }
-  }, [isOpen, product._id, session, displayPrice, displaySalePrice, product.name, product.categories]);
+    prevIsOpenRef.current = isOpen;
+  }, [isOpen, product._id]);
 
-  // effectiveQuantity is already clamped above — no render-body setState needed
+  useEffect(() => {
+    if (selectedSize && availableSizes.length > 0) {
+      const match = availableSizes.some(s => String(s).trim().toLowerCase() === String(selectedSize).trim().toLowerCase());
+      if (!match) {
+        setSelectedSize(availableSizes[0] || null);
+      }
+    }
+  }, [selectedColor, availableSizes]);
+
+  useEffect(() => {
+    if (activeVariant?.image) {
+      setActiveImage(activeVariant.image);
+    } else if (hasVariants) {
+      const firstVarWithImg = (product.variants || []).find((v: any) => v.image);
+      setActiveImage(firstVarWithImg?.image || product.images?.[0] || '/placeholder.jpg');
+    }
+  }, [activeVariant, hasVariants, product.variants, product.images]);
 
   const router = useRouter();
 
-  const handleAddToCart = (e: React.MouseEvent, redirect: boolean = false) => {
+  const handleAddToCart = async (e: React.MouseEvent, redirect: boolean = false) => {
     e.preventDefault();
 
-    dispatch(addToCart({
-      productId: product._id,
-      name: product.name,
-      price: (displaySalePrice !== undefined && displaySalePrice !== null) ? displaySalePrice : displayPrice,
-      basePrice: displayPrice,
-      quantity: effectiveQuantity,
-      image: activeImage,
-      color: selectedColor || undefined,
-      size: selectedSize || undefined
-    }));
-
-    // Track AddToCart
-    const addToCartPayload = {
-      content_name: product.name,
-      content_category: product.categories?.[0]?.name || 'Uncategorized',
-      content_ids: [product._id],
-      content_type: 'product',
-      value: (displaySalePrice ?? displayPrice) * effectiveQuantity,
-      currency: 'BDT',
-      quantity: effectiveQuantity
-    };
-    const trackingUser = {
-      em: session?.user?.email || undefined,
-      ph: (session?.user as any)?.phone || undefined,
-      fn: session?.user?.name || undefined
-    };
-    fbEvent('AddToCart', addToCartPayload, trackingUser);
-    ttEvent('AddToCart', addToCartPayload, trackingUser);
-
     if (redirect) {
-      router.push('/checkout');
-    } else {
-      toast.success(`${product.name} added to cart`);
+      const existing = cartItems.find(
+        (item: any) =>
+          item.productId === product._id &&
+          (item.color || '') === (selectedColor || '') &&
+          (item.size || '') === (selectedSize || '')
+      );
+      if (existing) {
+        toast.info('Already added to cart');
+        router.push('/checkout');
+        onClose();
+        return;
+      }
     }
 
-    onClose();
+    const itemToAdd = {
+      productId: (product as any).productId || product._id,
+      resellerProductId: (product as any).productId ? product._id : undefined,
+      name: product.name,
+      price: finalPrice,
+      basePrice: displayPrice,
+      quantity: quantity,
+      image: activeImage,
+      color: selectedColor || undefined,
+      size: selectedSize || undefined,
+      uploadedBy: product.uploadedBy ? String(product.uploadedBy) : null,
+    };
+
+    await validateAndAddToCart({
+      cartItems,
+      newItem: itemToAdd,
+      dispatch,
+      onSuccess: () => {
+        // Track AddToCart
+        const addToCartPayload = {
+          content_name: product.name,
+          content_category: product.categories?.[0]?.name || 'Uncategorized',
+          content_ids: [product._id],
+          content_type: 'product',
+          value: finalPrice * quantity,
+          currency: 'BDT',
+          quantity: quantity
+        };
+        const trackingUser = {
+          em: session?.user?.email || undefined,
+          ph: (session?.user as any)?.phone || undefined,
+          fn: session?.user?.name || undefined
+        };
+        fbEvent('AddToCart', addToCartPayload, trackingUser);
+        ttEvent('AddToCart', addToCartPayload, trackingUser);
+
+        if (redirect) {
+          router.push('/checkout');
+        } else {
+          toast.success(`${product.name} added to cart`);
+        }
+
+        onClose();
+      }
+    });
   };
 
   const discountPercentage = displayPrice && displaySalePrice
@@ -315,9 +289,9 @@ export function QuickViewModal({ product, isOpen, onClose }: QuickViewModalProps
 
             <div className="flex items-baseline gap-3 mb-4 pb-4 border-b border-gray-100">
               <span className="text-3xl font-bold text-primary">
-                ৳{Math.round(displaySalePrice || displayPrice)}
+                ৳{Math.round(finalPrice)}
               </span>
-              {displaySalePrice != null && (
+              {hasDiscount && (
                 <span className="text-lg line-through text-gray-400">
                   ৳{Math.round(displayPrice)}
                 </span>
@@ -340,9 +314,9 @@ export function QuickViewModal({ product, isOpen, onClose }: QuickViewModalProps
             </div>
 
             {/* Attributes Section (Vertical) */}
-            <div className="mb-8 space-y-4 border-t border-gray-100 pt-6">
-              {product.attributes?.length > 0 ? (
-                product.attributes.map((attr: any, idx: number) => {
+            {product.attributes && product.attributes.length > 0 && (
+              <div className="mb-8 space-y-4 border-t border-gray-100 pt-6">
+                {product.attributes.map((attr: any, idx: number) => {
                   const label = attr.key || attr.name || 'Feature';
 
                   return (
@@ -351,20 +325,9 @@ export function QuickViewModal({ product, isOpen, onClose }: QuickViewModalProps
                       <span className="text-sm font-bold text-neutral-800">{attr.value}</span>
                     </div>
                   );
-                })
-              ) : (
-                <>
-                  <div className="flex items-center gap-4">
-                    <span className="text-[10px] font-black text-neutral-400 uppercase w-24 tracking-widest">Technology:</span>
-                    <span className="text-sm font-bold text-neutral-800">Carbon Plate</span>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <span className="text-[10px] font-black text-neutral-400 uppercase w-24 tracking-widest">Material:</span>
-                    <span className="text-sm font-bold text-neutral-800">PrimeKnit</span>
-                  </div>
-                </>
-              )}
-            </div>
+                })}
+              </div>
+            )}
 
             {/* Variations Selection */}
             <div className="space-y-6 flex-grow">
@@ -372,18 +335,22 @@ export function QuickViewModal({ product, isOpen, onClose }: QuickViewModalProps
                 <div className="space-y-3">
                   <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Color: <span className="text-gray-900">{selectedColor}</span></span>
                   <div className="flex flex-wrap gap-2">
-                    {uniqueColors.map((colorName, i) => (
-                      <button
-                        key={i}
-                        onClick={(e) => { e.preventDefault(); setSelectedColor(colorName); }}
-                        className={`px-4 py-2 text-xs font-bold rounded-none border transition-all ${selectedColor === colorName
-                          ? 'border-primary bg-primary/5 text-primary'
-                          : 'border-gray-200 hover:border-gray-900 text-gray-600'
-                          }`}
-                      >
-                        {colorName}
-                      </button>
-                    ))}
+                    {uniqueColors.map((colorName, i) => {
+                      const isSelected = String(selectedColor || '').trim().toLowerCase() === String(colorName || '').trim().toLowerCase();
+                      return (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={(e) => { e.preventDefault(); setSelectedColor(colorName); }}
+                          className={`px-4 py-2 text-xs font-bold rounded-none border transition-all ${isSelected
+                            ? 'border-primary bg-primary/5 text-primary'
+                            : 'border-gray-200 hover:border-gray-900 text-gray-600'
+                            }`}
+                        >
+                          {colorName}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -393,13 +360,15 @@ export function QuickViewModal({ product, isOpen, onClose }: QuickViewModalProps
                   <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Size: <span className="text-gray-900">{selectedSize || 'Select...'}</span></span>
                   <div className="flex flex-wrap gap-2">
                     {uniqueSizes.map((sizeName, i) => {
-                      const isAvailable = availableSizes.includes(sizeName);
+                      const isAvailable = availableSizes.some(s => String(s).trim().toLowerCase() === String(sizeName).trim().toLowerCase());
+                      const isSelected = String(selectedSize || '').trim().toLowerCase() === String(sizeName || '').trim().toLowerCase();
                       return (
                         <button
                           key={i}
+                          type="button"
                           disabled={!isAvailable}
                           onClick={(e) => { e.preventDefault(); setSelectedSize(sizeName); }}
-                          className={`min-w-[44px] px-2 py-2 text-xs font-bold rounded-none border transition-all ${selectedSize === sizeName
+                          className={`min-w-[44px] px-2 py-2 text-xs font-bold rounded-none border transition-all ${isSelected
                             ? 'border-primary bg-primary/5 text-primary'
                             : !isAvailable
                               ? 'opacity-30 grayscale cursor-not-allowed bg-gray-100'
@@ -424,12 +393,9 @@ export function QuickViewModal({ product, isOpen, onClose }: QuickViewModalProps
                 >
                   <Minus className="h-3 w-3" />
                 </button>
-                <span className="w-10 text-center font-bold text-sm">{effectiveQuantity}</span>
+                <span className="w-10 text-center font-bold text-sm">{quantity}</span>
                 <button
-                  onClick={() => {
-                    if (displayStock <= 0) return;
-                    setQuantity(Math.min(displayStock, quantity + 1));
-                  }}
+                  onClick={() => setQuantity(quantity + 1)}
                   className="px-4 py-2 hover:bg-gray-200 transition-colors"
                 >
                   <Plus className="h-3 w-3" />

@@ -1,19 +1,21 @@
 import mongoose, { Document, Model, Schema } from 'mongoose';
 
+import './Reseller';
 export interface ILedgerAccount extends Document {
   name: string;
   code: string;
-  accountCategory?: 'MFS' | 'Bank' | 'Cash';
-  mfsProvider?: 'bKash' | 'Nagad' | 'Rocket' | 'Upay' | 'mCash';
-  mfsType?: 'Merchant' | 'Agent' | 'Personal';
+  accountNumber?: string;
+  bankName?: string;
   branchName?: string;
   bankAccountType?: 'Savings' | 'Current';
-  accountNo?: string;
-  note?: string;
+  mfsProvider?: string;
+  mfsType?: 'Merchant' | 'Agent' | 'Personal';
   openingBalance: number;
   currentBalance: number;
-  type: 'asset' | 'liability' | 'expense' | 'revenue' | 'equity';
-  createdBy?: mongoose.Types.ObjectId;
+  type: 'asset' | 'liability';
+  category: 'Cash' | 'Bank' | 'MFS' | 'Other';
+  resellerId?: mongoose.Types.ObjectId | null;
+  description?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -21,21 +23,29 @@ export interface ILedgerAccount extends Document {
 const LedgerAccountSchema: Schema<ILedgerAccount> = new Schema(
   {
     name: { type: String, required: true },
-    code: { type: String, required: true, unique: true },
-    accountCategory: { type: String, enum: ['MFS', 'Bank', 'Cash'] },
-    mfsProvider: { type: String, enum: ['bKash', 'Nagad', 'Rocket', 'Upay', 'mCash'] },
-    mfsType: { type: String, enum: ['Merchant', 'Agent', 'Personal'] },
+    code: { type: String, required: true },
+    accountNumber: { type: String },
+    bankName: { type: String },
     branchName: { type: String },
     bankAccountType: { type: String, enum: ['Savings', 'Current'] },
-    accountNo: { type: String },
-    note: { type: String },
+    mfsProvider: { type: String },
+    mfsType: { type: String, enum: ['Merchant', 'Agent', 'Personal'] },
     openingBalance: { type: Number, default: 0 },
     currentBalance: { type: Number, default: 0 },
-    type: { type: String, enum: ['asset', 'liability', 'expense', 'revenue', 'equity'], required: true },
-    createdBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    type: { type: String, default: 'asset', enum: ['asset', 'liability'] },
+    category: { type: String, default: 'Bank', enum: ['Cash', 'Bank', 'MFS', 'Other'] },
+    resellerId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Reseller',
+      default: null,
+      index: true,
+    },
+    description: { type: String },
   },
   { timestamps: true }
 );
+
+LedgerAccountSchema.index({ resellerId: 1, code: 1 }, { unique: true });
 
 const LedgerAccount: Model<ILedgerAccount> =
   mongoose.models.LedgerAccount || mongoose.model<ILedgerAccount>('LedgerAccount', LedgerAccountSchema);

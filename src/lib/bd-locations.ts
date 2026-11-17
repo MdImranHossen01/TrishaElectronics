@@ -97,3 +97,23 @@ export const bdLocations: Record<string, string[]> = {
 
 export const districts = Object.keys(bdLocations);
 
+export const getDistrictsByDivision = (division: string): string[] => {
+  if (!division) return [];
+  return bdDivisions[division] || [];
+};
+
+export const getThanasByDistrict = (district: string): string[] => {
+  if (!district) return [];
+  return bdLocations[district] || [];
+};
+
+export const findDivisionByDistrict = (district: string): string => {
+  if (!district) return '';
+  for (const [div, distList] of Object.entries(bdDivisions)) {
+    if (distList.includes(district)) {
+      return div;
+    }
+  }
+  return '';
+};
+

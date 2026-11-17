@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath, revalidateTag } from 'next/cache';
-import { purgeCloudflareCache } from '@/lib/cloudflareCache';
 import connectToDatabase from '@/lib/db';
 import Blog from '@/models/Blog';
 import { auth } from '@/auth';
+import { purgeCloudflareCache } from '@/lib/cloudflareCache';
 import mongoose from 'mongoose';
 
 export async function GET(
@@ -12,7 +12,7 @@ export async function GET(
 ) {
   try {
     const session = await auth();
-    if (!session || !session.user || !(['admin', 'super_admin', 'manager'].includes((session.user as any)?.role))) {
+    if (!session || !session.user || !(['admin', 'super_admin', 'manager', 'moderator'].includes((session.user as any)?.role))) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
@@ -41,7 +41,7 @@ export async function PUT(
 ) {
   try {
     const session = await auth();
-    if (!session || !session.user || !(['admin', 'super_admin', 'manager'].includes((session.user as any)?.role))) {
+    if (!session || !session.user || !(['admin', 'super_admin', 'manager', 'moderator'].includes((session.user as any)?.role))) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
@@ -91,7 +91,7 @@ export async function PUT(
       revalidatePath('/blog');
       revalidatePath(`/blog/${blog.slug}`);
       revalidateTag('blogs', 'max');
-      purgeCloudflareCache().catch(() => { });
+      purgeCloudflareCache().catch(() => {});
     } catch (revalidateError) {
       console.error('[Admin Blog Update revalidatePath] error:', revalidateError);
     }
@@ -109,7 +109,7 @@ export async function DELETE(
 ) {
   try {
     const session = await auth();
-    if (!session || !session.user || !(['admin', 'super_admin', 'manager'].includes((session.user as any)?.role))) {
+    if (!session || !session.user || !(['admin', 'super_admin', 'manager', 'moderator'].includes((session.user as any)?.role))) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
@@ -126,13 +126,33 @@ export async function DELETE(
       return NextResponse.json({ message: 'Blog not found' }, { status: 404 });
     }
 
+    try {
+      const { deleteMultipleFromR2 } = await import('@/lib/r2');
+      const imagesToDelete: string[] = [];
+      if (blog.thumbnail) {
+        imagesToDelete.push(blog.thumbnail);
+      }
+      if (typeof blog.content === 'string') {
+        const urlRegex = /https?:\/\/[^\s"'<>]+\.(?:webp|png|jpe?g|gif|svg|avif)/gi;
+        const matches = blog.content.match(urlRegex);
+        if (matches) {
+          imagesToDelete.push(...matches);
+        }
+      }
+      if (imagesToDelete.length > 0) {
+        await deleteMultipleFromR2(imagesToDelete);
+      }
+    } catch (r2Err) {
+      console.error('Failed to delete blog images from Cloudflare R2:', r2Err);
+    }
+
     // Revalidate paths after deletion
     try {
       revalidatePath('/');
       revalidatePath('/blog');
       revalidatePath(`/blogs/${blog.slug}`);
       revalidateTag('blogs', 'max');
-      purgeCloudflareCache().catch(() => { });
+      purgeCloudflareCache().catch(() => {});
     } catch (revalidateError) {
       console.error('[Admin Blog Delete revalidatePath] error:', revalidateError);
     }

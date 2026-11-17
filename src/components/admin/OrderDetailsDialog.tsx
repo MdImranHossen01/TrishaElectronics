@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import {
   Dialog,
   DialogContent,
@@ -10,7 +11,7 @@ import {
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Loader2, Mail, Phone, MapPin, CreditCard, Calendar, Truck, ExternalLink, Printer, Trash2, PlusCircle, Edit, X } from 'lucide-react';
+import { Loader2, Mail, Phone, MapPin, CreditCard, Calendar, Truck, ExternalLink, FileText, Printer, Trash2, PlusCircle, Edit, X, MessageSquare, Lock, Tag, Store, Package } from 'lucide-react';
 import { format, isValid } from 'date-fns';
 import { toast } from 'sonner';
 import { generateInvoicePDF } from '@/lib/invoice-generator';
@@ -18,6 +19,8 @@ import { printStickerInvoice } from '@/lib/sticker-generator';
 import Swal from 'sweetalert2';
 import { Button } from '@/components/ui/button';
 import Image from 'next/image';
+import { DisbursementBreakdown } from '@/components/common/DisbursementBreakdown';
+import ProductPickerDialog, { SelectedProductItem } from '@/components/common/ProductPickerDialog';
 
 interface OrderDetailsDialogProps {
   orderId: string | null;
@@ -36,7 +39,7 @@ export default function OrderDetailsDialog({
   const [settings, setSettings] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [bookingLoading, setBookingLoading] = useState(false);
-
+  
   const [fraudData, setFraudData] = useState<any>(null);
   const [fraudLoading, setFraudLoading] = useState(false);
 
@@ -57,6 +60,24 @@ export default function OrderDetailsDialog({
 
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<any>(null);
+  const [productPickerOpen, setProductPickerOpen] = useState(false);
+
+  const handleAddPickerProducts = (selectedProducts: SelectedProductItem[]) => {
+    const mapped = selectedProducts.map(p => ({
+      product: p.productId,
+      name: p.name,
+      price: p.price,
+      quantity: p.quantity || 1,
+      color: p.color || '',
+      size: p.size || '',
+      image: p.image || '',
+      purchasePrice: p.purchasePrice || 0
+    }));
+    setEditForm((prev: any) => ({
+      ...prev,
+      items: [...(prev?.items || []), ...mapped]
+    }));
+  };
 
   const handleLocalPrint = async (type: 'invoice' | 'sticker') => {
     if (type === 'invoice') {
@@ -68,11 +89,26 @@ export default function OrderDetailsDialog({
     }
   };
 
-  // Additional Shipping Fields
-  const [cityId, setCityId] = useState('');
-  const [zoneId, setZoneId] = useState('');
-  const [areaId, setAreaId] = useState('');
-  const [shippingNote, setShippingNote] = useState('');
+  // Selected Courier Tab
+  const [selectedCourier, setSelectedCourier] = useState<'steadfast' | 'pathao' | 'redx'>('steadfast');
+
+  const isSteadfastConfigured = Boolean(settings?.courierConfig?.steadfast?.apiKey && settings?.courierConfig?.steadfast?.secretKey);
+  const isPathaoConfigured = Boolean(settings?.courierConfig?.pathao?.clientId && settings?.courierConfig?.pathao?.clientSecret);
+  const isRedxConfigured = Boolean(settings?.courierConfig?.redx?.apiKey);
+  const hasAnyCourier = isSteadfastConfigured || isPathaoConfigured || isRedxConfigured;
+
+  // Auto-select first configured courier
+  useEffect(() => {
+    if (settings?.courierConfig) {
+      if (isSteadfastConfigured && selectedCourier === 'steadfast') return;
+      if (isPathaoConfigured && selectedCourier === 'pathao') return;
+      if (isRedxConfigured && selectedCourier === 'redx') return;
+
+      if (isSteadfastConfigured) setSelectedCourier('steadfast');
+      else if (isPathaoConfigured) setSelectedCourier('pathao');
+      else if (isRedxConfigured) setSelectedCourier('redx');
+    }
+  }, [settings, isSteadfastConfigured, isPathaoConfigured, isRedxConfigured]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -81,8 +117,8 @@ export default function OrderDetailsDialog({
       setLoading(true);
       try {
         const [orderRes, settingsRes] = await Promise.all([
-          fetch(`/api/orders/${orderId}`, { signal: controller.signal }),
-          fetch(`/api/settings`, { signal: controller.signal })
+            fetch(`/api/orders/${orderId}`, { signal: controller.signal }),
+            fetch(`/api/settings`, { signal: controller.signal })
         ]);
 
         if (!orderRes.ok) {
@@ -101,7 +137,7 @@ export default function OrderDetailsDialog({
           orderRes.json(),
           settingsRes.json()
         ]);
-
+        
         setOrder(orderData);
         if (orderData?.shippingAddress?.phone) {
           fetchFraudData(orderData.shippingAddress.phone);
@@ -135,7 +171,9 @@ export default function OrderDetailsDialog({
             purchasePrice: item.purchasePrice || 0
           })) : [],
           status: orderData.status || 'Order Placed',
-          internalNote: orderData.internalNote || ''
+          internalNote: orderData.internalNote || '',
+          customerNote: orderData.customerNote || '',
+          systemNote: orderData.systemNote || ''
         });
       } catch (error: any) {
         if (error.name !== 'AbortError') {
@@ -149,34 +187,23 @@ export default function OrderDetailsDialog({
       }
     };
 
-    let timer: NodeJS.Timeout;
     if (open && orderId) {
       fetchData();
     } else {
-      timer = setTimeout(() => {
-        setOrder(null);
-        setSettings(null);
-        setIsEditing(false);
-        setEditForm(null);
-        setFraudData(null);
-        setFraudLoading(false);
-        // Reset shipping fields when closing or switching orders
-        setCityId('');
-        setZoneId('');
-        setAreaId('');
-        setShippingNote('');
-      }, 0);
+      setOrder(null);
+      setSettings(null);
+      setIsEditing(false);
+      setEditForm(null);
+      setFraudData(null);
+      setFraudLoading(false);
     }
 
-    return () => {
-      controller.abort();
-      if (timer) clearTimeout(timer);
-    };
+    return () => controller.abort();
   }, [open, orderId]);
 
   const handleSaveChanges = async () => {
     if (!editForm || !editForm.shippingAddress) return;
-
+    
     if (!editForm.shippingAddress.fullName || !editForm.shippingAddress.phone || !editForm.shippingAddress.street || !editForm.shippingAddress.city || !editForm.shippingAddress.state) {
       toast.error('All shipping address fields except division, zip code, and country are required');
       return;
@@ -206,16 +233,10 @@ export default function OrderDetailsDialog({
       }
     }
 
-    const confirmRes = await Swal.fire({
-      title: 'Save Order Changes?',
-      text: 'Are you sure you want to save the modified order details?',
-      icon: 'question',
-      showCancelButton: true,
-      confirmButtonColor: '#2563eb',
-      confirmButtonText: 'Yes, save changes'
-    });
-
-    if (!confirmRes.isConfirmed) return;
+    if (editForm.status === 'Hold' && !editForm.internalNote?.trim()) {
+      toast.error('Please provide an internal note explaining why this order is on hold');
+      return;
+    }
 
     setLoading(true);
     try {
@@ -261,7 +282,9 @@ export default function OrderDetailsDialog({
               purchasePrice: item.purchasePrice || 0
             })) : [],
             status: updatedData.status || 'Order Placed',
-            internalNote: updatedData.internalNote || ''
+            internalNote: updatedData.internalNote || '',
+            customerNote: updatedData.customerNote || '',
+            systemNote: updatedData.systemNote || ''
           });
         }
       } else {
@@ -269,56 +292,59 @@ export default function OrderDetailsDialog({
         toast.error(errorData.message || 'Failed to update order');
       }
     } catch (error) {
-      console.error('Error updating order:', error);
       toast.error('Network error occurred while saving changes');
     } finally {
       setLoading(false);
     }
   };
 
-  if (!open) return null;
+  const firstItemProduct = order?.items?.[0]?.product;
+  const existingSellerId = firstItemProduct?.uploadedBy?._id || firstItemProduct?.uploadedBy;
+  const isFirstMotherProduct = firstItemProduct?.isMotherProduct || (!existingSellerId && firstItemProduct);
+  const filterUploadedBy = existingSellerId ? existingSellerId.toString() : (isFirstMotherProduct ? 'mother' : undefined);
+  const sellerDisplayName = firstItemProduct?.uploadedBy?.storeName || (isFirstMotherProduct ? 'Mother Shop' : (order?.resellerId?.storeName || undefined));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-full sm:max-w-[700px] max-h-[90dvh] overflow-y-auto p-4 sm:p-6">
+      <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between pr-6">
+          <div className="flex items-center justify-between pr-6">
             <DialogTitle className="text-xl font-bold">
               {isEditing ? 'Edit Order Details' : 'Order Details'}
             </DialogTitle>
             {order && (
-              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                <button
-                  onClick={() => setIsEditing(!isEditing)}
-                  className="p-1.5 rounded-full bg-primary/10 text-primary hover:bg-primary/20 transition-colors flex items-center gap-1 px-2.5 py-1"
-                  title={isEditing ? "Cancel Edit" : "Edit Order"}
-                >
-                  {isEditing ? <X className="h-4 w-4" /> : <Edit className="h-4 w-4" />}
-                  <span className="text-[10px] font-bold">{isEditing ? 'Cancel' : 'Edit'}</span>
-                </button>
-                <Badge variant={order.status === 'Delivered' ? 'default' : 'secondary'}>
-                  {order.status}
-                </Badge>
-                <button
-                  onClick={() => handleLocalPrint('invoice')}
-                  className="p-1.5 rounded-full bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-                  title="Print A4 Invoice"
-                >
-                  <Printer className="h-4 w-4" />
-                </button>
-                <button
-                  onClick={() => handleLocalPrint('sticker')}
-                  className="p-1.5 rounded-full bg-primary/10 text-primary hover:bg-primary/20 transition-colors flex items-center gap-1 px-2.5 py-1"
-                  title="Print Sticker Invoice"
-                >
-                  <Printer className="h-4 w-4" />
-                  <span className="text-[10px] font-bold">Sticker</span>
-                </button>
-              </div>
+               <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => setIsEditing(!isEditing)}
+                    className="p-1.5 rounded-full bg-primary/10 text-primary hover:bg-primary/20 transition-colors flex items-center gap-1 px-2.5 py-1"
+                    title={isEditing ? "Cancel Edit" : "Edit Order"}
+                  >
+                    {isEditing ? <X className="h-4 w-4" /> : <Edit className="h-4 w-4" />}
+                    <span className="text-[10px] font-bold">{isEditing ? 'Cancel' : 'Edit'}</span>
+                  </button>
+                  <Badge variant={order.status === 'Delivered' ? 'default' : 'secondary'}>
+                    {order.status}
+                  </Badge>
+                  <button 
+                    onClick={() => handleLocalPrint('invoice')}
+                    className="p-1.5 rounded-full bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                    title="Print A4 Invoice"
+                  >
+                    <Printer className="h-4 w-4" />
+                  </button>
+                  <button 
+                    onClick={() => handleLocalPrint('sticker')}
+                    className="p-1.5 rounded-full bg-primary/10 text-primary hover:bg-primary/20 transition-colors flex items-center gap-1 px-2.5 py-1"
+                    title="Print Sticker Invoice"
+                  >
+                    <Printer className="h-4 w-4" />
+                    <span className="text-[10px] font-bold">Sticker</span>
+                  </button>
+               </div>
             )}
           </div>
-          <DialogDescription className="break-all">
-            {order ? `Order ID: #${String(order._id ?? '').toUpperCase()}` : 'Loading order details...'}
+          <DialogDescription>
+            {order ? `Order ID: #${order.shortId || String(order._id ?? '').slice(-8).toUpperCase()}` : 'Loading order details...'}
           </DialogDescription>
         </DialogHeader>
 
@@ -328,843 +354,1093 @@ export default function OrderDetailsDialog({
           </div>
         ) : order ? (
           isEditing && editForm ? (
-            <div className="space-y-6 pt-4 text-xs sm:text-sm">
-              {/* 1. Customer & Shipping Info */}
-              <div className="space-y-4">
-                <h3 className="text-sm font-bold uppercase text-muted-foreground">Shipping Address</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="font-bold text-muted-foreground">Full Name</label>
-                    <input
-                      type="text"
-                      value={editForm.shippingAddress.fullName}
-                      onChange={(e) => setEditForm({
-                        ...editForm,
-                        shippingAddress: { ...editForm.shippingAddress, fullName: e.target.value }
-                      })}
-                      className="w-full text-sm p-2 border rounded"
+             <div className="space-y-6 pt-4 text-xs sm:text-sm">
+                {/* 1. Customer & Shipping Info */}
+                <div className="space-y-4">
+                  <h3 className="text-sm font-bold uppercase text-muted-foreground">Shipping Address</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="font-bold text-muted-foreground">Full Name</label>
+                      <input 
+                        type="text" 
+                        value={editForm.shippingAddress.fullName} 
+                        onChange={(e) => setEditForm({
+                          ...editForm,
+                          shippingAddress: { ...editForm.shippingAddress, fullName: e.target.value }
+                        })}
+                        className="w-full text-sm p-2 border rounded" 
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="font-bold text-muted-foreground">Phone Number</label>
+                      <input 
+                        type="text" 
+                        value={editForm.shippingAddress.phone} 
+                        onChange={(e) => setEditForm({
+                          ...editForm,
+                          shippingAddress: { ...editForm.shippingAddress, phone: e.target.value }
+                        })}
+                        className="w-full text-sm p-2 border rounded" 
+                      />
+                    </div>
+                    <div className="space-y-1 col-span-2">
+                      <label className="font-bold text-muted-foreground">Street Address</label>
+                      <input 
+                        type="text" 
+                        value={editForm.shippingAddress.street} 
+                        onChange={(e) => setEditForm({
+                          ...editForm,
+                          shippingAddress: { ...editForm.shippingAddress, street: e.target.value }
+                        })}
+                        className="w-full text-sm p-2 border rounded" 
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="font-bold text-muted-foreground">City</label>
+                      <input 
+                        type="text" 
+                        value={editForm.shippingAddress.city} 
+                        onChange={(e) => setEditForm({
+                          ...editForm,
+                          shippingAddress: { ...editForm.shippingAddress, city: e.target.value }
+                        })}
+                        className="w-full text-sm p-2 border rounded" 
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="font-bold text-muted-foreground">State / District</label>
+                      <input 
+                        type="text" 
+                        value={editForm.shippingAddress.state} 
+                        onChange={(e) => setEditForm({
+                          ...editForm,
+                          shippingAddress: { ...editForm.shippingAddress, state: e.target.value }
+                        })}
+                        className="w-full text-sm p-2 border rounded" 
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="font-bold text-muted-foreground">Division</label>
+                      <input 
+                        type="text" 
+                        value={editForm.shippingAddress.division || ''} 
+                        onChange={(e) => setEditForm({
+                          ...editForm,
+                          shippingAddress: { ...editForm.shippingAddress, division: e.target.value }
+                        })}
+                        className="w-full text-sm p-2 border rounded" 
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="font-bold text-muted-foreground">Zip Code</label>
+                      <input 
+                        type="text" 
+                        value={editForm.shippingAddress.zipCode} 
+                        onChange={(e) => setEditForm({
+                          ...editForm,
+                          shippingAddress: { ...editForm.shippingAddress, zipCode: e.target.value }
+                        })}
+                        className="w-full text-sm p-2 border rounded" 
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <Separator />
+
+                {/* 2. Payment & Status Info */}
+                <div className="space-y-4">
+                  <h3 className="text-sm font-bold uppercase text-muted-foreground">Payment & Status</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="font-bold text-muted-foreground">Payment Method</label>
+                      <select 
+                        value={editForm.paymentMethod} 
+                        onChange={(e) => setEditForm({ ...editForm, paymentMethod: e.target.value })}
+                        className="w-full text-sm p-2 border rounded bg-white"
+                      >
+                        <option value="COD">Cash on Delivery (COD)</option>
+                        <option value="Online">Online Payment</option>
+                        <option value="Manual">Manual Verification</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="font-bold text-muted-foreground">Payment Status</label>
+                      <select 
+                        value={editForm.paymentStatus} 
+                        onChange={(e) => setEditForm({ ...editForm, paymentStatus: e.target.value })}
+                        className="w-full text-sm p-2 border rounded bg-white"
+                      >
+                        <option value="Pending">Pending</option>
+                        <option value="Paid">Paid</option>
+                        <option value="Failed">Failed</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="font-bold text-muted-foreground">Order Status</label>
+                      <select 
+                        value={editForm.status} 
+                        onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
+                        className="w-full text-sm p-2 border rounded bg-white"
+                      >
+                        {['Order Placed', 'Confirmed', 'Paid', 'Hold', 'Ready for Delivery', 'Released for Delivery', 'Cancelled', 'Delivered'].map(s => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="font-bold text-muted-foreground">Transaction ID</label>
+                      <input 
+                        type="text" 
+                        value={editForm.transactionId} 
+                        onChange={(e) => setEditForm({ ...editForm, transactionId: e.target.value })}
+                        className="w-full text-sm p-2 border rounded" 
+                      />
+                    </div>
+                  </div>
+
+                  {/* Inline Hold Reason Field - Opens immediately when Hold is selected */}
+                  {editForm.status === 'Hold' && (
+                    <div className="mt-2 p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800 rounded-lg space-y-1.5 animate-in fade-in duration-200">
+                      <label className="text-xs font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                        <Lock className="h-3.5 w-3.5 text-amber-600" /> Hold Reason (Internal Note): <span className="text-red-600 font-bold">*</span>
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={editForm.internalNote || ''}
+                        onChange={(e) => setEditForm({ ...editForm, internalNote: e.target.value })}
+                        placeholder="Enter hold reason (e.g. Customer requested delayed delivery, awaiting stock)..."
+                        className="w-full text-sm p-2 border rounded-md bg-white dark:bg-zinc-900 border-amber-300 dark:border-amber-700 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                        autoFocus
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <Separator />
+
+                {/* 3. Pricing & Charges */}
+                <div className="space-y-4">
+                  <h3 className="text-sm font-bold uppercase text-muted-foreground">Charges & Discounts</h3>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="space-y-1">
+                      <label className="font-bold text-muted-foreground">Delivery Charge</label>
+                      <input 
+                        type="number" 
+                        value={editForm.deliveryCharge} 
+                        onChange={(e) => setEditForm({ ...editForm, deliveryCharge: Number(e.target.value) || 0 })}
+                        className="w-full text-sm p-2 border rounded" 
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="font-bold text-muted-foreground">Coupon Discount</label>
+                      <input 
+                        type="number" 
+                        value={editForm.couponDiscountAmount} 
+                        onChange={(e) => setEditForm({ ...editForm, couponDiscountAmount: Number(e.target.value) || 0 })}
+                        className="w-full text-sm p-2 border rounded" 
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="font-bold text-muted-foreground">Wallet Amount Used</label>
+                      <input 
+                        type="number" 
+                        value={editForm.walletAmountUsed} 
+                        onChange={(e) => setEditForm({ ...editForm, walletAmountUsed: Number(e.target.value) || 0 })}
+                        className="w-full text-sm p-2 border rounded" 
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <Separator />
+
+                {/* 4. Items List */}
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <h3 className="text-sm font-bold uppercase text-muted-foreground">Order Items</h3>
+                      {sellerDisplayName && (
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          Items restricted to seller: <strong className="text-foreground">{sellerDisplayName}</strong>
+                        </p>
+                      )}
+                    </div>
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      size="sm" 
+                      className="text-xs font-bold flex items-center gap-1.5 bg-primary/10 text-primary border-primary/20 hover:bg-primary/20"
+                      onClick={() => setProductPickerOpen(true)}
+                    >
+                      <PlusCircle className="h-4 w-4" /> Add Item
+                    </Button>
+                  </div>
+
+                  <div className="space-y-3 max-h-[300px] overflow-y-auto border p-3 rounded-lg bg-muted/20">
+                    {(!editForm.items || editForm.items.length === 0) ? (
+                      <div className="text-center py-6 text-xs text-muted-foreground">
+                        No items in this order. Click "+ Add Item" above to select products.
+                      </div>
+                    ) : (
+                      editForm.items.map((item: any, index: number) => (
+                        <div key={index} className="border rounded-lg p-2.5 bg-background shadow-xs space-y-2">
+                          <div className="flex items-center gap-2.5">
+                            {item.image ? (
+                              <img src={item.image} alt={item.name} className="h-10 w-10 rounded-md object-cover border shrink-0" />
+                            ) : (
+                              <div className="h-10 w-10 rounded-md bg-muted flex items-center justify-center shrink-0 text-muted-foreground">
+                                <Package className="h-5 w-5" />
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <input 
+                                type="text" 
+                                placeholder="Product Name"
+                                value={item.name} 
+                                onChange={(e) => {
+                                  const newItems = [...editForm.items];
+                                  newItems[index].name = e.target.value;
+                                  setEditForm({ ...editForm, items: newItems });
+                                }}
+                                className="w-full text-xs p-1.5 border rounded font-semibold text-foreground"
+                              />
+                            </div>
+                            <Button 
+                              type="button" 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-8 w-8 text-destructive hover:bg-destructive/10 shrink-0"
+                              onClick={() => {
+                                const newItems = editForm.items.filter((_: any, idx: number) => idx !== index);
+                                setEditForm({ ...editForm, items: newItems });
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+
+                          <div className="grid grid-cols-4 sm:grid-cols-5 gap-2 pt-1 border-t text-xs">
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold text-muted-foreground block">Qty</label>
+                              <input 
+                                type="number" 
+                                min="1"
+                                value={item.quantity} 
+                                onChange={(e) => {
+                                  const newItems = [...editForm.items];
+                                  newItems[index].quantity = Math.max(1, Number(e.target.value) || 1);
+                                  setEditForm({ ...editForm, items: newItems });
+                                }}
+                                className="w-full text-xs p-1.5 border rounded text-center font-bold"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold text-muted-foreground block">Price (৳)</label>
+                              <input 
+                                type="number" 
+                                min="0"
+                                value={item.price} 
+                                onChange={(e) => {
+                                  const newItems = [...editForm.items];
+                                  newItems[index].price = Math.max(0, Number(e.target.value) || 0);
+                                  setEditForm({ ...editForm, items: newItems });
+                                }}
+                                className="w-full text-xs p-1.5 border rounded text-center font-bold"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold text-muted-foreground block">Color</label>
+                              <input 
+                                type="text" 
+                                placeholder="e.g. Red"
+                                value={item.color || ''} 
+                                onChange={(e) => {
+                                  const newItems = [...editForm.items];
+                                  newItems[index].color = e.target.value;
+                                  setEditForm({ ...editForm, items: newItems });
+                                }}
+                                className="w-full text-xs p-1.5 border rounded text-center"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold text-muted-foreground block">Size</label>
+                              <input 
+                                type="text" 
+                                placeholder="e.g. XL"
+                                value={item.size || ''} 
+                                onChange={(e) => {
+                                  const newItems = [...editForm.items];
+                                  newItems[index].size = e.target.value;
+                                  setEditForm({ ...editForm, items: newItems });
+                                }}
+                                className="w-full text-xs p-1.5 border rounded text-center"
+                              />
+                            </div>
+                            <div className="hidden sm:flex flex-col justify-end items-end pb-1">
+                              <span className="text-[10px] text-muted-foreground font-medium">Subtotal</span>
+                              <span className="text-xs font-black text-primary">৳{(Number(item.price) || 0) * (Number(item.quantity) || 1)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                <Separator />
+
+                {/* Customer Note & Internal Note in Edit Mode */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <h3 className="text-sm font-bold uppercase text-sky-700 dark:text-sky-400 flex items-center gap-1.5">
+                      <MessageSquare className="h-4 w-4" /> Customer Note
+                    </h3>
+                    <textarea 
+                      value={editForm.customerNote || ''} 
+                      onChange={(e) => setEditForm({ ...editForm, customerNote: e.target.value })}
+                      className="w-full text-sm p-2 border rounded-lg h-20 resize-y bg-sky-50/50 dark:bg-sky-950/20 border-sky-200 dark:border-sky-900" 
+                      placeholder="Delivery instructions from customer..."
                     />
                   </div>
-                  <div className="space-y-1">
-                    <label className="font-bold text-muted-foreground">Phone Number</label>
-                    <input
-                      type="text"
-                      value={editForm.shippingAddress.phone}
-                      onChange={(e) => setEditForm({
-                        ...editForm,
-                        shippingAddress: { ...editForm.shippingAddress, phone: e.target.value }
-                      })}
-                      className="w-full text-sm p-2 border rounded"
-                    />
-                  </div>
-                  <div className="space-y-1 col-span-2">
-                    <label className="font-bold text-muted-foreground">Street Address</label>
-                    <input
-                      type="text"
-                      value={editForm.shippingAddress.street}
-                      onChange={(e) => setEditForm({
-                        ...editForm,
-                        shippingAddress: { ...editForm.shippingAddress, street: e.target.value }
-                      })}
-                      className="w-full text-sm p-2 border rounded"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="font-bold text-muted-foreground">City</label>
-                    <input
-                      type="text"
-                      value={editForm.shippingAddress.city}
-                      onChange={(e) => setEditForm({
-                        ...editForm,
-                        shippingAddress: { ...editForm.shippingAddress, city: e.target.value }
-                      })}
-                      className="w-full text-sm p-2 border rounded"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="font-bold text-muted-foreground">State / District</label>
-                    <input
-                      type="text"
-                      value={editForm.shippingAddress.state}
-                      onChange={(e) => setEditForm({
-                        ...editForm,
-                        shippingAddress: { ...editForm.shippingAddress, state: e.target.value }
-                      })}
-                      className="w-full text-sm p-2 border rounded"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="font-bold text-muted-foreground">Division</label>
-                    <input
-                      type="text"
-                      value={editForm.shippingAddress.division || ''}
-                      onChange={(e) => setEditForm({
-                        ...editForm,
-                        shippingAddress: { ...editForm.shippingAddress, division: e.target.value }
-                      })}
-                      className="w-full text-sm p-2 border rounded"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="font-bold text-muted-foreground">Zip Code</label>
-                    <input
-                      type="text"
-                      value={editForm.shippingAddress.zipCode}
-                      onChange={(e) => setEditForm({
-                        ...editForm,
-                        shippingAddress: { ...editForm.shippingAddress, zipCode: e.target.value }
-                      })}
-                      className="w-full text-sm p-2 border rounded"
+
+                  <div className="space-y-2">
+                    <h3 className="text-sm font-bold uppercase text-amber-700 dark:text-amber-400 flex items-center justify-between gap-1.5">
+                      <span className="flex items-center gap-1.5">
+                        <Lock className="h-4 w-4" /> Internal Note (Admin/Staff)
+                      </span>
+                      {editForm.status === 'Hold' && (
+                        <span className="text-[11px] font-bold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 px-2 py-0.5 rounded border border-red-200">
+                          Required for Hold *
+                        </span>
+                      )}
+                    </h3>
+                    <textarea 
+                      value={editForm.internalNote || ''} 
+                      onChange={(e) => setEditForm({ ...editForm, internalNote: e.target.value })}
+                      className={`w-full text-sm p-2 border rounded-lg h-20 resize-y bg-amber-50/50 dark:bg-amber-950/20 ${
+                        editForm.status === 'Hold' && !editForm.internalNote?.trim()
+                          ? 'border-red-400 ring-2 ring-red-400/20'
+                          : 'border-amber-200 dark:border-amber-900'
+                      }`} 
+                      placeholder={
+                        editForm.status === 'Hold'
+                          ? 'Enter reason for hold (required, e.g. Customer requested delivery after 3 days)...'
+                          : 'Private internal notes for staff...'
+                      }
                     />
                   </div>
                 </div>
-              </div>
 
-              <Separator />
+                <Separator />
 
-              {/* 2. Payment & Status Info */}
-              <div className="space-y-4">
-                <h3 className="text-sm font-bold uppercase text-muted-foreground">Payment & Status</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="font-bold text-muted-foreground">Payment Method</label>
-                    <select
-                      value={editForm.paymentMethod}
-                      onChange={(e) => setEditForm({ ...editForm, paymentMethod: e.target.value })}
-                      className="w-full text-sm p-2 border rounded bg-white"
-                    >
-                      <option value="COD">Cash on Delivery (COD)</option>
-                      <option value="Online">Online Payment</option>
-                      <option value="Manual">Manual Verification</option>
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="font-bold text-muted-foreground">Payment Status</label>
-                    <select
-                      value={editForm.paymentStatus}
-                      onChange={(e) => setEditForm({ ...editForm, paymentStatus: e.target.value })}
-                      className="w-full text-sm p-2 border rounded bg-white"
-                    >
-                      <option value="Pending">Pending</option>
-                      <option value="Paid">Paid</option>
-                      <option value="Failed">Failed</option>
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="font-bold text-muted-foreground">Order Status</label>
-                    <select
-                      value={editForm.status}
-                      onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
-                      className="w-full text-sm p-2 border rounded bg-white"
-                    >
-                      {['Order Placed', 'Confirmed', 'Paid', 'Ready for Delivery', 'Released for Delivery', 'Cancelled', 'Delivered'].map(s => (
-                        <option key={s} value={s}>{s}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="font-bold text-muted-foreground">Transaction ID</label>
-                    <input
-                      type="text"
-                      value={editForm.transactionId}
-                      onChange={(e) => setEditForm({ ...editForm, transactionId: e.target.value })}
-                      className="w-full text-sm p-2 border rounded"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* 3. Pricing & Charges */}
-              <div className="space-y-4">
-                <h3 className="text-sm font-bold uppercase text-muted-foreground">Charges & Discounts</h3>
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="space-y-1">
-                    <label className="font-bold text-muted-foreground">Delivery Charge</label>
-                    <input
-                      type="number"
-                      value={editForm.deliveryCharge}
-                      onChange={(e) => setEditForm({ ...editForm, deliveryCharge: Number(e.target.value) || 0 })}
-                      className="w-full text-sm p-2 border rounded"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="font-bold text-muted-foreground">Coupon Discount</label>
-                    <input
-                      type="number"
-                      value={editForm.couponDiscountAmount}
-                      onChange={(e) => setEditForm({ ...editForm, couponDiscountAmount: Number(e.target.value) || 0 })}
-                      className="w-full text-sm p-2 border rounded"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="font-bold text-muted-foreground">Wallet Amount Used</label>
-                    <input
-                      type="number"
-                      value={editForm.walletAmountUsed}
-                      onChange={(e) => setEditForm({ ...editForm, walletAmountUsed: Number(e.target.value) || 0 })}
-                      className="w-full text-sm p-2 border rounded"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* 4. Items List */}
-              <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <h3 className="text-sm font-bold uppercase text-muted-foreground">Order Items</h3>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="text-xs font-bold flex items-center gap-1"
-                    onClick={() => {
-                      setEditForm({
-                        ...editForm,
-                        items: [
-                          ...editForm.items,
-                          { product: '', name: 'New Product', price: 100, quantity: 1, color: '', size: '', image: '', purchasePrice: 0 }
-                        ]
-                      });
-                    }}
+                {/* Form Footer Actions */}
+                <div className="flex gap-3 pt-4 justify-end">
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    onClick={() => setIsEditing(false)}
+                    className="px-6 rounded-xl font-bold h-11"
                   >
-                    <PlusCircle className="h-4 w-4" /> Add Item
+                    Cancel
+                  </Button>
+                  <Button 
+                    type="button" 
+                    onClick={handleSaveChanges}
+                    className="px-6 rounded-xl font-bold h-11 bg-primary text-white hover:bg-primary/95"
+                  >
+                    Save Changes
                   </Button>
                 </div>
-
-                <div className="space-y-3 max-h-[250px] overflow-y-auto border p-3 rounded bg-muted/20">
-                  {editForm.items.map((item: any, index: number) => (
-                    <div key={index} className="border-b pb-3 mb-3 last:border-b-0 last:pb-0 last:mb-0 space-y-2">
-                      <div className="grid grid-cols-12 gap-2 items-center">
-                        <div className="col-span-12 sm:col-span-6 space-y-1">
-                          <label className="text-[10px] font-bold text-muted-foreground">Product ID (MongoDB ObjectId)</label>
-                          <input
-                            type="text"
-                            placeholder="6a0324e0cec01780aa969ec0"
-                            value={item.product || ''}
-                            onChange={(e) => {
-                              const newItems = [...editForm.items];
-                              newItems[index].product = e.target.value;
-                              setEditForm({ ...editForm, items: newItems });
-                            }}
-                            className="w-full text-xs p-1.5 border rounded"
-                          />
-                        </div>
-                        <div className="col-span-12 sm:col-span-6 space-y-1">
-                          <label className="text-[10px] font-bold text-muted-foreground">Item Name</label>
-                          <input
-                            type="text"
-                            placeholder="Product Name"
-                            value={item.name}
-                            onChange={(e) => {
-                              const newItems = [...editForm.items];
-                              newItems[index].name = e.target.value;
-                              setEditForm({ ...editForm, items: newItems });
-                            }}
-                            className="w-full text-xs p-1.5 border rounded font-medium"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-5 gap-2">
-                        <div className="space-y-1 col-span-1">
-                          <label className="text-[10px] font-bold text-muted-foreground">Qty</label>
-                          <input
-                            type="number"
-                            min="1"
-                            value={item.quantity}
-                            onChange={(e) => {
-                              const newItems = [...editForm.items];
-                              newItems[index].quantity = Number(e.target.value) || 1;
-                              setEditForm({ ...editForm, items: newItems });
-                            }}
-                            className="w-full text-xs p-1.5 border rounded text-center"
-                          />
-                        </div>
-                        <div className="space-y-1 col-span-1">
-                          <label className="text-[10px] font-bold text-muted-foreground">Price</label>
-                          <input
-                            type="number"
-                            value={item.price}
-                            onChange={(e) => {
-                              const newItems = [...editForm.items];
-                              newItems[index].price = Number(e.target.value) || 0;
-                              setEditForm({ ...editForm, items: newItems });
-                            }}
-                            className="w-full text-xs p-1.5 border rounded text-center"
-                          />
-                        </div>
-                        <div className="space-y-1 col-span-1">
-                          <label className="text-[10px] font-bold text-muted-foreground">Color</label>
-                          <input
-                            type="text"
-                            placeholder="e.g. Red"
-                            value={item.color || ''}
-                            onChange={(e) => {
-                              const newItems = [...editForm.items];
-                              newItems[index].color = e.target.value;
-                              setEditForm({ ...editForm, items: newItems });
-                            }}
-                            className="w-full text-xs p-1.5 border rounded text-center"
-                          />
-                        </div>
-                        <div className="space-y-1 col-span-1">
-                          <label className="text-[10px] font-bold text-muted-foreground">Size</label>
-                          <input
-                            type="text"
-                            placeholder="Size"
-                            value={item.size || ''}
-                            onChange={(e) => {
-                              const newItems = [...editForm.items];
-                              newItems[index].size = e.target.value;
-                              setEditForm({ ...editForm, items: newItems });
-                            }}
-                            className="w-full text-xs p-1.5 border rounded text-center"
-                          />
-                        </div>
-                        <div className="col-span-1 flex items-end justify-center pb-0.5">
-                          <Button
-                            type="button"
-                            variant="destructive"
-                            size="icon"
-                            className="h-8 w-8"
-                            onClick={() => {
-                              const newItems = editForm.items.filter((_: any, idx: number) => idx !== index);
-                              setEditForm({ ...editForm, items: newItems });
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Internal Note */}
-              <div className="space-y-2">
-                <h3 className="text-sm font-bold uppercase text-muted-foreground">Internal Note (Admin/Manager)</h3>
-                <textarea
-                  value={editForm.internalNote || ''}
-                  onChange={(e) => setEditForm({ ...editForm, internalNote: e.target.value })}
-                  className="w-full text-sm p-2 border rounded h-20 resize-y"
-                  placeholder="Enter customer specific internal notes here..."
-                />
-              </div>
-
-              <Separator />
-
-              {/* Form Footer Actions */}
-              <div className="flex gap-3 pt-4 justify-end">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setIsEditing(false)}
-                  className="px-6 rounded-xl font-bold h-11"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  onClick={handleSaveChanges}
-                  className="px-6 rounded-xl font-bold h-11 bg-primary text-white hover:bg-primary/95"
-                >
-                  Save Changes
-                </Button>
-              </div>
-            </div>
+             </div>
           ) : (
-            <div className="space-y-6 pt-4">
-              {/* Customer Info */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-3">
-                  <h3 className="text-sm font-bold uppercase text-muted-foreground">Customer</h3>
-                  <div className="flex items-center gap-2 text-sm">
-                    <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary">
-                      {order.user?.name?.[0] || 'G'}
+          <div className="space-y-6 pt-4">
+            {/* Reseller Store Card */}
+            {order.resellerId && (
+              <div className="bg-indigo-50/80 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900/60 rounded-xl p-3.5 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-indigo-100 dark:bg-indigo-900/50 rounded-xl text-indigo-700 dark:text-indigo-300">
+                    <Store className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-black uppercase text-indigo-600 dark:text-indigo-400 tracking-wider">Reseller Store</span>
+                      <Badge variant="outline" className="text-[10px] bg-indigo-100/60 dark:bg-indigo-900/40 text-indigo-800 dark:text-indigo-200 border-indigo-300 dark:border-indigo-800 font-bold">
+                        {typeof order.resellerId === 'object' && order.resellerId.subdomain ? order.resellerId.subdomain : 'Partner Store'}
+                      </Badge>
                     </div>
-                    <div className="flex flex-col">
-                      <span className="font-medium">{order.user?.name || 'Guest User'}</span>
-                      <span className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Mail className="h-3 w-3" /> {order.user?.email || 'No Email'}
-                      </span>
-                    </div>
+                    <p className="text-sm font-bold text-foreground">
+                      {typeof order.resellerId === 'object' && order.resellerId.storeName ? order.resellerId.storeName : 'Reseller Store'}
+                    </p>
+                    {typeof order.resellerId === 'object' && (order.resellerId.customDomain || order.resellerId.subdomain) && (
+                      <p className="text-xs text-muted-foreground font-mono">
+                        {order.resellerId.customDomain || `${order.resellerId.subdomain}`}
+                      </p>
+                    )}
                   </div>
                 </div>
-                <div className="space-y-3">
-                  <h3 className="text-sm font-bold uppercase text-muted-foreground">Order Date</h3>
-                  <div className="flex items-center gap-2 text-sm">
-                    <Calendar className="h-4 w-4 text-muted-foreground" />
-                    <span>
-                      {order.createdAt && isValid(new Date(order.createdAt))
-                        ? format(new Date(order.createdAt), 'MMMM dd, yyyy p')
-                        : '—'}
+              </div>
+            )}
+
+            {/* Customer Info */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-3">
+                <h3 className="text-sm font-bold uppercase text-muted-foreground">Customer</h3>
+                <div className="flex items-center gap-2 text-sm">
+                  <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary">
+                    {order.user?.name?.[0] || 'G'}
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="font-medium">{order.user?.name || 'Guest User'}</span>
+                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Mail className="h-3 w-3" /> {order.user?.email || 'No Email'}
                     </span>
                   </div>
                 </div>
               </div>
-
-              <Separator />
-
-              {/* Shipping & Payment */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-3">
-                  <h4 className="text-sm font-bold uppercase text-muted-foreground flex items-center gap-2">
-                    <MapPin className="h-4 w-4" /> Shipping Address
-                  </h4>
-                  <div className="text-sm leading-relaxed">
-                    {(order.shippingAddress?.fullName || order.user?.name) && (
-                      <p>{order.shippingAddress?.fullName || order.user?.name}</p>
-                    )}
-                    {order.shippingAddress?.street && <p>{order.shippingAddress?.street}</p>}
-                    {(() => {
-                      const city = order.shippingAddress?.city || '';
-                      const state = order.shippingAddress?.state || '';
-                      const zip = order.shippingAddress?.zipCode || '';
-                      const country = order.shippingAddress?.country || '';
-
-                      const isCityDefault = ['dhaka', 'outside dhaka'].includes(city.toLowerCase().trim());
-                      const isStateDefault = ['dhaka', 'outside dhaka'].includes(state.toLowerCase().trim());
-                      const isZipDefault = zip.trim() === '0000';
-                      const isCountryDefault = ['bangladesh'].includes(country.toLowerCase().trim());
-
-                      const cityStateParts = [];
-                      if (!isCityDefault && city) cityStateParts.push(city);
-                      if (!isStateDefault && state) cityStateParts.push(state);
-
-                      return (
-                        <>
-                          {cityStateParts.length > 0 && (
-                            <p>
-                              {cityStateParts.join(', ')}
-                              {!isZipDefault && zip ? ` ${zip}` : ''}
-                            </p>
-                          )}
-                          {cityStateParts.length === 0 && !isZipDefault && zip && (
-                            <p>{zip}</p>
-                          )}
-                          {!isCountryDefault && country && (
-                            <p>{country}</p>
-                          )}
-                        </>
-                      );
-                    })()}
-                    {order.shippingAddress?.phone && (
-                      <div className="space-y-2 mt-1">
-                        <p className="flex items-center gap-1 text-muted-foreground font-semibold">
-                          <Phone className="h-3 w-3" /> {order.shippingAddress.phone}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div className="space-y-3">
-                  <h4 className="text-sm font-bold uppercase text-muted-foreground flex items-center gap-2">
-                    <CreditCard className="h-4 w-4" /> Payment Details
-                  </h4>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between font-medium">
-                      <span>Method:</span>
-                      <span>{order.paymentMethod}</span>
-                    </div>
-                    <div className="flex justify-between font-medium">
-                      <span>Status:</span>
-                      <Badge variant={order.paymentStatus === 'Paid' ? 'default' : 'outline'} className={order.paymentStatus === 'Paid' ? 'bg-green-100 text-green-700' : ''}>
-                        {order.paymentStatus}
-                      </Badge>
-                    </div>
-                    {order.transactionId && (
-                      <div className="flex flex-col gap-1">
-                        <span className="text-xs text-muted-foreground">Transaction ID:</span>
-                        <code className="bg-muted px-2 py-1 rounded text-[10px] break-all">{order.transactionId}</code>
-                      </div>
-                    )}
-
-                    {order.paymentMethod === 'Manual' && order.manualPaymentDetails && (
-                      <div className="mt-3 p-3 bg-primary/5 rounded-xl border border-primary/20 space-y-2">
-                        <p className="text-[10px] font-black uppercase text-primary tracking-widest">Manual Verification</p>
-                        <div className="grid grid-cols-2 gap-2 text-[11px]">
-                          <div>
-                            <span className="text-muted-foreground block">Method:</span>
-                            <span className="font-bold uppercase">{order.manualPaymentDetails.methodName}</span>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground block">Sender No:</span>
-                            <span className="font-bold">{order.manualPaymentDetails.senderNumber}</span>
-                          </div>
-                          <div className="col-span-2">
-                            <span className="text-muted-foreground block">TrxID:</span>
-                            <code className="font-bold text-primary bg-white px-1.5 py-0.5 rounded border">{order.manualPaymentDetails.transactionId}</code>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {(order.isCreditOrder || order.paymentMethod === 'Credit') && (
-                      <div className={`mt-3 p-3 rounded-xl border space-y-2 ${order.paymentStatus === 'Paid' ? 'bg-green-500/5 border-green-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
-                        <p className={`text-[10px] font-black uppercase tracking-widest ${order.paymentStatus === 'Paid' ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`}>
-                          {order.paymentStatus === 'Paid' ? 'Credit Order (Paid)' : 'Credit Order / Due'}
-                        </p>
-                        {order.expectedPaymentDate && (
-                          <div className="text-[11px]">
-                            <span className="text-muted-foreground block font-medium">Expected Payment Date:</span>
-                            <span className={`font-bold ${order.paymentStatus === 'Paid' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                              {new Date(order.expectedPaymentDate).toLocaleDateString('en-US', {
-                                year: 'numeric',
-                                month: 'long',
-                                day: 'numeric'
-                              })}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
+              <div className="space-y-3">
+                <h3 className="text-sm font-bold uppercase text-muted-foreground">Order Date</h3>
+                <div className="flex items-center gap-2 text-sm">
+                  <Calendar className="h-4 w-4 text-muted-foreground" />
+                  <span>
+                    {order.createdAt && isValid(new Date(order.createdAt)) 
+                      ? format(new Date(order.createdAt), 'MMMM dd, yyyy p')
+                      : '—'}
+                  </span>
                 </div>
               </div>
+            </div>
 
-              {/* BD Courier Fraud Checker UI */}
-              {order.shippingAddress?.phone && (
-                <div className="mt-2 p-3 bg-muted/30 border rounded-xl space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-black uppercase text-muted-foreground tracking-wider">BD Courier Profile</span>
-                    {fraudLoading && <Loader2 className="h-3 w-3 animate-spin text-primary" />}
+            <Separator />
+
+            {/* Shipping & Payment */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-3">
+                <h4 className="text-sm font-bold uppercase text-muted-foreground flex items-center gap-2">
+                  <MapPin className="h-4 w-4" /> Shipping Address
+                </h4>
+                <div className="text-sm leading-relaxed">
+                  {(order.shippingAddress?.fullName || order.user?.name) && (
+                    <p>{order.shippingAddress?.fullName || order.user?.name}</p>
+                  )}
+                  {order.shippingAddress?.street && <p>{order.shippingAddress?.street}</p>}
+                  {(() => {
+                    const city = order.shippingAddress?.city || '';
+                    const state = order.shippingAddress?.state || '';
+                    const zip = order.shippingAddress?.zipCode || '';
+                    const country = order.shippingAddress?.country || '';
+
+                    const isCityDefault = ['dhaka', 'outside dhaka'].includes(city.toLowerCase().trim());
+                    const isStateDefault = ['dhaka', 'outside dhaka'].includes(state.toLowerCase().trim());
+                    const isZipDefault = zip.trim() === '0000';
+                    const isCountryDefault = ['bangladesh'].includes(country.toLowerCase().trim());
+
+                    const cityStateParts = [];
+                    if (!isCityDefault && city) cityStateParts.push(city);
+                    if (!isStateDefault && state) cityStateParts.push(state);
+
+                    return (
+                      <>
+                        {cityStateParts.length > 0 && (
+                          <p>
+                            {cityStateParts.join(', ')}
+                            {!isZipDefault && zip ? ` ${zip}` : ''}
+                          </p>
+                        )}
+                        {cityStateParts.length === 0 && !isZipDefault && zip && (
+                          <p>{zip}</p>
+                        )}
+                        {!isCountryDefault && country && (
+                          <p>{country}</p>
+                        )}
+                      </>
+                    );
+                  })()}
+                  {order.shippingAddress?.phone && (
+                    <div className="space-y-2 mt-1">
+                      <p className="flex items-center gap-1 text-muted-foreground font-semibold">
+                        <Phone className="h-3 w-3" /> {order.shippingAddress.phone}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="space-y-3">
+                <h4 className="text-sm font-bold uppercase text-muted-foreground flex items-center gap-2">
+                  <CreditCard className="h-4 w-4" /> Payment Details
+                </h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between font-medium">
+                    <span>Method:</span>
+                    <span>{order.paymentMethod}</span>
                   </div>
+                  <div className="flex justify-between font-medium">
+                    <span>Status:</span>
+                    <Badge variant={order.paymentStatus === 'Paid' ? 'default' : 'outline'} className={order.paymentStatus === 'Paid' ? 'bg-green-100 text-green-700' : ''}>
+                      {order.paymentStatus}
+                    </Badge>
+                  </div>
+                  {order.transactionId && (
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs text-muted-foreground">Transaction ID:</span>
+                      <code className="bg-muted px-2 py-1 rounded text-[10px] break-all">{order.transactionId}</code>
+                    </div>
+                  )}
 
-                  {fraudData?.status === 'success' && fraudData?.data?.summary ? (
+                  {order.manualPaymentDetails && (order.paymentMethod === 'Manual' || order.manualPaymentDetails.senderNumber || order.manualPaymentDetails.transactionId) && (
+                    <div className="mt-3 p-3 bg-primary/5 rounded-xl border border-primary/20 space-y-2">
+                       <p className="text-[10px] font-black uppercase text-primary tracking-widest">Manual Verification</p>
+                       <div className="grid grid-cols-2 gap-2 text-[11px]">
+                          <div>
+                             <span className="text-muted-foreground block">Method:</span>
+                             <span className="font-bold uppercase">{order.manualPaymentDetails.methodName || order.paymentMethod}</span>
+                          </div>
+                          <div>
+                             <span className="text-muted-foreground block">Sender No:</span>
+                             <span className="font-bold">{order.manualPaymentDetails.senderNumber}</span>
+                          </div>
+                          <div className="col-span-2">
+                             <span className="text-muted-foreground block">TrxID:</span>
+                             <code className="font-bold text-primary bg-white px-1.5 py-0.5 rounded border">{order.manualPaymentDetails.transactionId}</code>
+                          </div>
+                       </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* BD Courier Fraud Checker UI */}
+            {order.shippingAddress?.phone && (
+              <div className="mt-2 p-3 bg-muted/30 border rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase text-muted-foreground tracking-wider">BD Courier Profile</span>
+                  {fraudLoading && <Loader2 className="h-3 w-3 animate-spin text-primary" />}
+                </div>
+
+                {fraudData?.status === 'success' && fraudData?.data?.summary ? (() => {
+                  const s = fraudData.data.summary;
+                  const total = Number(s.total_parcel) || 0;
+                  const delivered = Number(s.success_parcel) || 0;
+                  const successRate = total > 0 ? Math.round((delivered / total) * 1000) / 10 : (s.success_ratio || 0);
+                  const colorClass = successRate >= 70 ? 'text-green-600' : successRate >= 50 ? 'text-yellow-600' : 'text-red-600';
+                  return (
                     <div className="space-y-2">
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px]">
                         <div className="flex items-center gap-1">
                           <span className="text-muted-foreground text-[10px]">Success Rate:</span>
-                          <span className={`font-black ${fraudData.data.summary.success_ratio >= 80 ? 'text-green-600' : fraudData.data.summary.success_ratio >= 60 ? 'text-yellow-600' : 'text-red-600'}`}>
-                            {fraudData.data.summary.success_ratio}%
+                          <span className={`font-black ${colorClass}`}>
+                            {successRate}%
                           </span>
                         </div>
                         <span className="text-muted-foreground/35">|</span>
                         <div className="flex items-center gap-1">
                           <span className="text-muted-foreground text-[10px]">Total Parcels:</span>
-                          <span className="font-bold text-slate-800 dark:text-zinc-200">{fraudData.data.summary.total_parcel}</span>
+                          <span className="font-bold text-slate-800 dark:text-zinc-200">{s.total_parcel}</span>
                         </div>
-                        <span className="text-muted-foreground/35">|</span>
-                        <div className="flex items-center gap-1">
-                          <span className="text-muted-foreground text-[10px]">Delivered:</span>
-                          <span className="font-bold text-green-600">{fraudData.data.summary.success_parcel}</span>
-                        </div>
-                        <span className="text-muted-foreground/35">|</span>
-                        <div className="flex items-center gap-1">
-                          <span className="text-muted-foreground text-[10px]">Cancelled:</span>
-                          <span className="font-bold text-red-600">{fraudData.data.summary.cancelled_parcel}</span>
-                        </div>
+                      <span className="text-muted-foreground/35">|</span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-muted-foreground text-[10px]">Delivered:</span>
+                        <span className="font-bold text-green-600">{fraudData.data.summary.success_parcel}</span>
                       </div>
-
-                      {/* Reports List */}
-                      {fraudData.reports && fraudData.reports.length > 0 && (
-                        <div className="border-t pt-2 mt-1">
-                          <span className="text-[10px] font-bold text-red-600 block mb-1">⚠️ Merchant Fraud Reports ({fraudData.reports.length})</span>
-                          <div className="space-y-1.5 max-h-[80px] overflow-y-auto">
-                            {fraudData.reports.map((report: any, idx: number) => (
-                              <div key={idx} className="bg-red-50 dark:bg-red-950/20 p-1.5 rounded text-[10px] border border-red-100 dark:border-red-900/50">
-                                <p className="font-semibold text-red-700 dark:text-red-400">{report.name || 'Anonymous'}: <span className="font-normal text-slate-700 dark:text-zinc-300">{report.details}</span></p>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ) : !fraudLoading && (
-                    <div className="flex justify-between items-center text-[10px]">
-                      <span className="text-muted-foreground">Click to fetch courier history</span>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="h-6 px-2 text-[10px]"
-                        onClick={() => fetchFraudData(order.shippingAddress.phone)}
-                      >
-                        Verify Number
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <Separator />
-
-              {/* Shipping Management (Admin Action) */}
-              <div className="space-y-4">
-                <h3 className="text-sm font-bold uppercase text-muted-foreground flex items-center justify-between">
-                  <span>Shipping Management</span>
-                </h3>
-
-                {order.shippingDetails?.trackingId ? (
-                  <div className="bg-primary/5 border border-primary/10 rounded-lg p-4 space-y-3">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <p className="text-xs text-muted-foreground">Courier Service</p>
-                        <p className="font-bold text-sm">{order.shippingDetails.courierName}</p>
+                      <span className="text-muted-foreground/35">|</span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-muted-foreground text-[10px]">Cancelled:</span>
+                        <span className="font-bold text-red-600">{fraudData.data.summary.cancelled_parcel}</span>
                       </div>
-                      <Badge variant="outline" className="bg-white">
-                        {order.shippingDetails.courierStatus || 'Processing'}
-                      </Badge>
                     </div>
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <p className="text-xs text-muted-foreground">Tracking ID</p>
-                        <code className="text-sm font-mono font-bold">{order.shippingDetails.trackingId}</code>
-                      </div>
-                      {order.shippingDetails.trackingUrl && (
-                        <a
-                          href={order.shippingDetails.trackingUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-xs font-bold text-primary hover:underline flex items-center gap-1"
-                        >
-                          Track Status <ExternalLink className="h-3 w-3" />
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-3">
-                    {settings?.courierConfig?.activeProvider === 'none' ? (
-                      <div className="text-xs bg-yellow-50 text-yellow-700 p-3 rounded-lg border border-yellow-200">
-                        <strong>Note:</strong> Courier integration is not configured. Please go to Settings &gt; Courier to enable automated booking.
-                      </div>
-                    ) : (
-                      <>
-                        <div className="space-y-3 border rounded-lg p-3 bg-muted/30">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold uppercase">Booking Details ({settings?.courierConfig?.activeProvider})</span>
-                          </div>
 
-                          {(settings?.courierConfig?.activeProvider === 'pathao' || settings?.courierConfig?.activeProvider === 'redx') && (
-                            <div className="grid grid-cols-2 gap-2">
-                              {settings?.courierConfig?.activeProvider === 'pathao' && (
-                                <>
-                                  <div className="space-y-1">
-                                    <label className="text-[10px] font-bold">City ID</label>
-                                    <input type="text" value={cityId} onChange={(e) => setCityId(e.target.value)} placeholder="e.g. 1" className="w-full text-xs p-2 border rounded" />
-                                  </div>
-                                  <div className="space-y-1">
-                                    <label className="text-[10px] font-bold">Zone ID</label>
-                                    <input type="text" value={zoneId} onChange={(e) => setZoneId(e.target.value)} placeholder="e.g. 1" className="w-full text-xs p-2 border rounded" />
-                                  </div>
-                                </>
-                              )}
-                              <div className="space-y-1 col-span-2">
-                                <label className="text-[10px] font-bold">Area ID</label>
-                                <input type="text" value={areaId} onChange={(e) => setAreaId(e.target.value)} placeholder="e.g. 123" className="w-full text-xs p-2 border rounded" />
-                              </div>
+                    {/* Reports List */}
+                    {fraudData.reports && fraudData.reports.length > 0 && (
+                      <div className="border-t pt-2 mt-1">
+                        <span className="text-[10px] font-bold text-red-600 block mb-1">⚠️ Merchant Fraud Reports ({fraudData.reports.length})</span>
+                        <div className="space-y-1.5 max-h-[80px] overflow-y-auto">
+                          {fraudData.reports.map((report: any, idx: number) => (
+                            <div key={idx} className="bg-red-50 dark:bg-red-950/20 p-1.5 rounded text-[10px] border border-red-100 dark:border-red-900/50">
+                              <p className="font-semibold text-red-700 dark:text-red-400">{report.name || 'Anonymous'}: <span className="font-normal text-slate-700 dark:text-zinc-300">{report.details}</span></p>
                             </div>
-                          )}
-
-                          <div className="space-y-1">
-                            <label className="text-[10px] font-bold">Shipping Note</label>
-                            <input type="text" value={shippingNote} onChange={(e) => setShippingNote(e.target.value)} placeholder="Package handle with care..." className="w-full text-xs p-2 border rounded" />
-                          </div>
+                          ))}
                         </div>
-
-                        <button
-                          disabled={bookingLoading}
-                          onClick={async () => {
-                            const isActiveSteadfast = settings?.courierConfig?.activeProvider === 'steadfast';
-                            const endpoint = isActiveSteadfast
-                              ? '/api/admin/courier/steadfast'
-                              : `/api/admin/orders/${order._id}/book-courier`;
-                            const payload = isActiveSteadfast
-                              ? { orderIds: [order._id] }
-                              : { city_id: cityId, zone_id: zoneId, area_id: areaId, note: shippingNote };
-
-                            const result = await Swal.fire({
-                              title: isActiveSteadfast ? 'Send to Steadfast?' : 'Book Courier?',
-                              text: isActiveSteadfast
-                                ? `Are you sure you want to send 1 order(s) to Steadfast Courier?`
-                                : `Hand over order #${order._id} to ${settings?.courierConfig?.activeProvider}?`,
-                              icon: 'question',
-                              showCancelButton: true,
-                              confirmButtonColor: '#2563eb',
-                              confirmButtonText: 'Yes, send now!'
-                            });
-
-                            if (!result.isConfirmed) return;
-
-                            setBookingLoading(true);
-                            try {
-                              const res = await fetch(endpoint, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify(payload)
-                              });
-
-                              const data = await res.json();
-                              if (res.ok) {
-                                const hasFailures = data.results && data.results.some((r: any) => !r.success);
-                                if (hasFailures) {
-                                  const firstFail = data.results.find((r: any) => !r.success);
-                                  toast.error(`${data.message}. Reason: ${firstFail?.message || 'Unknown error'}`);
-                                } else {
-                                  toast.success(data.message || `${settings?.courierConfig?.activeProvider} booked successfully!`);
-                                }
-                                onUpdate();
-                                const updateRes = await fetch(`/api/orders/${orderId}`);
-                                if (updateRes.ok) setOrder(await updateRes.json());
-                              } else {
-                                toast.error(data.message || 'Courier booking failed');
-                              }
-                            } catch (e) {
-                              toast.error('Network error');
-                            } finally {
-                              setBookingLoading(false);
-                            }
-                          }}
-                          className="w-full flex items-center justify-center gap-2 py-2.5 bg-primary text-white rounded-lg font-bold hover:bg-primary/90 transition-colors shadow-sm disabled:opacity-50"
-                        >
-                          {bookingLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}
-                          Hand over to {settings?.courierConfig?.activeProvider ? settings.courierConfig.activeProvider.toUpperCase() : 'Courier'}
-                        </button>
-                      </>
+                      </div>
                     )}
+                  </div>
+                ); })() : !fraudLoading && (
+                  <div className="flex justify-between items-center text-[10px]">
+                    <span className="text-muted-foreground">Click to fetch courier history</span>
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      className="h-6 px-2 text-[10px]" 
+                      onClick={() => fetchFraudData(order.shippingAddress.phone)}
+                    >
+                      Verify Number
+                    </Button>
                   </div>
                 )}
               </div>
+            )}
 
-              {/* Internal Note */}
-              {order.internalNote && (
-                <>
-                  <Separator />
-                  <div className="space-y-2 bg-yellow-50 dark:bg-yellow-950/20 p-3 rounded-lg border border-yellow-200/50">
-                    <h4 className="text-xs font-bold uppercase text-amber-800 dark:text-amber-300">Internal Note (Admin/Manager)</h4>
-                    <p className="text-sm text-muted-foreground whitespace-pre-wrap">{order.internalNote}</p>
-                  </div>
-                </>
-              )}
+            <Separator />
 
-              <Separator />
-
-              {/* Items */}
-              <div className="space-y-4">
-                <h4 className="text-sm font-bold uppercase text-muted-foreground">Order Items</h4>
-                <div className="space-y-3">
-                  {(order.items || []).map((item: any, i: number) => (
-                    <div key={item._id || item.id || i} className="flex items-center justify-between text-sm gap-4">
-                      <div className="flex items-center gap-3 flex-1">
-                        <div className="h-12 w-12 rounded border overflow-hidden bg-muted flex-shrink-0">
-                          {item.image ? (
-                            <Image src={item.image} alt={item.name} width={48} height={48} className="h-full w-full object-cover" />
-                          ) : (
-                            <div className="h-full w-full flex items-center justify-center text-xs text-muted-foreground">No Img</div>
-                          )}
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="font-medium line-clamp-1">{item.name}</span>
-                          <div className="flex flex-wrap items-center gap-2 mt-0.5">
-                            {item.color && <Badge variant="outline" className="text-[10px] py-0 px-1.5 h-4 bg-muted/50">{item.color}</Badge>}
-                            {item.size && <Badge variant="outline" className="text-[10px] py-0 px-1.5 h-4 bg-muted/50">Size: {item.size}</Badge>}
-                            <span className="text-xs text-muted-foreground ml-1">৳{Math.round(Number(item.price) || 0)} × {item.quantity}</span>
-                            {item.batchesUsed && item.batchesUsed.length > 0 && (
-                              <div className="flex gap-1 ml-2">
-                                {item.batchesUsed.map((b: any, bIdx: number) => (
-                                  <Badge key={bIdx} variant="secondary" className="text-[9px] py-0 h-4 px-1.5 bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300">
-                                    Batch {b.batchNumber}: {b.quantity}
-                                  </Badge>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="font-bold">
-                        ৳{Math.round(Number(item.price || 0) * (item.quantity || 0))}
-                      </div>
+            {/* Shipping Management (Admin Action) */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-bold uppercase text-muted-foreground flex items-center justify-between">
+                <span>Shipping Management</span>
+              </h3>
+              
+              {order.shippingDetails?.trackingId ? (
+                <div className="bg-primary/5 border border-primary/10 rounded-lg p-4 space-y-3">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Courier Service</p>
+                      <p className="font-bold text-sm">{order.shippingDetails.courierName}</p>
                     </div>
-                  ))}
+                    <Badge variant="outline" className="bg-white">
+                      {order.shippingDetails.courierStatus || 'Processing'}
+                    </Badge>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Tracking ID</p>
+                      <code className="text-sm font-mono font-bold">{order.shippingDetails.trackingId}</code>
+                    </div>
+                    {order.shippingDetails.trackingUrl && (
+                      <a 
+                        href={order.shippingDetails.trackingUrl} 
+                        target="_blank" 
+                        rel="noreferrer"
+                        className="text-xs font-bold text-primary hover:underline flex items-center gap-1"
+                      >
+                        Track Status <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+                  </div>
                 </div>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {!hasAnyCourier ? (
+                    <div className="text-xs bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-200 p-3 rounded-lg border border-amber-200 dark:border-amber-900">
+                      <strong>Note:</strong> No courier credentials configured yet. Please configure Steadfast, Pathao, or RedX credentials in <span className="font-bold">Settings &gt; Marketing &amp; Integration &gt; Courier</span> to enable automated booking.
+                    </div>
+                  ) : (
+                    <>
+                      {/* Courier Selection Tabs */}
+                      <div className="flex items-center gap-2 p-1 bg-muted/40 rounded-xl border border-border">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedCourier('steadfast')}
+                          className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                            selectedCourier === 'steadfast'
+                              ? 'bg-primary text-primary-foreground shadow-xs'
+                              : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
+                          }`}
+                        >
+                          <Truck className="h-3.5 w-3.5" />
+                          Steadfast
+                          {!isSteadfastConfigured && (
+                            <span className="text-[9px] bg-red-100 text-red-700 px-1.5 py-0.2 rounded-full font-normal">Unconfigured</span>
+                          )}
+                        </button>
 
-                <div className="pt-4 border-t flex justify-between items-center text-lg">
-                  <span className="font-bold">Total Amount:</span>
-                  <span className="font-black text-primary">৳{Math.round(Number(order.totalAmount) || 0)}</span>
-                </div>
-              </div>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedCourier('pathao')}
+                          className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                            selectedCourier === 'pathao'
+                              ? 'bg-primary text-primary-foreground shadow-xs'
+                              : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
+                          }`}
+                        >
+                          <Truck className="h-3.5 w-3.5 text-rose-500" />
+                          Pathao
+                          {!isPathaoConfigured && (
+                            <span className="text-[9px] bg-red-100 text-red-700 px-1.5 py-0.2 rounded-full font-normal">Unconfigured</span>
+                          )}
+                        </button>
 
-              {/* Quick Actions for Manual Payments */}
-              {order.paymentMethod === 'Manual' && order.paymentStatus === 'Pending' && order.status !== 'Cancelled' && (
-                <div className="mt-6 pt-4 border-t flex flex-col sm:flex-row gap-3">
-                  <Button
-                    variant="outline"
-                    onClick={async () => {
-                      const result = await Swal.fire({
-                        title: 'Cancel Order?',
-                        text: "Are you sure you want to cancel this order?",
-                        icon: 'question',
-                        showCancelButton: true,
-                        confirmButtonColor: '#d33',
-                        cancelButtonColor: '#aaa',
-                        confirmButtonText: 'Yes, cancel it!',
-                      });
-                      if (result.isConfirmed) {
-                        try {
-                          const res = await fetch(`/api/orders/${order._id}`, {
-                            method: 'PATCH',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ status: 'Cancelled' }),
-                          });
-                          if (res.ok) {
-                            toast.success('Order cancelled successfully');
-                            onUpdate();
-                            onOpenChange(false);
-                          } else {
-                            toast.error('Failed to update order');
-                          }
-                        } catch (e) {
-                          toast.error('Error updating order');
+                        <button
+                          type="button"
+                          onClick={() => setSelectedCourier('redx')}
+                          className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                            selectedCourier === 'redx'
+                              ? 'bg-primary text-primary-foreground shadow-xs'
+                              : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
+                          }`}
+                        >
+                          <Truck className="h-3.5 w-3.5 text-red-500" />
+                          RedX
+                          {!isRedxConfigured && (
+                            <span className="text-[9px] bg-red-100 text-red-700 px-1.5 py-0.2 rounded-full font-normal">Unconfigured</span>
+                          )}
+                        </button>
+                      </div>
+
+                      <button
+                        disabled={
+                          bookingLoading ||
+                          (selectedCourier === 'steadfast' && !isSteadfastConfigured) ||
+                          (selectedCourier === 'pathao' && !isPathaoConfigured) ||
+                          (selectedCourier === 'redx' && !isRedxConfigured)
                         }
-                      }
-                    }}
-                    className="rounded-xl h-11 flex-1 font-bold text-destructive hover:bg-destructive/5"
-                  >
-                    Reject & Cancel Order
-                  </Button>
-                  <Button
-                    onClick={async () => {
-                      const result = await Swal.fire({
-                        title: 'Approve Payment & Order?',
-                        text: `Confirm manual payment and mark order #${order._id.slice(-8).toUpperCase()} as Confirmed & Paid?`,
-                        icon: 'question',
-                        showCancelButton: true,
-                        confirmButtonColor: '#00D1B2',
-                        confirmButtonText: 'Yes, Approve!'
-                      });
-                      if (result.isConfirmed) {
-                        try {
-                          const res = await fetch(`/api/orders/${order._id}`, {
-                            method: 'PATCH',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ status: 'Confirmed', paymentStatus: 'Paid' }),
+                        onClick={async () => {
+                          const courierNameUpper = selectedCourier.toUpperCase();
+
+                          const result = await Swal.fire({
+                            title: `Hand over to ${courierNameUpper}?`,
+                            text: `Are you sure you want to book Order #${order.shortId || String(order._id).slice(-8).toUpperCase()} with ${courierNameUpper}?`,
+                            icon: 'question',
+                            showCancelButton: true,
+                            confirmButtonColor: '#2563eb',
+                            confirmButtonText: `Yes, send to ${courierNameUpper}!`
                           });
-                          if (res.ok) {
-                            toast.success('Order approved successfully');
-                            onUpdate();
-                            onOpenChange(false);
-                          } else {
-                            toast.error('Failed to approve order');
+
+                          if (!result.isConfirmed) return;
+
+                          setBookingLoading(true);
+                          try {
+                            let endpoint = '';
+                            let payload: any = { orderIds: [order._id] };
+
+                            if (selectedCourier === 'steadfast') {
+                              endpoint = '/api/admin/courier/steadfast';
+                            } else if (selectedCourier === 'pathao') {
+                              endpoint = '/api/admin/courier/pathao';
+                            } else {
+                              endpoint = '/api/admin/courier/redx';
+                            }
+
+                            const res = await fetch(endpoint, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify(payload)
+                            });
+
+                            const data = await res.json();
+                            if (res.ok) {
+                              const hasFailures = data.results && data.results.some((r: any) => !r.success);
+                              if (hasFailures) {
+                                const firstFail = data.results.find((r: any) => !r.success);
+                                toast.error(`${data.message || 'Partial booking failure'}. Reason: ${firstFail?.message || 'Unknown error'}`);
+                              } else {
+                                toast.success(data.message || `${courierNameUpper} booked successfully!`);
+                              }
+                              onUpdate();
+                              const updateRes = await fetch(`/api/orders/${orderId}`);
+                              if (updateRes.ok) setOrder(await updateRes.json());
+                            } else {
+                              toast.error(data.message || `${courierNameUpper} booking failed`);
+                            }
+                          } catch (e) {
+                            toast.error('Network error during courier booking');
+                          } finally {
+                            setBookingLoading(false);
                           }
-                        } catch (e) {
-                          toast.error('Error approving order');
-                        }
-                      }
-                    }}
-                    className="rounded-xl h-11 flex-1 font-black uppercase tracking-wider text-xs shadow-md shadow-primary/10"
-                  >
-                    Approve Manual Payment
-                  </Button>
+                        }}
+                        className="w-full flex items-center justify-center gap-2 py-2.5 bg-primary text-primary-foreground rounded-xl font-bold hover:bg-primary/90 transition-colors shadow-sm disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                      >
+                        {bookingLoading ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Truck className="h-4 w-4" />
+                        )}
+                        Hand over to {selectedCourier.toUpperCase()}
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>
+
+            {/* Note Sections: Customer Note, Internal Note, System Note */}
+            {(order.customerNote || order.internalNote || order.systemNote) && (
+              <>
+                <Separator />
+                <div className="space-y-3">
+                  {order.customerNote && (
+                    <div className="bg-sky-50 dark:bg-sky-950/30 p-3 rounded-lg border border-sky-200 dark:border-sky-900 space-y-1">
+                      <h4 className="text-xs font-bold uppercase text-sky-800 dark:text-sky-300 flex items-center gap-1.5">
+                        <MessageSquare className="h-3.5 w-3.5" /> Customer Delivery Note
+                      </h4>
+                      <p className="text-sm text-sky-900 dark:text-sky-200 whitespace-pre-wrap">{order.customerNote}</p>
+                    </div>
+                  )}
+
+                  {order.internalNote && (
+                    <div className="bg-amber-50 dark:bg-amber-950/30 p-3 rounded-lg border border-amber-200/60 dark:border-amber-900 space-y-1">
+                      <h4 className="text-xs font-bold uppercase text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                        <Lock className="h-3.5 w-3.5" /> Internal Note (Admin / Staff / Reseller Private)
+                      </h4>
+                      <p className="text-sm text-amber-900 dark:text-amber-200 whitespace-pre-wrap">{order.internalNote}</p>
+                    </div>
+                  )}
+
+                  {order.systemNote && (
+                    <div className="bg-muted/40 p-2.5 rounded-lg border border-border flex items-center justify-between text-xs">
+                      <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
+                        <Tag className="h-3.5 w-3.5" /> System Info:
+                      </span>
+                      <span className="font-mono font-medium text-foreground bg-background px-2 py-0.5 rounded border border-border">
+                        {order.systemNote}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
+            <Separator />
+            
+            {/* Items */}
+            <div className="space-y-4">
+              <h4 className="text-sm font-bold uppercase text-muted-foreground">Order Items</h4>
+              <div className="space-y-3">
+                {(order.items || []).map((item: any, i: number) => {
+                  const productObj = typeof item.product === 'object' && item.product ? item.product : null;
+                  const productSlugOrId = item.slug || productObj?.slug || productObj?._id || (typeof item.product === 'string' ? item.product : null);
+                  const itemHref = productSlugOrId
+                    ? `/product/${encodeURIComponent(String(productSlugOrId))}`
+                    : `/shop?search=${encodeURIComponent(item.name || '')}`;
+                  return (
+                  <div key={item._id || item.id || i} className="flex items-center justify-between text-sm gap-4">
+                    <div className="flex items-center gap-3 flex-1">
+                      <Link href={itemHref} target="_blank" rel="noopener noreferrer" className="h-12 w-12 rounded border overflow-hidden bg-muted flex-shrink-0 hover:opacity-80 transition-opacity">
+                         {item.image ? (
+                             <Image src={item.image} alt={item.name} width={48} height={48} className="h-full w-full object-cover" />
+                         ) : (
+                             <div className="h-full w-full flex items-center justify-center text-xs text-muted-foreground">No Img</div>
+                         )}
+                      </Link>
+                      <div className="flex flex-col">
+                        <Link
+                          href={itemHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-medium whitespace-normal break-words leading-snug hover:text-primary hover:underline transition-colors w-fit"
+                        >
+                          {item.name}
+                        </Link>
+                        <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                          {item.color && <Badge variant="outline" className="text-[10px] py-0 px-1.5 h-4 bg-muted/50">{item.color}</Badge>}
+                          {item.size && <Badge variant="outline" className="text-[10px] py-0 px-1.5 h-4 bg-muted/50">Size: {item.size}</Badge>}
+                          <span className="text-xs text-muted-foreground ml-1">৳{Math.round(Number(item.price) || 0)} × {item.quantity}</span>
+                          {(() => {
+                            const uploader = item.uploadedBy || item.product?.uploadedBy;
+                            const uploaderName = typeof uploader === 'object' && uploader?.storeName ? uploader.storeName : null;
+                            if (uploaderName) {
+                              return (
+                                <Badge variant="outline" className="text-[9px] py-0 px-1.5 h-4 bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border-purple-200">
+                                  🏷️ Source: {uploaderName}
+                                </Badge>
+                              );
+                            }
+                            if (order.resellerId) {
+                              return (
+                                <Badge variant="outline" className="text-[9px] py-0 px-1.5 h-4 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-200">
+                                  🏪 Seller: {typeof order.resellerId === 'object' && order.resellerId.storeName ? order.resellerId.storeName : 'Partner'}
+                                </Badge>
+                              );
+                            }
+                            return null;
+                          })()}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="font-bold">
+                      ৳{Math.round(Number(item.price || 0) * (item.quantity || 0))}
+                    </div>
+                  </div>
+                  );
+                })}
+              </div>
+              
+              {/* Financial Breakdown & Bill Summary */}
+              {(() => {
+                const computedSubtotal = (order.items || []).reduce((sum: number, it: any) => sum + (Number(it.price || it.retailPrice || 0) * (it.quantity || 1)), 0);
+                const subtotal = order.subtotal !== undefined ? Number(order.subtotal) : computedSubtotal;
+                const deliveryCharge = Number(order.deliveryCharge) || 0;
+                const couponDiscount = Number(order.couponDiscountAmount || order.couponDiscount) || 0;
+                const walletUsed = Number(order.walletAmountUsed) || 0;
+                const totalAmount = Number(order.totalAmount) || 0;
+
+                return (
+                  <div className="pt-4 border-t grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                    {/* Left: Disbursement Breakdown */}
+                    <div>
+                      <DisbursementBreakdown
+                        disbursement={order.disbursement}
+                        fallbackCommission={order.resellerCommission}
+                        fallbackSystemFee={order.systemFee}
+                        fallbackDeliveryCharge={order.deliveryCharge}
+                        fallbackTotalAmount={order.totalAmount}
+                        commissionStatus={order.commissionStatus}
+                        mode="card"
+                        perspective="admin"
+                      />
+                    </div>
+
+                    {/* Right: Bill Summary & Mother Shop Earnings */}
+                    <div className="space-y-3">
+                      <div className="bg-slate-50/80 dark:bg-zinc-900/60 p-3.5 rounded-xl border border-slate-200 dark:border-zinc-800 space-y-2">
+                        <div className="flex items-center justify-between pb-1.5 border-b border-slate-200/80 dark:border-zinc-800/80 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                          <span className="flex items-center gap-1.5">
+                            <span>🧾</span>
+                            <span>Bill Summary / বিল বিবরণী</span>
+                          </span>
+                          <span className="text-[10px] lowercase font-mono text-muted-foreground/80">customer</span>
+                        </div>
+
+                        <div className="flex justify-between items-center text-xs text-muted-foreground px-1">
+                          <span>Subtotal:</span>
+                          <span className="font-mono font-medium text-foreground">৳{Math.round(subtotal)}</span>
+                        </div>
+
+                        <div className="flex justify-between items-center text-xs text-muted-foreground px-1">
+                          <span className="flex items-center gap-1.5">
+                            <span>🚚</span>
+                            <span>Delivery Charge:</span>
+                          </span>
+                          <span className="font-mono font-medium text-foreground">৳{Math.round(deliveryCharge)}</span>
+                        </div>
+
+                        {couponDiscount > 0 && (
+                          <div className="flex justify-between items-center text-xs text-destructive px-1">
+                            <span>Coupon Discount:</span>
+                            <span className="font-mono font-semibold">-৳{Math.round(couponDiscount)}</span>
+                          </div>
+                        )}
+
+                        {walletUsed > 0 && (
+                          <div className="flex justify-between items-center text-xs text-amber-600 dark:text-amber-400 px-1">
+                            <span>Wallet Used:</span>
+                            <span className="font-mono font-semibold">-৳{Math.round(walletUsed)}</span>
+                          </div>
+                        )}
+
+                        <div className="flex justify-between items-center text-xs font-bold pt-2 border-t border-slate-300 dark:border-zinc-700 px-1 mt-1">
+                          <span className="uppercase text-[10px] tracking-wider text-muted-foreground font-sans">Total Amount:</span>
+                          <span className="font-mono text-primary font-black text-base">৳{Math.round(totalAmount)}</span>
+                        </div>
+                      </div>
+
+                      {/* Mother Shop Earnings / Revenue Card */}
+                      {(() => {
+                        const motherFee = Math.round(Number(order.disbursement?.motherFee ?? order.systemFee) || 0);
+                        const motherProfit = Math.round(Number(order.disbursement?.motherProfit ?? order.salesProfit) || 0);
+                        const totalMotherEarnings = motherFee + motherProfit;
+                        const isPaid = order.paymentStatus === 'Paid';
+
+                        return (
+                          <div className="flex justify-between items-center text-sm p-3 bg-indigo-50/90 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/60 rounded-xl">
+                            <div>
+                              <span className="font-bold text-indigo-900 dark:text-indigo-300 block text-xs flex items-center gap-1.5">
+                                <span>🏢</span>
+                                <span>Mother Shop Earnings / নিজস্ব আয়:</span>
+                              </span>
+                              <span className="text-[10px] text-indigo-600/90 dark:text-indigo-400/90 font-medium flex items-center gap-1.5 mt-0.5">
+                                {motherFee > 0 && <span>Platform Fee: ৳{motherFee}</span>}
+                                {motherFee > 0 && motherProfit > 0 && <span>•</span>}
+                                {motherProfit > 0 && <span>Direct Profit: ৳{motherProfit}</span>}
+                                {motherFee === 0 && motherProfit === 0 && <span>Net revenue from this order</span>}
+                              </span>
+                            </div>
+                            <div className="text-right">
+                              <span className="font-mono font-black text-indigo-700 dark:text-indigo-400 text-base block">
+                                ৳{totalMotherEarnings}
+                              </span>
+                              <Badge 
+                                variant="outline" 
+                                className={`text-[10px] font-bold capitalize ${
+                                  isPaid 
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-zinc-900 dark:text-emerald-300' 
+                                    : 'bg-amber-50 text-amber-700 border-amber-300 dark:bg-zinc-900 dark:text-amber-300'
+                                }`}
+                              >
+                                {isPaid ? 'Received' : 'Pending'}
+                              </Badge>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Quick Actions for Manual Payments */}
+            {order.paymentMethod === 'Manual' && order.paymentStatus === 'Pending' && order.status !== 'Cancelled' && (
+              <div className="mt-6 pt-4 border-t flex flex-col sm:flex-row gap-3">
+                <Button 
+                  variant="outline" 
+                  onClick={async () => {
+                    const result = await Swal.fire({
+                      title: 'Cancel Order?',
+                      text: "Are you sure you want to cancel this order?",
+                      icon: 'question',
+                      showCancelButton: true,
+                      confirmButtonColor: '#d33',
+                      cancelButtonColor: '#aaa',
+                      confirmButtonText: 'Yes, cancel it!',
+                    });
+                    if (result.isConfirmed) {
+                      try {
+                        const res = await fetch(`/api/orders/${order._id}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ status: 'Cancelled' }),
+                        });
+                        if (res.ok) {
+                          toast.success('Order cancelled successfully');
+                          onUpdate();
+                          onOpenChange(false);
+                        } else {
+                          toast.error('Failed to update order');
+                        }
+                      } catch (e) {
+                        toast.error('Error updating order');
+                      }
+                    }
+                  }}
+                  className="rounded-xl h-11 flex-1 font-bold text-destructive hover:bg-destructive/5"
+                >
+                  Reject & Cancel Order
+                </Button>
+                <Button 
+                  onClick={async () => {
+                    const result = await Swal.fire({
+                      title: 'Approve Payment & Order?',
+                      text: `Confirm manual payment and mark order #${order._id.slice(-8).toUpperCase()} as Confirmed & Paid?`,
+                      icon: 'question',
+                      showCancelButton: true,
+                      confirmButtonColor: '#00D1B2',
+                      confirmButtonText: 'Yes, Approve!'
+                    });
+                    if (result.isConfirmed) {
+                      try {
+                        const res = await fetch(`/api/orders/${order._id}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ status: 'Confirmed', paymentStatus: 'Paid' }),
+                        });
+                        if (res.ok) {
+                          toast.success('Order approved successfully');
+                          onUpdate();
+                          onOpenChange(false);
+                        } else {
+                          toast.error('Failed to approve order');
+                        }
+                      } catch (e) {
+                        toast.error('Error approving order');
+                      }
+                    }
+                  }}
+                  className="rounded-xl h-11 flex-1 font-black uppercase tracking-wider text-xs shadow-md shadow-primary/10"
+                >
+                  Approve Manual Payment
+                </Button>
+              </div>
+            )}
+          </div>
           )
         ) : (
           <div className="py-10 text-center text-muted-foreground">
@@ -1173,6 +1449,13 @@ export default function OrderDetailsDialog({
         )}
       </DialogContent>
 
+      <ProductPickerDialog
+        open={productPickerOpen}
+        onOpenChange={setProductPickerOpen}
+        onAddSelected={handleAddPickerProducts}
+        uploadedByFilter={filterUploadedBy}
+        sellerName={sellerDisplayName}
+      />
     </Dialog>
   );
 }

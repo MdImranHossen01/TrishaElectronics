@@ -1,6 +1,7 @@
 import mongoose, { Document, Model, Schema } from 'mongoose';
 
 export interface IBanner extends Document {
+  resellerId?: mongoose.Types.ObjectId | null; // null = admin global banner
   title: string;
   image: string;
   link?: string;
@@ -16,6 +17,7 @@ export interface IBanner extends Document {
 
 const BannerSchema: Schema<IBanner> = new Schema(
   {
+    resellerId: { type: Schema.Types.ObjectId, ref: 'Reseller', default: null, index: true },
     title: { type: String, required: true },
     image: { type: String, required: true },
     link: { type: String },

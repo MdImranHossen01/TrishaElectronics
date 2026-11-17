@@ -18,6 +18,7 @@ export interface IGlobalSettings extends Document {
     whatsapp?: string;
   };
   marqueeText?: string;
+  platformCommissionRate?: number;
   freeDeliveryThreshold?: number;
   deliveryChargeInsideDhaka?: number;
   deliveryChargeOutsideDhaka?: number;
@@ -31,6 +32,8 @@ export interface IGlobalSettings extends Document {
   facebookTestEventCode?: string;
   tiktokPixelId?: string;
   tiktokAccessToken?: string;
+  tiktokDomainVerification?: string;
+  tiktokTestEventCode?: string;
   courierConfig?: {
     activeProvider?: 'steadfast' | 'pathao' | 'redx' | 'none';
     steadfast?: {
@@ -41,9 +44,13 @@ export interface IGlobalSettings extends Document {
       clientId?: string;
       clientSecret?: string;
       storeId?: string;
+      username?: string;
+      password?: string;
+      isSandbox?: boolean;
     };
     redx?: {
       apiKey?: string;
+      isSandbox?: boolean;
     };
     bdCourier?: {
       apiKey?: string;
@@ -54,11 +61,20 @@ export interface IGlobalSettings extends Document {
     rewardPercentage?: number;
   };
   paymentConfig?: {
-    activeMethod?: 'sslcommerz' | 'none';
+    activeMethod?: 'sslcommerz' | 'stripe' | 'none';
+    activeMethods?: string[];
+    cashOnDelivery?: boolean;
     sslcommerz?: {
       storeId?: string;
       storePassword?: string;
       isSandbox?: boolean;
+      active?: boolean;
+    };
+    stripe?: {
+      secretKey?: string;
+      publishableKey?: string;
+      webhookSecret?: string;
+      active?: boolean;
     };
   };
   manualPaymentConfig?: {
@@ -67,13 +83,6 @@ export interface IGlobalSettings extends Document {
     rocket?: { number: string; qrCode?: string; active: boolean };
     banglaQr?: { qrCode?: string; active: boolean };
     instructions?: string;
-    bank?: {
-      bankName?: string;
-      accountNumber?: string;
-      routingNumber?: string;
-      branchName?: string;
-      active?: boolean;
-    };
   };
   googleAnalyticsId?: string; // GA4 Measurement ID (G-XXXXXX)
   googleAnalyticsPropertyId?: string; // GA4 Property ID (Numeric)
@@ -81,6 +90,7 @@ export interface IGlobalSettings extends Document {
   superAdminNote?: string;
   aiConfig?: {
     geminiApiKey?: string;
+    openRouterApiKey?: string;
   };
   uiTemplates?: {
     layout?: string;
@@ -125,6 +135,7 @@ const GlobalSettingsSchema: Schema<IGlobalSettings> = new Schema(
     logoUrl: { type: String, default: '/logo.webp' },
     socialLinks: { type: Object, default: {} },
     marqueeText: { type: String },
+    platformCommissionRate: { type: Number, default: 10, min: 0, max: 100 },
     freeDeliveryThreshold: { type: Number, default: 0 },
     deliveryChargeInsideDhaka: { type: Number, default: 60 },
     deliveryChargeOutsideDhaka: { type: Number, default: 120 },
@@ -138,6 +149,8 @@ const GlobalSettingsSchema: Schema<IGlobalSettings> = new Schema(
     facebookTestEventCode: { type: String },
     tiktokPixelId: { type: String },
     tiktokAccessToken: { type: String },
+    tiktokDomainVerification: { type: String },
+    tiktokTestEventCode: { type: String },
     courierConfig: { type: Object, default: { activeProvider: 'none' } },
     subscriptionConfig: { type: Object, default: { activationThreshold: 5000, rewardPercentage: 5 } },
     paymentConfig: { type: Object, default: { activeMethod: 'none' } },
@@ -147,7 +160,8 @@ const GlobalSettingsSchema: Schema<IGlobalSettings> = new Schema(
     googleSearchConsoleId: { type: String },
     superAdminNote: { type: String },
     aiConfig: {
-      geminiApiKey: { type: String }
+      geminiApiKey: { type: String },
+      openRouterApiKey: { type: String }
     },
     uiTemplates: { type: Object, default: {} },
     saasSubscription: {
@@ -184,6 +198,10 @@ const GlobalSettingsSchema: Schema<IGlobalSettings> = new Schema(
         // Security: Remove sensitive Payment credentials
         if (ret.paymentConfig) {
           delete ret.paymentConfig.sslcommerz;
+          if (ret.paymentConfig.stripe) {
+            delete ret.paymentConfig.stripe.secretKey;
+            delete ret.paymentConfig.stripe.webhookSecret;
+          }
         }
         return ret;
       }

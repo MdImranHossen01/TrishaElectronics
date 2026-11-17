@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import connectToDatabase from '@/lib/db';
 import User from '@/models/User';
 import { sendResetEmail } from '@/lib/mail';
+import { getStorefrontReseller } from '@/lib/resellerStore';
 
 // In-memory rate limiting map (Note: In production/serverless, use Redis)
 const rateLimit = new Map<string, { count: number; lastRequest: number }>();
@@ -54,7 +55,7 @@ export async function POST(req: NextRequest) {
 
     const user = await User.findOne({ email: normalizedEmail });
 
-    if (!user || !user.email) {
+    if (!user) {
       // Timing parity delay
       const elapsed = Date.now() - startTime;
       const sleep = Math.max(0, 1000 - elapsed); // Aim for at least 1s
@@ -69,7 +70,17 @@ export async function POST(req: NextRequest) {
 
     // Send email first (as per user request to avoid dangling tokens on fail)
     try {
-      await sendResetEmail(user.email, resetToken);
+      const reseller = await getStorefrontReseller(req);
+      await sendResetEmail(
+        user.email,
+        resetToken,
+        reseller ? {
+          storeName: reseller.storeName,
+          subdomain: reseller.subdomain,
+          customDomain: reseller.customDomain,
+          logoUrl: reseller.logoUrl,
+        } : undefined
+      );
     } catch (emailError) {
       console.error('Failed to send reset email:', emailError);
       return NextResponse.json({ message: 'Failed to send reset email. Please try again later.' }, { status: 500 });

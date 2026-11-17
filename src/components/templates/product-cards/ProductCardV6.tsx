@@ -13,8 +13,10 @@ import { useSession } from 'next-auth/react';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { QuickViewModal } from './QuickViewModal';
+import { ProductActionMenu } from './ProductActionMenu';
 import { fbEvent } from '@/lib/fpixel';
 import { ttEvent } from '@/lib/tiktok';
+import { validateAndAddToCart } from '@/lib/cart-seller';
 import {
   Tooltip,
   TooltipContent,
@@ -39,6 +41,7 @@ interface ProductCardProps {
     ratings?: number;
     numReviews?: number;
     sku?: string;
+    uploadedBy?: any;
   };
   isFlashSale?: boolean;
   priority?: boolean;
@@ -47,99 +50,134 @@ interface ProductCardProps {
 
 export default function ProductCardV6({ product: initialProduct, isFlashSale, priority, layout }: ProductCardProps) {
   const dispatch = useAppDispatch();
+  const cartItems = useAppSelector((state) => state.cart.items);
   const router = useRouter();
   const { data: session, status } = useSession();
   const wishlist = useAppSelector((state) => state.wishlist.items);
   const isInWishlist = wishlist.includes(initialProduct._id);
 
-  const firstVariant = initialProduct.variants && initialProduct.variants.length > 0 ? initialProduct.variants[0] : null;
-  const product = firstVariant ? {
-    ...initialProduct,
-    price: firstVariant.price,
-    salePrice: firstVariant.salePrice,
-    stock: firstVariant.stock ?? initialProduct.stock,
-    sku: firstVariant.sku ?? initialProduct.sku,
-    images: firstVariant.image ? [firstVariant.image, ...initialProduct.images.filter((img: string) => img !== firstVariant.image)] : initialProduct.images
-  } : initialProduct;
+  const hasVariants = Boolean(initialProduct.variants && initialProduct.variants.length > 0);
+  const firstVariant = hasVariants ? initialProduct.variants![0] : null;
 
-  const hasVariants = product.variants && product.variants.length > 0;
+  const displayPrice = firstVariant && (firstVariant.price !== undefined && firstVariant.price !== null)
+    ? Number(firstVariant.price)
+    : Number(initialProduct.price ?? (initialProduct as any).retailPrice ?? 0);
+
+  // If product has variants, discount MUST come strictly from firstVariant. Never fall back to main product salePrice!
+  const rawSale = firstVariant
+    ? (firstVariant.salePrice !== undefined && firstVariant.salePrice !== null ? Number(firstVariant.salePrice) : undefined)
+    : (initialProduct.salePrice !== undefined && initialProduct.salePrice !== null ? Number(initialProduct.salePrice) : undefined);
+
+  const hasDiscount = Boolean(rawSale !== undefined && rawSale > 0 && rawSale < displayPrice);
+  const displaySalePrice = hasDiscount ? rawSale : undefined;
+
+  const product = {
+    ...initialProduct,
+    price: isNaN(displayPrice) ? 0 : displayPrice,
+    salePrice: displaySalePrice,
+    stock: firstVariant?.stock ?? initialProduct.stock ?? 0,
+    sku: firstVariant?.sku ?? initialProduct.sku,
+    images: firstVariant?.image ? [firstVariant.image, ...((initialProduct.images || []).filter((img: string) => img !== firstVariant.image))] : (initialProduct.images || [])
+  };
+
+  const discount = hasDiscount && product.salePrice
+    ? Math.round(((product.price - product.salePrice) / product.price) * 100)
+    : 0;
 
   const [showQuickViewModal, setShowQuickViewModal] = useState(false);
 
-  const handleAddToCart = (e: React.MouseEvent) => {
+  const handleAddToCart = async (e: React.MouseEvent) => {
     e.preventDefault();
     if (hasVariants) {
       setShowQuickViewModal(true);
     } else {
-      dispatch(addToCart({
-        productId: product._id,
+      const itemToAdd = {
+        productId: (product as any).productId || product._id,
+        resellerProductId: (product as any).productId ? product._id : undefined,
         name: product.name,
         price: product.salePrice ?? product.price,
         basePrice: product.price,
         quantity: 1,
-        image: product.images?.[0]
-      }));
-
-      // Track AddToCart
-      const addToCartPayload = {
-        content_name: product.name,
-        content_category: 'Beauty',
-        content_ids: [product._id],
-        content_type: 'product',
-        value: product.salePrice || product.price,
-        currency: 'BDT',
-        quantity: 1
+        image: product.images?.[0],
+        uploadedBy: (initialProduct as any).uploadedBy ? String((initialProduct as any).uploadedBy) : null,
       };
-      const trackingUser = {
-        em: session?.user?.email || undefined,
-        ph: (session?.user as any)?.phone || undefined,
-        fn: session?.user?.name || undefined
-      };
-      fbEvent('AddToCart', addToCartPayload, trackingUser);
-      ttEvent('AddToCart', addToCartPayload, trackingUser);
 
-      toast.success(`${product.name} added to cart`);
+      await validateAndAddToCart({
+        cartItems,
+        newItem: itemToAdd,
+        dispatch,
+        onSuccess: () => {
+          // Track AddToCart
+          const addToCartPayload = {
+            content_name: product.name,
+            content_category: 'Beauty',
+            content_ids: [product._id],
+            content_type: 'product',
+            value: product.salePrice || product.price,
+            currency: 'BDT',
+            quantity: 1
+          };
+          const trackingUser = {
+            em: session?.user?.email || undefined,
+            ph: (session?.user as any)?.phone || undefined,
+            fn: session?.user?.name || undefined
+          };
+          fbEvent('AddToCart', addToCartPayload, trackingUser);
+          ttEvent('AddToCart', addToCartPayload, trackingUser);
+
+          toast.success(`${product.name} added to cart`);
+        }
+      });
     }
   };
 
-  const handleBuyNow = (e: React.MouseEvent) => {
+  const handleBuyNow = async (e: React.MouseEvent) => {
     e.preventDefault();
     if (hasVariants) {
       setShowQuickViewModal(true);
       return;
     }
 
-    // Clear cart first for a clean "Buy Now" experience
-    dispatch(clearCart());
-
-    dispatch(addToCart({
-      productId: product._id,
+    const itemToAdd = {
+      productId: (product as any).productId || product._id,
+      resellerProductId: (product as any).productId ? product._id : undefined,
       name: product.name,
       price: product.salePrice ?? product.price,
       basePrice: product.price,
       quantity: 1,
-      image: product.images?.[0]
-    }));
-
-    // Track InitiateCheckout
-    const initiateCheckoutPayload = {
-      content_name: product.name,
-      content_category: 'Beauty',
-      content_ids: [product._id],
-      content_type: 'product',
-      value: product.salePrice || product.price,
-      currency: 'BDT',
-      quantity: 1
+      image: product.images?.[0],
+      uploadedBy: (initialProduct as any).uploadedBy ? String((initialProduct as any).uploadedBy) : null,
     };
-    const trackingUser = {
-      em: session?.user?.email || undefined,
-      ph: (session?.user as any)?.phone || undefined,
-      fn: session?.user?.name || undefined
-    };
-    fbEvent('InitiateCheckout', initiateCheckoutPayload, trackingUser);
-    ttEvent('InitiateCheckout', initiateCheckoutPayload, trackingUser);
 
-    router.push('/checkout');
+
+    const added = await validateAndAddToCart({
+      cartItems,
+      newItem: itemToAdd,
+      dispatch,
+      onSuccess: () => {
+        // Track InitiateCheckout
+        const initiateCheckoutPayload = {
+          content_name: product.name,
+          content_category: 'Beauty',
+          content_ids: [product._id],
+          content_type: 'product',
+          value: product.salePrice || product.price,
+          currency: 'BDT',
+          quantity: 1
+        };
+        const trackingUser = {
+          em: session?.user?.email || undefined,
+          ph: (session?.user as any)?.phone || undefined,
+          fn: session?.user?.name || undefined
+        };
+        fbEvent('InitiateCheckout', initiateCheckoutPayload, trackingUser);
+        ttEvent('InitiateCheckout', initiateCheckoutPayload, trackingUser);
+      }
+    });
+
+    if (added) {
+      router.push('/checkout');
+    }
   };
 
   const handleWishlist = async (e: React.MouseEvent) => {
@@ -172,7 +210,6 @@ export default function ProductCardV6({ product: initialProduct, isFlashSale, pr
     toast.success(isInWishlist ? 'Removed from wishlist' : 'Added to wishlist');
   };
 
-  const discount = product.salePrice ? Math.round(((product.price - product.salePrice) / product.price) * 100) : 0;
 
   return (
     <div className={`group relative flex flex-col font-jost animate-in fade-in duration-700 ${layout === 'v3' ? 'lg:rounded-sm lg:overflow-hidden lg:border lg:border-border/40 lg:pb-3 lg:bg-card' : ''}`}>
@@ -245,26 +282,29 @@ export default function ProductCardV6({ product: initialProduct, isFlashSale, pr
             </Tooltip>
           </TooltipProvider>
         </div>
+
+        {/* Admin & Reseller Action Menu */}
+        <ProductActionMenu product={product} />
       </div>
 
       {/* Product Info */}
-      <div className="mt-4 text-center space-y-4 px-2 pb-2 flex-1 flex flex-col justify-between">
-        <div className="min-h-[5.25rem] sm:min-h-[4.5rem] flex flex-col justify-center">
+      <div className="mt-2 sm:mt-4 text-center space-y-2 sm:space-y-4 px-[2px] sm:px-2 pb-2 flex-1 flex flex-col justify-between">
+        <div className="min-h-[4rem] sm:min-h-[4.5rem] flex flex-col justify-center">
           <Link prefetch={true}
             href={`/product/${product.slug}`}
-            className={`text-sm ${layout === 'v3' ? 'lg:text-xs' : 'sm:text-base'} font-semibold text-foreground hover:text-primary transition-colors leading-tight px-2 line-clamp-3 sm:line-clamp-2`}
+            className={`text-xs font-medium sm:px-2 ${layout === 'v3' ? 'lg:text-xs' : 'sm:text-base'} sm:font-semibold text-foreground hover:text-primary transition-colors leading-tight line-clamp-3 sm:line-clamp-2`}
             title={product.name}
           >
             {product.name}
           </Link>
           <div className="flex items-center justify-center gap-2 mt-2">
-            {product.salePrice ? (
+            {hasDiscount ? (
               <>
-                <span className={`text-foreground font-black text-sm ${layout === 'v3' ? 'lg:text-[14px]' : 'sm:text-[16px]'}`}>৳{Math.round(product.salePrice)}</span>
-                <span className={`text-muted-foreground line-through text-[11px] ${layout === 'v3' ? 'lg:text-[11px]' : 'sm:text-[13px]'} font-normal`}>৳{Math.round(product.price)}</span>
+                <span className={`text-foreground font-black text-sm ${layout === 'v3' ? 'lg:text-[14px]' : 'sm:text-[16px]'}`}>৳{Math.round(product.salePrice ?? 0)}</span>
+                <span className={`text-muted-foreground line-through text-[11px] ${layout === 'v3' ? 'lg:text-[11px]' : 'sm:text-[13px]'} font-normal`}>৳{Math.round(product.price ?? 0)}</span>
               </>
             ) : (
-              <span className={`text-foreground font-black text-sm ${layout === 'v3' ? 'lg:text-[14px]' : 'sm:text-[16px]'}`}>৳{Math.round(product.price)}</span>
+              <span className={`text-foreground font-black text-sm ${layout === 'v3' ? 'lg:text-[14px]' : 'sm:text-[16px]'}`}>৳{Math.round(product.price ?? 0)}</span>
             )}
           </div>
         </div>

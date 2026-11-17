@@ -1,5 +1,7 @@
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { addToCart, removeFromCart, clearCart } from '@/store/slices/cartSlice';
+import Swal from 'sweetalert2';
+import { toast } from 'sonner';
 
 export const useCart = () => {
   const dispatch = useAppDispatch();
@@ -7,8 +9,48 @@ export const useCart = () => {
   const itemsCount = useAppSelector((state) => state.cart.totalQuantity);
   const totalAmount = useAppSelector((state) => state.cart.totalAmount);
 
-  const addItem = (item: any) => {
+  const addItem = async (item: any) => {
+    // Prevent duplicate item/variant additions
+    const isAlreadyInCart = (items || []).some((i: any) => {
+      const isSameProduct = String(i.productId) === String(item.productId);
+      const itemColor = (i.color || '').trim().toLowerCase();
+      const newColor = (item.color || '').trim().toLowerCase();
+      const itemSize = (i.size || '').trim().toLowerCase();
+      const newSize = (item.size || '').trim().toLowerCase();
+
+      return isSameProduct && itemColor === newColor && itemSize === newSize;
+    });
+
+    if (isAlreadyInCart) {
+      toast.info('Already added to cart');
+      return { success: false, alreadyAdded: true };
+    }
+
+    if (items.length > 0) {
+      const existingUploader = items[0].uploadedBy ? String(items[0].uploadedBy) : 'mother';
+      const newUploader = item.uploadedBy ? String(item.uploadedBy) : 'mother';
+      if (existingUploader !== newUploader) {
+        const result = await Swal.fire({
+          title: 'ভিন্ন শপের পণ্য!',
+          text: 'আপনার কার্টে ইতোমধ্যে অন্য একটি শপের পণ্য রয়েছে। প্রতিটি শপের পণ্য আলাদা লোকেশন থেকে পাঠানো হয়, তাই একসাথে অর্ডার করা সম্ভব নয়। আপনি কি আগের কার্ট মুছে শুধুমাত্র এই পণ্যটি যোগ করতে চান?',
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonText: 'হ্যাঁ, কার্ট ক্লিয়ার করে যোগ করুন',
+          cancelButtonText: 'না, বাতিল করুন',
+          confirmButtonColor: '#f97316',
+          cancelButtonColor: '#6b7280',
+        });
+
+        if (result.isConfirmed) {
+          dispatch(clearCart());
+          dispatch(addToCart(item));
+          return { success: true };
+        }
+        return { success: false, error: 'ভিন্ন শপের পণ্য একসাথে কার্টে রাখা যাবে না।' };
+      }
+    }
     dispatch(addToCart(item));
+    return { success: true };
   };
 
   const removeItem = (productId: string, color?: string, size?: string) => {
@@ -28,4 +70,3 @@ export const useCart = () => {
     clear,
   };
 };
-

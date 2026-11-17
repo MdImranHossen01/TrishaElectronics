@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     }
     const settings = settingsDoc.toObject({ getters: true });
 
-        const apiKey = settings.courierConfig?.steadfast?.apiKey;
+    const apiKey = settings.courierConfig?.steadfast?.apiKey;
     const secretKey = settings.courierConfig?.steadfast?.secretKey;
 
     if (!apiKey || !secretKey) {
@@ -69,14 +69,27 @@ export async function POST(req: NextRequest) {
           return `${i.name}${variantDesc ? `(${variantDesc})` : ''}`;
         }).join(', ');
 
+        // Check if order has a specific supplier/reseller pickup address
+        let pickupNote = '';
+        if (order.pickupLocation?.address || order.pickupLocation?.phone) {
+          pickupNote = ` | 🚚 Pickup: ${order.pickupLocation.hubName || ''} ${order.pickupLocation.address || ''}, Ph: ${order.pickupLocation.phone || ''}`;
+        } else if (order.resellerId) {
+          const ResellerModel = (await import('@/models/Reseller')).default;
+          const r = await ResellerModel.findById(order.resellerId).select('pickupAddress storeName contact').lean();
+          if (r?.pickupAddress?.address) {
+            pickupNote = ` | 🚚 Pickup: ${r.pickupAddress.hubName || r.storeName} (${r.pickupAddress.address}, Ph: ${r.pickupAddress.phone || r.contact?.phone || ''})`;
+          }
+        }
+
         // Map order data to Steadfast payload
+        const fullNote = `Order #${order.shortId || order._id.toString().slice(-8).toUpperCase()} - ${itemsNote.slice(0, 70)}${pickupNote}`;
         const payload = {
           invoice: order.shortId || order._id.toString().slice(-8).toUpperCase(),
           recipient_name: order.shippingAddress.fullName,
           recipient_phone: order.shippingAddress.phone,
           recipient_address: `${order.shippingAddress.street}, ${order.shippingAddress.city}, ${order.shippingAddress.state}`,
           cod_amount: order.paymentStatus === 'Paid' ? 0 : order.totalAmount,
-          note: `Order #${order.shortId || order._id.toString().slice(-8).toUpperCase()} - ${itemsNote.slice(0, 100)}${itemsNote.length > 100 ? '...' : ''}`
+          note: fullNote.slice(0, 160)
         };
 
         // Call Steadfast API

@@ -1,0 +1,260 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/auth';
+import dbConnect from '@/lib/db';
+import Reseller from '@/models/Reseller';
+import ResellerProduct from '@/models/ResellerProduct';
+import ResellerOrder from '@/models/ResellerOrder';
+import Order from '@/models/Order';
+import AbandonedCart from '@/models/AbandonedCart';
+
+function generateShortId() {
+  return 'RS' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 5).toUpperCase();
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id || (session.user as any).role !== 'reseller') {
+      return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { cartId } = await req.json();
+    if (!cartId) {
+      return NextResponse.json({ message: 'Cart ID is required' }, { status: 400 });
+    }
+
+    await dbConnect();
+
+    const reseller = await Reseller.findOne({ userId: session.user.id });
+    if (!reseller) {
+      return NextResponse.json({ message: 'Reseller not found' }, { status: 404 });
+    }
+
+    const cart = await AbandonedCart.findOne({ _id: cartId, resellerId: reseller._id });
+    if (!cart) {
+      return NextResponse.json({ message: 'Abandoned cart not found' }, { status: 404 });
+    }
+
+    const items = cart.items;
+    if (!items || items.length === 0) {
+      return NextResponse.json({ message: 'Cart is empty' }, { status: 400 });
+    }
+
+    // `item.product` stores the `ResellerProduct` ID (because the frontend storefront added it to cart).
+    const resellerProductIds = items.map((i: any) => i.product).filter(Boolean);
+    const rps = await ResellerProduct.find({
+      _id: { $in: resellerProductIds },
+      resellerId: reseller._id,
+      isPublished: true,
+      isAvailableOnMother: true,
+    }).populate('productId');
+
+    const rpMap = new Map(rps.map(rp => [rp._id.toString(), rp]));
+
+    const validatedItems = [];
+    let totalCommission = 0;
+
+    for (const item of items) {
+      const qty = parseInt(item.quantity as any, 10);
+      if (isNaN(qty) || qty <= 0 || !Number.isInteger(qty)) continue;
+
+      const rp = rpMap.get(String(item.product));
+      if (!rp) continue;
+
+      if (rp.stock < qty) {
+        return NextResponse.json({ message: `Requested quantity for "${rp.name}" exceeds available stock. Only ${rp.stock} left.` }, { status: 400 });
+      }
+
+      const commission = (rp.retailPrice - rp.purchasePrice) * qty;
+      totalCommission += commission;
+
+      const productDoc = rp.productId as any;
+
+      validatedItems.push({
+        resellerProductId: rp._id,
+        productId: productDoc?._id || rp.productId,
+        name: rp.name,
+        quantity: qty,
+        retailPrice: rp.retailPrice,
+        purchasePrice: rp.purchasePrice,
+        image: rp.images?.[0] || item.image,
+        color: item.color || undefined,
+        size: item.size || undefined,
+      });
+    }
+
+    if (validatedItems.length === 0) {
+      return NextResponse.json({ message: 'No valid items found' }, { status: 400 });
+    }
+
+    const calculatedSubtotal = validatedItems.reduce((sum, item) => sum + item.retailPrice * item.quantity, 0);
+
+    const GlobalSettings = (await import('@/models/GlobalSettings')).default;
+    const globalSettings = await GlobalSettings.findOne().sort({ updatedAt: -1 }).lean() as any;
+    const insideCharge = globalSettings?.deliveryChargeInsideDhaka ?? 60;
+    const outsideCharge = globalSettings?.deliveryChargeOutsideDhaka ?? 120;
+    const freeThreshold = reseller.deliveryConfig?.freeDeliveryThreshold ?? 0;
+
+    const standardDeliveryCharge = cart.deliveryArea === 'inside' ? insideCharge : outsideCharge;
+    const isFreeDelivery = freeThreshold > 0 && calculatedSubtotal >= freeThreshold;
+    const calculatedDeliveryCharge = isFreeDelivery ? 0 : standardDeliveryCharge;
+
+    if (isFreeDelivery) {
+      totalCommission = Math.max(0, totalCommission - standardDeliveryCharge);
+    }
+
+    const calculatedTotalAmount = calculatedSubtotal + calculatedDeliveryCharge;
+    const shortId = generateShortId();
+
+    const mongoose = (await import('mongoose')).default;
+    const { normalizePhoneNumber } = await import('@/lib/utils');
+    const User = (await import('@/models/User')).default;
+
+    const normalizedPhone = normalizePhoneNumber(cart.phone);
+    const customerPhone = normalizedPhone || cart.phone;
+
+    const sessionConn = await mongoose.startSession();
+    sessionConn.startTransaction();
+
+    try {
+      // Find or auto-create customer user account
+      let customerUser = await User.findOne({
+        $or: [
+          ...(customerPhone ? [{ phone: customerPhone }] : []),
+          ...(cart.email ? [{ email: cart.email.toLowerCase().trim() }] : []),
+          ...(customerPhone ? [{ email: `${customerPhone}@store.com` }] : []),
+          ...(customerPhone ? [{ email: `${customerPhone}@${process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'guest.com'}` }] : [])
+        ]
+      }).session(sessionConn);
+
+      if (!customerUser && customerPhone) {
+        const [newUser] = await User.create([{
+          name: cart.fullName || 'Customer',
+          email: cart.email ? cart.email.toLowerCase().trim() : `${customerPhone}@store.com`,
+          phone: customerPhone,
+          role: 'user',
+          addresses: [{
+            street: cart.street || '',
+            city: '',
+            division: '',
+            country: 'Bangladesh',
+            isDefault: true
+          }]
+        }], { session: sessionConn });
+        customerUser = newUser;
+      }
+
+      // Deduct product stock immediately upon order placement
+      const { deductStockForOrderItems } = await import('@/lib/stockHelper');
+      await deductStockForOrderItems({
+        items: validatedItems.map(item => ({
+          productId: item.productId,
+          quantity: item.quantity,
+          name: item.name,
+          color: item.color,
+          size: item.size,
+        })),
+        session: sessionConn,
+        skipResellerSync: true,
+      });
+
+      // Create Mother Order for Admin fulfillment & dispatch
+      const [motherOrder] = await Order.create([{
+        user: customerUser?._id,
+        shortId,
+        items: validatedItems.map(item => ({
+          product: item.productId,
+          name: item.name,
+          quantity: item.quantity,
+          price: item.retailPrice,
+          purchasePrice: item.purchasePrice,
+          image: item.image,
+          color: item.color,
+          size: item.size,
+        })),
+        totalAmount: calculatedTotalAmount,
+        deliveryCharge: calculatedDeliveryCharge,
+        courierCharge: standardDeliveryCharge,
+        isFreeDelivery: Boolean(isFreeDelivery),
+        shippingAddress: {
+          fullName: cart.fullName || 'Customer',
+          phone: customerPhone,
+          street: cart.street || '',
+          city: '',
+          state: '',
+          division: '',
+          zipCode: '0000',
+          country: 'Bangladesh',
+        },
+        paymentMethod: 'COD', // Default to COD for abandoned cart confirms
+        paymentStatus: 'Pending',
+        status: 'Order Placed',
+        resellerId: reseller._id,
+        systemNote: `Recovered from Abandoned Cart by Reseller (${reseller.storeName})`,
+        internalNote: isFreeDelivery
+          ? `Storefront Free Delivery Promo: Courier charge of ৳${standardDeliveryCharge} subsidized by reseller.`
+          : '',
+      }], { session: sessionConn });
+
+      const customerDetails = {
+        name: cart.fullName || 'Customer',
+        phone: customerPhone,
+        email: cart.email,
+        address: {
+          street: cart.street || '',
+          city: '',
+          division: '',
+          zipCode: '',
+        }
+      };
+
+      const [resellerOrder] = await ResellerOrder.create([{
+        resellerId: reseller._id,
+        motherOrderId: motherOrder._id,
+        customer: customerDetails,
+        items: validatedItems,
+        subtotal: calculatedSubtotal,
+        deliveryCharge: calculatedDeliveryCharge,
+        courierCharge: standardDeliveryCharge,
+        isFreeDelivery: Boolean(isFreeDelivery),
+        totalAmount: calculatedTotalAmount,
+        paymentMethod: 'COD',
+        paymentStatus: 'Pending',
+        status: 'Order Placed',
+        resellerCommission: totalCommission,
+        commissionStatus: 'pending',
+        shortId,
+        systemNote: 'Recovered from Abandoned Cart',
+        internalNote: isFreeDelivery
+          ? `Free Delivery Offered: Standard courier charge of ৳${standardDeliveryCharge} deducted from your margin.`
+          : '',
+      }], { session: sessionConn });
+
+      // Delete the abandoned cart
+      await AbandonedCart.findByIdAndDelete(cartId, { session: sessionConn });
+
+      await sessionConn.commitTransaction();
+
+      // Sync updated stock to all reseller stores for affected products
+      try {
+        const { syncProductToResellers } = await import('@/lib/syncEngine');
+        const uniqueProductIds = Array.from(new Set(validatedItems.map(i => (i.productId?._id || i.productId).toString())));
+        for (const pId of uniqueProductIds) {
+          await syncProductToResellers(pId).catch(err => console.error('[Reseller Sync Error]', err));
+        }
+      } catch (syncErr) {
+        console.error('[Sync Error after abandoned cart confirm]', syncErr);
+      }
+      
+      return NextResponse.json({ message: 'Order confirmed successfully', orderId: resellerOrder._id });
+    } catch (txError) {
+      await sessionConn.abortTransaction();
+      throw txError;
+    } finally {
+      sessionConn.endSession();
+    }
+  } catch (error: any) {
+    console.error('Error confirming abandoned cart:', error);
+    return NextResponse.json({ message: 'Internal Server Error', error: error.message }, { status: 500 });
+  }
+}

@@ -1,18 +1,17 @@
 "use client";
 
 import { useSession, signOut } from 'next-auth/react';
-import {
-  User,
+import { handleSignOut } from '@/lib/logout';
+import { 
+  User, 
   LogOut,
-  Menu,
 } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { ModeToggle } from '@/components/mode-toggle';
-import { LanguageToggle } from '@/components/layout/LanguageToggle';
-import { useLanguage } from '@/contexts/LanguageContext';
-import { SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
+import AdminNotificationPopover from '@/components/layout/AdminNotificationPopover';
+import { SidebarTrigger } from '@/components/ui/sidebar';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,64 +22,30 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-import { usePathname } from 'next/navigation';
-import { getPageTitle } from '@/lib/page-title';
-
 export default function AdminTopbar() {
   const { data: session } = useSession();
-  const { t } = useLanguage();
-  const pathname = usePathname();
-  const { open, toggleSidebar } = useSidebar();
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 lg:h-[60px] lg:px-6 justify-between">
-      {/* Mobile Left - Language Toggle */}
-      <div className="flex items-center md:hidden z-10 -ml-2">
-        <LanguageToggle />
-      </div>
-
-      {/* Desktop Left - Hamburger (only when sidebar is closed) + Page Title */}
-      <div className="hidden md:flex items-center gap-3 flex-1 min-w-0">
-        {!open && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={toggleSidebar}
-            className="shrink-0 h-8 w-8"
-            aria-label="Open sidebar"
-          >
-            <Menu className="h-5 w-5" />
-          </Button>
-        )}
-        <div className="font-bold text-lg truncate">
-          {getPageTitle(pathname, t)}
+    <header className="flex h-14 items-center gap-4 border-b bg-muted/40 px-4 lg:h-[60px] lg:px-6 justify-between sticky top-0 z-30">
+      <div className="flex items-center gap-4">
+        <SidebarTrigger className="md:hidden" />
+        <div className="flex-1 font-semibold text-lg md:hidden">
+          Admin Panel
         </div>
       </div>
-
-      {/* Mobile Center - Page Title */}
-      <div className="absolute inset-0 flex items-center justify-center md:hidden pointer-events-none z-0">
-        <div className="font-bold text-lg truncate px-12">
-          {getPageTitle(pathname, t)}
-        </div>
-      </div>
-
-      {/* Mobile Right - Theme Toggle */}
-      <div className="flex items-center md:hidden z-10 -mr-2">
+      <div className="hidden md:flex flex-1" />
+      <div className="flex items-center gap-4">
+        <AdminNotificationPopover />
         <ModeToggle />
-      </div>
-
-      <div className="hidden md:flex items-center gap-4">
-        <LanguageToggle />
-        <ModeToggle />
-
+        
         {session?.user ? (
           <DropdownMenu>
             <DropdownMenuTrigger nativeButton={true} render={
               <Button variant="secondary" size="icon" className="rounded-full overflow-hidden border border-primary/20">
                 {session.user.image ? (
-                  <Image
-                    src={session.user.image}
-                    alt={session.user.name || "Admin"}
+                  <Image 
+                    src={session.user.image} 
+                    alt={session.user.name || "Admin"} 
                     width={40}
                     height={40}
                     className="h-full w-full object-cover"
@@ -104,12 +69,12 @@ export default function AdminTopbar() {
                 </DropdownMenuLabel>
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
-              <DropdownMenuItem
+              <DropdownMenuItem 
                 variant="destructive"
-                onClick={() => signOut({ callbackUrl: window.location.origin })}
+                onClick={() => handleSignOut()}
               >
                 <LogOut className="mr-2 h-4 w-4" />
-                <span>{t("topbar.log_out")}</span>
+                <span>Log out</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

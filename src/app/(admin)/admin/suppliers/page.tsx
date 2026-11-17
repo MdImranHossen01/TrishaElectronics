@@ -1,10 +1,8 @@
 'use client';
 
-import { useState, useEffect, useRef, Suspense } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { Plus, Trash2, Edit, Search, User, Eye, CreditCard, DollarSign, Loader2, Phone, Copy, MoreHorizontal } from 'lucide-react';
-import { AdminTableSkeleton } from '@/components/admin/AdminSkeletons';
-import { Skeleton } from '@/components/ui/skeleton';
+import { Plus, Trash2, Edit, Search, User, Eye, CreditCard, DollarSign, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -28,31 +26,9 @@ import { format } from 'date-fns';
 import { toast } from 'sonner';
 import Swal from 'sweetalert2';
 import { Pagination } from '@/components/ui/pagination';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { normalizePhoneNumber } from '@/lib/utils';
-import { getWhatsAppLink } from '@/lib/utils';
-
-const WhatsAppIcon = (props: React.SVGProps<SVGSVGElement>) => (
-  <svg
-    viewBox="0 0 24 24"
-    fill="currentColor"
-    width="1em"
-    height="1em"
-    {...props}
-  >
-    <path d="M12.012 2c-5.506 0-9.989 4.478-9.99 9.984a9.96 9.96 0 001.37 5.054L2 22l5.132-1.347a9.937 9.937 0 004.877 1.28h.005c5.505 0 9.989-4.478 9.99-9.985A9.992 9.992 0 0012.012 2zm5.836 14.199c-.32.899-1.576 1.706-2.185 1.761-.559.05-1.286.074-2.074-.176a9.839 9.839 0 01-4.705-3.023 9.388 9.388 0 01-1.926-3.412 5.097 5.097 0 01-.137-2.138c.112-.601.442-1.01.691-1.272.249-.262.502-.328.67-.328.167 0 .335.006.475.014.148.009.347-.058.544.417.202.489.691 1.684.75 1.805.059.12.098.262.019.41-.079.158-.12.262-.24.399-.118.136-.251.306-.358.411-.118.114-.242.238-.104.475.138.238.614 1.01.32.957.382.341.703.56.963.666.26.106.41.088.56-.079.15-.167.643-.75.814-.999.171-.249.34-.208.573-.122.233.086 1.48.697 1.737.825.257.128.428.192.488.295.06.103.06.596-.26 1.495z"/>
-  </svg>
-);
-
-import { useLanguage } from '@/contexts/LanguageContext';
+import { isTransferableAccount, cleanAccountName } from '@/lib/utils';
 
 function SuppliersContent() {
-  const { t } = useLanguage();
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -63,24 +39,23 @@ function SuppliersContent() {
   const initialPage = Math.max(1, parseInt(searchParams.get('page') || '1'));
   const [currentPage, setCurrentPage] = useState(initialPage);
 
-  // Sync page to URL query parameters
+  // Sync state changes to URL query parameters
   useEffect(() => {
-    const params = new URLSearchParams();
+    const params = new URLSearchParams(searchParams.toString());
     if (currentPage > 1) {
       params.set('page', currentPage.toString());
+    } else {
+      params.delete('page');
     }
-    router.replace(`/admin/suppliers${params.toString() ? '?' + params.toString() : ''}`);
+    router.push(`/admin/suppliers?${params.toString()}`);
   }, [currentPage]);
 
-  const isMounted = useRef(false);
   // Reset page when search term changes
   useEffect(() => {
-    if (!isMounted.current) {
-      isMounted.current = true;
-      return;
-    }
     setCurrentPage(1);
-    router.replace('/admin/suppliers');
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('page');
+    router.push(`/admin/suppliers?${params.toString()}`);
   }, [searchTerm]);
 
   // Add/Edit Dialog State
@@ -102,28 +77,35 @@ function SuppliersContent() {
   // Record Payment Dialog State
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [payAmount, setPayAmount] = useState('');
-  const [payMethod, setPayMethod] = useState<'Cash' | 'Bank'>('Cash');
+  const [payMethod, setPayMethod] = useState<string>('Cash');
+  const [accounts, setAccounts] = useState<any[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState<string>('');
   const [payDescription, setPayDescription] = useState('');
   const [payDate, setPayDate] = useState(format(new Date(), 'yyyy-MM-dd'));
 
   useEffect(() => {
-    if (searchParams.get('action') === 'add') {
-      setEditingSupplier(null);
-      setSupplierName('');
-      setSupplierPhone('');
-      setSupplierEmail('');
-      setSupplierAddress('');
-      setSupplierCompany('');
-      setIsFormOpen(true);
-      const params = new URLSearchParams(searchParams.toString());
-      params.delete('action');
-      router.replace(`/admin/suppliers${params.toString() ? '?' + params.toString() : ''}`, { scroll: false });
-    }
-  }, [searchParams, router]);
-
-  useEffect(() => {
     fetchSuppliers();
+    fetchAccounts();
   }, []);
+
+  const fetchAccounts = async () => {
+    try {
+      const res = await fetch('/api/admin/accounts');
+      if (res.ok) {
+        const json = await res.json();
+        const accs = json.accounts || [];
+        setAccounts(accs);
+        const liquid = accs.filter(isTransferableAccount);
+        const defaultAcc = liquid.find((a: any) => a.isDefault) || liquid[0];
+        if (defaultAcc) {
+          setSelectedAccountId((prev) => prev || defaultAcc._id);
+          setPayMethod((prev) => prev || cleanAccountName(defaultAcc.name));
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching accounts:', err);
+    }
+  };
 
   const fetchSuppliers = async () => {
     try {
@@ -162,7 +144,7 @@ function SuppliersContent() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!supplierName || !supplierPhone || !supplierAddress) {
-      toast.error(t("suppliers.error_fill") as string);
+      toast.error('Please fill in Name, Phone, and Address.');
       return;
     }
 
@@ -175,7 +157,7 @@ function SuppliersContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: supplierName,
-          phone: normalizePhoneNumber(supplierPhone),
+          phone: supplierPhone,
           email: supplierEmail || undefined,
           address: supplierAddress,
           companyName: supplierCompany || undefined
@@ -184,7 +166,7 @@ function SuppliersContent() {
 
       if (!res.ok) throw new Error('Failed to save supplier');
 
-      toast.success(editingSupplier ? (t("suppliers.supplier_updated") as string) : (t("suppliers.supplier_added") as string));
+      toast.success(editingSupplier ? 'Supplier updated successfully' : 'Supplier added successfully');
       setIsFormOpen(false);
       fetchSuppliers();
     } catch (error: any) {
@@ -194,13 +176,13 @@ function SuppliersContent() {
 
   const handleDelete = async (id: string) => {
     const result = await Swal.fire({
-      title: t("suppliers.delete_title"),
-      text: t("suppliers.delete_text"),
+      title: 'Delete Supplier?',
+      text: 'Are you sure you want to delete this supplier? This cannot be undone.',
       icon: 'warning',
       showCancelButton: true,
       confirmButtonColor: '#d33',
       cancelButtonColor: '#3085d6',
-      confirmButtonText: t("suppliers.yes_delete"),
+      confirmButtonText: 'Yes, delete!'
     });
 
     if (!result.isConfirmed) return;
@@ -212,7 +194,7 @@ function SuppliersContent() {
         throw new Error(err.message || 'Failed to delete');
       }
 
-      toast.success(t("suppliers.supplier_deleted") as string);
+      toast.success('Supplier deleted successfully');
       fetchSuppliers();
     } catch (error: any) {
       toast.error(error.message || 'Failed to delete supplier');
@@ -243,16 +225,10 @@ function SuppliersContent() {
   const openPaymentDialog = () => {
     setPayAmount('');
     setPayDescription('');
-    setPayMethod('Cash');
-    setPayDate(format(new Date(), 'yyyy-MM-dd'));
-    setIsPaymentOpen(true);
-  };
-
-  const openDirectPaymentDialog = (supplier: any) => {
-    setSelectedSupplier(supplier);
-    setPayAmount('');
-    setPayDescription('');
-    setPayMethod('Cash');
+    const liquid = accounts.filter(isTransferableAccount);
+    const defaultAcc = liquid.find((a: any) => a.isDefault) || liquid[0];
+    setSelectedAccountId(defaultAcc?._id || '');
+    setPayMethod(defaultAcc ? cleanAccountName(defaultAcc.name) : 'Cash');
     setPayDate(format(new Date(), 'yyyy-MM-dd'));
     setIsPaymentOpen(true);
   };
@@ -261,17 +237,21 @@ function SuppliersContent() {
     e.preventDefault();
     const amountNum = parseFloat(payAmount);
     if (isNaN(amountNum) || amountNum <= 0) {
-      toast.error(t("suppliers.error_amount") as string);
+      toast.error('Please enter a valid amount.');
       return;
     }
 
     try {
+      const selectedAcc = accounts.find(a => a._id === selectedAccountId);
+      const finalMethod = selectedAcc ? cleanAccountName(selectedAcc.name) : (payMethod || 'Cash');
+
       const res = await fetch(`/api/admin/suppliers/${selectedSupplier._id}/payments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           amount: amountNum,
-          paymentMethod: payMethod,
+          paymentMethod: finalMethod,
+          paymentAccountId: selectedAccountId || undefined,
           description: payDescription || undefined,
           date: payDate
         })
@@ -279,11 +259,9 @@ function SuppliersContent() {
 
       if (!res.ok) throw new Error('Failed to record payment');
 
-      toast.success(t("suppliers.payment_recorded") as string);
+      toast.success('Payment recorded successfully');
       setIsPaymentOpen(false);
-      if (isDetailsOpen) {
-        fetchSupplierDetails(selectedSupplier._id);
-      }
+      fetchSupplierDetails(selectedSupplier._id);
       fetchSuppliers();
     } catch (error: any) {
       toast.error(error.message || 'Error recording payment');
@@ -304,114 +282,78 @@ function SuppliersContent() {
   );
 
   return (
-    <div className="space-y-0 md:space-y-6 px-[1px] pt-[1px] pb-4 md:p-6 w-full max-w-full overflow-x-hidden">
-      <div className="flex items-center justify-between gap-0 md:gap-4 px-0 md:px-0 mb-[1px] md:mb-0">
-        <div className="hidden md:block">
-          <h1 className="text-xl md:text-2xl font-bold tracking-tight">{t("suppliers.title")}</h1>
-          <p className="text-muted-foreground text-xs md:text-sm hidden md:block">
-            {t("suppliers.subtitle")}
-          </p>
+    <div className="flex-1 space-y-4 md:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div>
+          <h1 className="text-xl md:text-2xl font-bold tracking-tight">Suppliers / Vendors</h1>
+          <p className="text-xs md:text-sm text-muted-foreground">Manage product suppliers and outstanding payable balances.</p>
         </div>
-        <Button onClick={openAddDialog} className="w-full sm:w-auto rounded-none h-10 shrink-0 font-bold bg-primary text-primary-foreground">
-          <Plus className="mr-1.5 h-4 w-4" /> {t("suppliers.add_supplier")}
+        <Button onClick={openAddDialog} size="sm" className="h-9 self-start sm:self-auto">
+          <Plus className="mr-1.5 h-4 w-4" /> Add Supplier
         </Button>
       </div>
 
-      <div className="flex items-center gap-2 max-w-sm px-0 md:px-0 !mt-[1px] md:!mt-6">
+      <div className="flex items-center gap-2 max-w-sm">
         <Search className="h-4 w-4 text-muted-foreground" />
         <Input
-          placeholder={t("suppliers.search_placeholder") as string}
+          placeholder="Search by name, company or phone..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full"
+          className="w-full h-9 text-xs md:text-sm"
         />
       </div>
 
-      <div className="px-0 md:px-0 !mt-[1px] md:!mt-6">
-        <Card className="border-0 bg-transparent md:border md:bg-card shadow-none md:shadow-sm">
+      <Card>
         <CardContent className="p-0">
-          {/* Desktop View */}
-          <div className="hidden md:block">
+          {/* Desktop Table View */}
+          <div className="hidden md:block overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>{t("suppliers.name_company")} / {t("suppliers.contact") || "Contact"}</TableHead>
-                  <TableHead>{t("suppliers.address")}</TableHead>
-                  <TableHead className="text-right">{t("suppliers.outstanding_payable")}</TableHead>
-                  <TableHead className="text-right">{t("suppliers.actions")}</TableHead>
+                  <TableHead>Name / Company</TableHead>
+                  <TableHead>Phone</TableHead>
+                  <TableHead>Address</TableHead>
+                  <TableHead className="text-right">Outstanding Payable</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
-                  Array.from({ length: 6 }).map((_, i) => (
-                    <TableRow key={i}>
-                      <TableCell>
-                        <div className="space-y-1.5">
-                          <Skeleton className="h-4 w-36 rounded" />
-                          <Skeleton className="h-3 w-28 rounded" />
-                        </div>
-                      </TableCell>
-                      <TableCell><Skeleton className="h-4 w-40 rounded" /></TableCell>
-                      <TableCell className="text-right"><Skeleton className="h-4 w-20 rounded ml-auto" /></TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-1">
-                          <Skeleton className="h-8 w-8 rounded-md" />
-                          <Skeleton className="h-8 w-8 rounded-md" />
-                          <Skeleton className="h-8 w-8 rounded-md" />
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center py-6 text-muted-foreground">
+                      Loading suppliers...
+                    </TableCell>
+                  </TableRow>
                 ) : filteredSuppliers.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={4} className="text-center py-6 text-muted-foreground">
-                      {t("suppliers.no_suppliers_found")}
+                    <TableCell colSpan={5} className="text-center py-6 text-muted-foreground">
+                      No suppliers found.
                     </TableCell>
                   </TableRow>
                 ) : (
                   paginatedSuppliers.map((supplier) => (
                     <TableRow key={supplier._id}>
                       <TableCell>
-                        <div className="font-semibold text-foreground">{supplier.name}</div>
+                        <div className="font-medium text-foreground">{supplier.name}</div>
                         {supplier.companyName && (
                           <div className="text-xs text-muted-foreground">{supplier.companyName}</div>
                         )}
-                        <div className="flex flex-col gap-0.5 mt-1 text-slate-600 font-normal text-xs">
-                          {supplier.phone && (
-                            <span className="text-slate-500 font-medium">{supplier.phone}</span>
-                          )}
-                          {supplier.email && (
-                            <span className="truncate">{supplier.email}</span>
-                          )}
-                        </div>
                       </TableCell>
+                      <TableCell>{supplier.phone}</TableCell>
                       <TableCell className="max-w-[200px] truncate">{supplier.address}</TableCell>
                       <TableCell className="text-right font-semibold text-rose-600">
-                        ৳{(supplier.currentBalance || 0).toLocaleString()}
+                        ৳{supplier.currentBalance.toLocaleString()}
                       </TableCell>
-                      <TableCell className="text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" className="h-8 w-8 p-0">
-                              <span className="sr-only">Open menu</span>
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="bg-card">
-                            <DropdownMenuItem onClick={() => viewSupplierDetails(supplier)} className="cursor-pointer">
-                              <Eye className="mr-2 h-4 w-4 text-sky-600" /> View Details
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => openDirectPaymentDialog(supplier)} className="cursor-pointer">
-                              <CreditCard className="mr-2 h-4 w-4 text-emerald-650" /> Record Payout
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => openEditDialog(supplier)} className="cursor-pointer">
-                              <Edit className="mr-2 h-4 w-4 text-indigo-600" /> Edit Supplier
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleDelete(supplier._id)} className="cursor-pointer text-rose-600 focus:text-rose-600">
-                              <Trash2 className="mr-2 h-4 w-4 text-rose-600" /> Delete Supplier
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                      <TableCell className="text-right space-x-2">
+                        <Button variant="ghost" size="icon" onClick={() => viewSupplierDetails(supplier)}>
+                          <Eye className="h-4 w-4 text-sky-600" />
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => openEditDialog(supplier)}>
+                          <Edit className="h-4 w-4 text-indigo-600" />
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => handleDelete(supplier._id)}>
+                          <Trash2 className="h-4 w-4 text-rose-600" />
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))
@@ -420,96 +362,56 @@ function SuppliersContent() {
             </Table>
           </div>
 
-          {/* Mobile View */}
-          <div className="block md:hidden space-y-3 p-2">
+          {/* Mobile Card View */}
+          <div className="block md:hidden p-2 space-y-2.5">
             {loading ? (
-              <div className="space-y-3">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <div key={i} className="p-3 border rounded-lg bg-background shadow-sm space-y-2.5">
-                    <div className="flex justify-between items-start">
-                      <div className="space-y-1">
-                        <Skeleton className="h-4 w-28 rounded" />
-                        <Skeleton className="h-3 w-20 rounded" />
-                      </div>
-                      <Skeleton className="h-4 w-16 rounded" />
-                    </div>
-                    <Skeleton className="h-3 w-40 rounded" />
-                  </div>
-                ))}
+              <div className="text-center py-10 text-muted-foreground text-sm">
+                <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2 text-primary" />
+                Loading suppliers...
               </div>
             ) : filteredSuppliers.length === 0 ? (
-              <div className="p-6 text-center text-muted-foreground text-xs">{t("suppliers.no_suppliers_found")}</div>
+              <div className="text-center py-10 text-muted-foreground text-sm">
+                No suppliers found.
+              </div>
             ) : (
               paginatedSuppliers.map((supplier) => (
-                <div key={supplier._id} className="p-3 border rounded-lg bg-background shadow-sm space-y-2.5">
-                  <div className="flex justify-between items-start">
+                <div key={supplier._id} className="p-3 bg-card border rounded-lg shadow-sm space-y-2">
+                  <div className="flex items-start justify-between gap-2 border-b pb-2">
                     <div>
-                      <div className="font-semibold text-foreground text-sm">{supplier.name}</div>
+                      <h4 className="font-semibold text-sm text-foreground">{supplier.name}</h4>
                       {supplier.companyName && (
-                        <div className="text-xs text-muted-foreground">{supplier.companyName}</div>
+                        <p className="text-[11px] text-muted-foreground">{supplier.companyName}</p>
                       )}
                     </div>
-                    <span className="font-bold text-rose-600 text-sm">৳{(supplier.currentBalance || 0).toLocaleString()}</span>
-                  </div>
-                  <div className="space-y-1 text-xs">
-                    <div className="flex items-center gap-1.5 text-muted-foreground">
-                      <Phone className="h-3.5 w-3.5" />
-                      <span>{supplier.phone || t("suppliers.na")}</span>
-                      {supplier.phone && (
-                        <div className="flex items-center gap-1">
-                          <a 
-                            href={getWhatsAppLink(supplier.phone)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-green-600 p-0.5 hover:bg-slate-50 dark:hover:bg-zinc-800 rounded"
-                            title={t("suppliers.chat_whatsapp") as string}
-                          >
-                            <WhatsAppIcon className="h-3.5 w-3.5" />
-                          </a>
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              try {
-                                await navigator.clipboard.writeText(supplier.phone);
-                                toast.success(t("suppliers.phone_copied") as string);
-                              } catch (err) {
-                                // Ignore or silently fail/handle rejection without unhandled promise
-                              }
-                            }}
-                            className="text-muted-foreground p-0.5 hover:bg-slate-50 dark:hover:bg-zinc-800 rounded"
-                            title={t("suppliers.copy_phone") as string}
-                          >
-                            <Copy className="h-3 w-3" />
-                          </button>
-                        </div>
-                      )}
+                    <div className="text-right">
+                      <span className="text-[10px] text-muted-foreground block">Payable</span>
+                      <span className="font-bold text-xs text-rose-600">৳{supplier.currentBalance.toLocaleString()}</span>
                     </div>
-                    {supplier.address && (
-                      <div className="text-muted-foreground truncate max-w-full">
-                        {t("suppliers.address")}: {supplier.address}
-                      </div>
-                    )}
                   </div>
-                  <div className="flex flex-wrap items-center justify-end gap-1.5 pt-2 border-t">
-                    <Button variant="outline" size="sm" className="h-8 text-sky-600 text-[10px] px-2" onClick={() => viewSupplierDetails(supplier)}>
-                      <Eye className="h-3.5 w-3.5 mr-1" /> {t("suppliers.view")}
+
+                  <div className="text-xs space-y-1 text-muted-foreground">
+                    <div>📞 <span className="text-foreground">{supplier.phone}</span></div>
+                    {supplier.address && <div className="truncate">📍 {supplier.address}</div>}
+                  </div>
+
+                  <div className="flex items-center justify-end gap-1 pt-1 border-t">
+                    <Button variant="outline" size="sm" className="h-7 text-xs px-2" onClick={() => viewSupplierDetails(supplier)}>
+                      <Eye className="h-3 w-3 mr-1 text-sky-600" /> Statement
                     </Button>
-                    <Button variant="outline" size="sm" className="h-8 text-emerald-600 text-[10px] px-2" onClick={() => openDirectPaymentDialog(supplier)}>
-                      <CreditCard className="h-3.5 w-3.5 mr-1" /> Pay Out
+                    <Button variant="outline" size="sm" className="h-7 text-xs px-2" onClick={() => openEditDialog(supplier)}>
+                      <Edit className="h-3 w-3 mr-1 text-indigo-600" /> Edit
                     </Button>
-                    <Button variant="outline" size="sm" className="h-8 text-indigo-600 text-[10px] px-2" onClick={() => openEditDialog(supplier)}>
-                      <Edit className="h-3.5 w-3.5 mr-1" /> {t("suppliers.edit")}
-                    </Button>
-                    <Button variant="outline" size="sm" className="h-8 text-rose-600 text-[10px] px-2" onClick={() => handleDelete(supplier._id)}>
-                      <Trash2 className="h-3.5 w-3.5 mr-1" /> {t("suppliers.delete")}
+                    <Button variant="outline" size="sm" className="h-7 text-xs px-2 text-rose-600 hover:text-rose-700" onClick={() => handleDelete(supplier._id)}>
+                      <Trash2 className="h-3 w-3 mr-1" /> Delete
                     </Button>
                   </div>
                 </div>
               ))
             )}
           </div>
+
           {totalPages > 1 && (
-            <div className="py-4 border-t bg-background px-6">
+            <div className="py-3 border-t bg-background px-3 md:px-6">
               <Pagination
                 currentPage={currentPage}
                 totalPages={totalPages}
@@ -519,17 +421,16 @@ function SuppliersContent() {
           )}
         </CardContent>
       </Card>
-    </div>
 
       {/* Add / Edit Supplier Dialog */}
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
         <DialogContent className="sm:max-w-[480px] w-full">
           <DialogHeader>
-            <DialogTitle>{editingSupplier ? t("suppliers.edit_supplier") : t("suppliers.add_new_supplier")}</DialogTitle>
+            <DialogTitle>{editingSupplier ? 'Edit Supplier' : 'Add New Supplier'}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <Label htmlFor="name" className="block mb-1.5">{t("suppliers.supplier_name")}</Label>
+              <Label htmlFor="name">Supplier Name *</Label>
               <Input
                 id="name"
                 value={supplierName}
@@ -538,7 +439,7 @@ function SuppliersContent() {
               />
             </div>
             <div>
-              <Label htmlFor="company" className="block mb-1.5">{t("suppliers.company_name")}</Label>
+              <Label htmlFor="company">Company Name</Label>
               <Input
                 id="company"
                 value={supplierCompany}
@@ -546,7 +447,7 @@ function SuppliersContent() {
               />
             </div>
             <div>
-              <Label htmlFor="phone" className="block mb-1.5">{t("suppliers.phone")} *</Label>
+              <Label htmlFor="phone">Phone *</Label>
               <Input
                 id="phone"
                 value={supplierPhone}
@@ -555,7 +456,7 @@ function SuppliersContent() {
               />
             </div>
             <div>
-              <Label htmlFor="email" className="block mb-1.5">{t("suppliers.email")}</Label>
+              <Label htmlFor="email">Email</Label>
               <Input
                 id="email"
                 type="email"
@@ -564,7 +465,7 @@ function SuppliersContent() {
               />
             </div>
             <div>
-              <Label htmlFor="address" className="block mb-1.5">{t("suppliers.address")} *</Label>
+              <Label htmlFor="address">Address *</Label>
               <Input
                 id="address"
                 value={supplierAddress}
@@ -574,10 +475,10 @@ function SuppliersContent() {
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setIsFormOpen(false)}>
-                {t("suppliers.cancel")}
+                Cancel
               </Button>
               <Button type="submit">
-                {editingSupplier ? t("suppliers.save_changes") : t("suppliers.add_supplier")}
+                {editingSupplier ? 'Save Changes' : 'Add Supplier'}
               </Button>
             </DialogFooter>
           </form>
@@ -589,9 +490,9 @@ function SuppliersContent() {
         <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex justify-between items-center mr-6">
-              <span>{t("suppliers.supplier_statement")}{selectedSupplier?.name}</span>
+              <span>Supplier Statement: {selectedSupplier?.name}</span>
               <span className="text-sm font-semibold text-rose-600">
-                {t("suppliers.outstanding")}{selectedSupplier?.currentBalance?.toLocaleString() || 0}
+                Outstanding: ৳{selectedSupplier?.currentBalance?.toLocaleString() || 0}
               </span>
             </DialogTitle>
           </DialogHeader>
@@ -602,19 +503,19 @@ function SuppliersContent() {
               <div className="grid grid-cols-3 gap-4">
                 <Card>
                   <CardHeader className="py-3">
-                    <CardTitle className="text-xs text-muted-foreground uppercase">{t("suppliers.phone")}</CardTitle>
+                    <CardTitle className="text-xs text-muted-foreground uppercase">Phone</CardTitle>
                   </CardHeader>
                   <CardContent className="py-1 font-semibold">{selectedSupplier.phone}</CardContent>
                 </Card>
                 <Card>
                   <CardHeader className="py-3">
-                    <CardTitle className="text-xs text-muted-foreground uppercase">{t("suppliers.company_name")}</CardTitle>
+                    <CardTitle className="text-xs text-muted-foreground uppercase">Company</CardTitle>
                   </CardHeader>
-                  <CardContent className="py-1 font-semibold">{selectedSupplier.companyName || t("suppliers.na")}</CardContent>
+                  <CardContent className="py-1 font-semibold">{selectedSupplier.companyName || 'N/A'}</CardContent>
                 </Card>
                 <Card>
                   <CardHeader className="py-3">
-                    <CardTitle className="text-xs text-muted-foreground uppercase">{t("suppliers.address")}</CardTitle>
+                    <CardTitle className="text-xs text-muted-foreground uppercase">Address</CardTitle>
                   </CardHeader>
                   <CardContent className="py-1 font-semibold truncate" title={selectedSupplier.address}>
                     {selectedSupplier.address}
@@ -625,32 +526,32 @@ function SuppliersContent() {
               {/* Action Buttons */}
               <div className="flex justify-end">
                 <Button onClick={openPaymentDialog}>
-                  <CreditCard className="mr-2 h-4 w-4" /> {t("suppliers.record_payment")}
+                  <CreditCard className="mr-2 h-4 w-4" /> Record Payment
                 </Button>
               </div>
 
               {detailsLoading ? (
-                <div className="text-center py-6 text-muted-foreground">{t("suppliers.loading_history")}</div>
+                <div className="text-center py-6 text-muted-foreground">Loading history...</div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Purchase Bills */}
                   <div>
-                    <h3 className="text-lg font-semibold mb-3">{t("suppliers.purchase_bills")}</h3>
+                    <h3 className="text-lg font-semibold mb-3">Purchase Bills</h3>
                     <div className="border rounded-md max-h-[300px] overflow-y-auto">
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead>{t("suppliers.bill_no")}</TableHead>
-                            <TableHead>{t("suppliers.date")}</TableHead>
-                            <TableHead className="text-right">{t("suppliers.total")}</TableHead>
-                            <TableHead className="text-right">{t("suppliers.due")}</TableHead>
+                            <TableHead>Bill No</TableHead>
+                            <TableHead>Date</TableHead>
+                            <TableHead className="text-right">Total</TableHead>
+                            <TableHead className="text-right">Due</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {supplierBills.length === 0 ? (
                             <TableRow>
                               <TableCell colSpan={4} className="text-center py-4 text-muted-foreground text-sm">
-                                {t("suppliers.no_bills")}
+                                No bills found.
                               </TableCell>
                             </TableRow>
                           ) : (
@@ -672,21 +573,21 @@ function SuppliersContent() {
 
                   {/* Payments */}
                   <div>
-                    <h3 className="text-lg font-semibold mb-3">{t("suppliers.payment_history")}</h3>
+                    <h3 className="text-lg font-semibold mb-3">Payment History</h3>
                     <div className="border rounded-md max-h-[300px] overflow-y-auto">
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead>{t("suppliers.date")}</TableHead>
-                            <TableHead>{t("suppliers.amount")}</TableHead>
-                            <TableHead>{t("suppliers.description")}</TableHead>
+                            <TableHead>Date</TableHead>
+                            <TableHead>Amount</TableHead>
+                            <TableHead>Description</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {supplierPayments.length === 0 ? (
                             <TableRow>
                               <TableCell colSpan={3} className="text-center py-4 text-muted-foreground text-sm">
-                                {t("suppliers.no_payments")}
+                                No payments recorded.
                               </TableCell>
                             </TableRow>
                           ) : (
@@ -717,35 +618,57 @@ function SuppliersContent() {
       <Dialog open={isPaymentOpen} onOpenChange={setIsPaymentOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{t("suppliers.record_payment_to")}{selectedSupplier?.name}</DialogTitle>
+            <DialogTitle>Record Payment to {selectedSupplier?.name}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleRecordPayment} className="space-y-4">
             <div>
-              <Label htmlFor="payAmount">{t("suppliers.amount_bdt")}</Label>
+              <Label htmlFor="payAmount">Amount (BDT) *</Label>
               <Input
                 id="payAmount"
                 type="number"
                 value={payAmount}
                 onChange={(e) => setPayAmount(e.target.value)}
-                placeholder={t("suppliers.amount_placeholder") as string}
+                placeholder="e.g. 5000"
                 required
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="payMethod">{t("suppliers.payment_method")}</Label>
+                <Label htmlFor="payMethod">Payment Method / Account *</Label>
                 <select
                   id="payMethod"
-                  value={payMethod}
-                  onChange={(e: any) => setPayMethod(e.target.value)}
+                  value={selectedAccountId}
+                  onChange={(e: any) => {
+                    const accId = e.target.value;
+                    setSelectedAccountId(accId);
+                    const acc = accounts.find(a => a._id === accId);
+                    if (acc) {
+                      setPayMethod(cleanAccountName(acc.name));
+                    }
+                  }}
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <option value="Cash">{t("suppliers.cash")}</option>
-                  <option value="Bank">{t("suppliers.bank")}</option>
+                  {accounts.filter(isTransferableAccount).length > 0 ? (
+                    accounts.filter(isTransferableAccount).map((acc) => (
+                      <option key={acc._id} value={acc._id}>
+                        {cleanAccountName(acc.name)} (৳{Math.round(acc.currentBalance || 0).toLocaleString()})
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="Cash">Cash</option>
+                      <option value="Bank">Bank</option>
+                    </>
+                  )}
                 </select>
+                {selectedAccountId && (
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    Available Balance: <strong className="text-emerald-600 font-bold">৳{Math.round(accounts.find(a => a._id === selectedAccountId)?.currentBalance || 0).toLocaleString()}</strong>
+                  </p>
+                )}
               </div>
               <div>
-                <Label htmlFor="payDate">{t("suppliers.payment_date")}</Label>
+                <Label htmlFor="payDate">Payment Date</Label>
                 <Input
                   id="payDate"
                   type="date"
@@ -755,19 +678,19 @@ function SuppliersContent() {
               </div>
             </div>
             <div>
-              <Label htmlFor="payDescription">{t("suppliers.notes_description")}</Label>
+              <Label htmlFor="payDescription">Notes / Description</Label>
               <Input
                 id="payDescription"
                 value={payDescription}
                 onChange={(e) => setPayDescription(e.target.value)}
-                placeholder={t("suppliers.notes_placeholder") as string}
+                placeholder="e.g. Paid via Cash for monthly clearing"
               />
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setIsPaymentOpen(false)}>
-                {t("suppliers.cancel")}
+                Cancel
               </Button>
-              <Button type="submit">{t("suppliers.confirm_payment")}</Button>
+              <Button type="submit">Confirm Payment</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -778,7 +701,7 @@ function SuppliersContent() {
 
 export default function SuppliersPage() {
   return (
-    <Suspense fallback={<AdminTableSkeleton rowCount={6} columnCount={5} titleWidth="w-52" />}>
+    <Suspense fallback={<div className="flex h-32 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>}>
       <SuppliersContent />
     </Suspense>
   );

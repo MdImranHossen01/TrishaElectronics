@@ -18,6 +18,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import ProductVideoThumbnailModal from '@/components/storefront/ProductVideoThumbnailModal';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { addToCart } from '@/store/slices/cartSlice';
 import { toggleWishlist } from '@/store/slices/wishlistSlice';
@@ -50,6 +51,7 @@ export default function ProductDetailsClient({ product }: ProductDetailsClientPr
   const dispatch = useAppDispatch();
   const { data: session } = useSession();
   const wishlist = useAppSelector((state) => state.wishlist.items);
+  const cartItems = useAppSelector((state) => state.cart.items);
   const isInWishlist = wishlist.includes(product?._id);
   const router = useRouter();
   const isAdmin = (session?.user as any)?.role === 'admin';
@@ -148,6 +150,21 @@ export default function ProductDetailsClient({ product }: ProductDetailsClientPr
     }
 
 
+    const isAlreadyInCart = (cartItems || []).some((item: any) => {
+      const isSameProduct = String(item.productId) === String(product._id);
+      const itemColor = (item.color || '').trim().toLowerCase();
+      const newColor = (selectedColor || '').trim().toLowerCase();
+      const itemSize = (item.size || '').trim().toLowerCase();
+      const newSize = (selectedSize || '').trim().toLowerCase();
+
+      return isSameProduct && itemColor === newColor && itemSize === newSize;
+    });
+
+    if (isAlreadyInCart) {
+      toast.info('Already added to cart');
+      return;
+    }
+
     dispatch(addToCart({
       productId: product._id,
       name: product.name,
@@ -158,7 +175,7 @@ export default function ProductDetailsClient({ product }: ProductDetailsClientPr
       color: selectedColor || undefined,
       size: selectedSize || undefined
     }));
-    toast.success(`Added ${finalQuantity} ${product.name} to cart`);
+    toast.success(`${product.name} added to cart`);
   };
 
   const handleFavorite = async () => {
@@ -323,6 +340,12 @@ export default function ProductDetailsClient({ product }: ProductDetailsClientPr
         </div>
 
         <div className="flex gap-4 overflow-auto pb-2 scrollbar-none">
+          <ProductVideoThumbnailModal
+            videoUrl={product.videoUrl}
+            thumbnailImage={product.images?.[0]}
+            className="h-20 w-20 flex-shrink-0 rounded-md"
+            title={product.name}
+          />
           {product.images?.map((img: string, i: number) => (
             <button
               key={i}
@@ -354,7 +377,7 @@ export default function ProductDetailsClient({ product }: ProductDetailsClientPr
                   <MoreVertical className="h-6 w-6 text-muted-foreground" />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuItem onClick={() => router.push(`/admin/products/${product.slug}`)} className="cursor-pointer">
+                  <DropdownMenuItem onClick={() => router.push(`/admin/products/${product.slug}/edit`)} className="cursor-pointer">
                     <Edit className="mr-2 h-4 w-4" /> Edit Product
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setShowDeleteModal(true)} className="cursor-pointer text-destructive focus:text-destructive focus:bg-destructive/10">
@@ -391,7 +414,7 @@ export default function ProductDetailsClient({ product }: ProductDetailsClientPr
             <span className="text-3xl font-extrabold text-primary">
               ৳{Math.round(displaySalePrice || displayPrice)}
             </span>
-            {displaySalePrice && displaySalePrice !== displayPrice && (
+            {displaySalePrice && displayPrice > displaySalePrice && (
               <span className="text-xl text-muted-foreground line-through font-medium">
                 ৳{Math.round(displayPrice)}
               </span>

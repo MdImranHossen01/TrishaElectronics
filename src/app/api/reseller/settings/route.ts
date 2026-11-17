@@ -1,0 +1,200 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/auth';
+import dbConnect from '@/lib/db';
+import Reseller from '@/models/Reseller';
+import User from '@/models/User';
+import { purgeCloudflareCache } from '@/lib/cloudflareCache';
+
+// GET - Load current reseller's settings
+export async function GET() {
+  const session = await auth();
+  if (!session?.user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  try {
+    await dbConnect();
+    const currentUserId = (session.user as any).id;
+    let reseller = await Reseller.findOne({ userId: currentUserId });
+    if (!reseller) {
+      return NextResponse.json({ error: 'Reseller not found' }, { status: 404 });
+    }
+
+    // Check if active subscription has expired
+    if (reseller.status === 'active' && reseller.expiresAt && new Date(reseller.expiresAt) <= new Date()) {
+      reseller.status = 'expired';
+      await Reseller.findByIdAndUpdate(reseller._id, { $set: { status: 'expired' } });
+    }
+
+    // Auto-reconcile commissions and exact wallet balances
+    const { reconcileResellerCommissions, reconcileResellerWalletBalances } = await import('@/lib/resellerCommissionSync');
+    await reconcileResellerCommissions(reseller._id);
+    await reconcileResellerWalletBalances(reseller._id);
+
+    reseller = await Reseller.findById(reseller._id).lean() as any;
+
+    // Ensure User profile image is synchronized with store logo
+    if (reseller?.logoUrl && currentUserId) {
+      await User.findByIdAndUpdate(currentUserId, { image: reseller.logoUrl });
+    }
+
+    // Centrally enforce Mother Shop delivery rates for reseller
+    const GlobalSettings = (await import('@/models/GlobalSettings')).default;
+    const globalSettings = await GlobalSettings.findOne().sort({ updatedAt: -1 }).lean() as any;
+    const motherInside = globalSettings?.deliveryChargeInsideDhaka ?? 60;
+    const motherOutside = globalSettings?.deliveryChargeOutsideDhaka ?? 120;
+
+    if (reseller) {
+      if (!reseller.deliveryConfig) {
+        reseller.deliveryConfig = {};
+      }
+      reseller.deliveryConfig.insideDhaka = motherInside;
+      reseller.deliveryConfig.outsideDhaka = motherOutside;
+    }
+
+    return NextResponse.json({
+      reseller,
+      motherPaymentConfig: globalSettings?.manualPaymentConfig || {},
+      motherPaymentGateway: {
+        cashOnDelivery: globalSettings?.paymentConfig?.cashOnDelivery !== false,
+        sslcommerz: {
+          active: Boolean(globalSettings?.paymentConfig?.sslcommerz?.active || globalSettings?.paymentConfig?.activeMethod === 'sslcommerz'),
+          sandboxMode: globalSettings?.paymentConfig?.sslcommerz?.sandboxMode ?? true,
+        },
+        activeMethods: globalSettings?.paymentConfig?.activeMethods || [],
+      },
+    });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
+  }
+}
+
+// PATCH - Save reseller settings
+export async function PATCH(request: NextRequest) {
+  const session = await auth();
+  if (!session?.user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  try {
+    const body = await request.json();
+    const {
+      resellerId,
+      // Basic info
+      storeName,
+      description,
+      marqueeText,
+      logoUrl,
+      faviconUrl,
+      // Domain
+      subdomain,
+      customDomain,
+      // Contact
+      contact,
+      // Social
+      socialLinks,
+      // SEO + Tracking
+      seoConfig,
+      // Delivery
+      deliveryConfig,
+      // Payment
+      paymentConfig,
+      // Loyalty
+      loyaltyConfig,
+      // Courier
+      courierConfig,
+    } = body;
+
+    if (!resellerId) {
+      return NextResponse.json({ error: 'resellerId is required' }, { status: 400 });
+    }
+
+    await dbConnect();
+
+    // Verify reseller belongs to current user (or admin/super_admin)
+    const reseller = await Reseller.findOne({ _id: resellerId, userId: (session.user as any).id });
+    if (!reseller && !['admin', 'super_admin'].includes((session.user as any).role)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const updatePayload: Record<string, any> = {};
+
+    // Basic info
+    if (storeName !== undefined) updatePayload.storeName = storeName;
+    if (description !== undefined) updatePayload.description = description;
+    if (marqueeText !== undefined) updatePayload.marqueeText = marqueeText;
+    if (logoUrl !== undefined) {
+      updatePayload.logoUrl = logoUrl;
+      const targetUserId = reseller?.userId || (session.user as any).id;
+      if (targetUserId) {
+        await User.findByIdAndUpdate(targetUserId, { image: logoUrl });
+      }
+    }
+    if (faviconUrl !== undefined) updatePayload.faviconUrl = faviconUrl;
+
+    // Domain - Only admin/super_admin are permitted to modify reseller domains
+    const userRole = (session.user as any).role;
+    if (['admin', 'super_admin'].includes(userRole)) {
+      if (subdomain && subdomain !== reseller?.subdomain) {
+        const cleanSub = subdomain.toLowerCase().replace(/[^a-z0-9-]/g, '');
+        const existing = await Reseller.findOne({ subdomain: cleanSub, _id: { $ne: resellerId } });
+        if (existing) {
+          return NextResponse.json({ error: 'This subdomain is already in use.' }, { status: 400 });
+        }
+        updatePayload.subdomain = cleanSub;
+      }
+      if (customDomain !== undefined) {
+        updatePayload.customDomain = customDomain.toLowerCase().trim();
+      }
+    }
+
+    // Contact (merge field by field)
+    if (contact) {
+      Object.keys(contact).forEach((key) => {
+        updatePayload[`contact.${key}`] = contact[key];
+      });
+    }
+
+    // Social links (full replace)
+    if (socialLinks !== undefined) updatePayload.socialLinks = socialLinks;
+
+    // SEO + Tracking config (full replace)
+    if (seoConfig !== undefined) updatePayload.seoConfig = seoConfig;
+
+    // Delivery config (locked to Mother Shop delivery rates)
+    if (deliveryConfig !== undefined) {
+      const GlobalSettings = (await import('@/models/GlobalSettings')).default;
+      const globalSettings = await GlobalSettings.findOne().sort({ updatedAt: -1 }).lean() as any;
+      updatePayload.deliveryConfig = {
+        ...deliveryConfig,
+        insideDhaka: globalSettings?.deliveryChargeInsideDhaka ?? 60,
+        outsideDhaka: globalSettings?.deliveryChargeOutsideDhaka ?? 120,
+        freeDeliveryThreshold: Math.max(0, Number(deliveryConfig.freeDeliveryThreshold) || 0),
+      };
+    }
+
+    // Payment config (full replace)
+    if (paymentConfig !== undefined) updatePayload.paymentConfig = paymentConfig;
+
+    // Loyalty config (full replace)
+    if (loyaltyConfig !== undefined) updatePayload.loyaltyConfig = loyaltyConfig;
+
+    // Pickup / Warehouse address (full replace or merge)
+    if (body.pickupAddress !== undefined) updatePayload.pickupAddress = body.pickupAddress;
+
+    // Courier config (full replace)
+    if (courierConfig !== undefined) updatePayload.courierConfig = courierConfig;
+
+    const updated = await Reseller.findByIdAndUpdate(
+      resellerId,
+      { $set: updatePayload },
+      { new: true }
+    );
+
+    purgeCloudflareCache().catch(() => {});
+
+    return NextResponse.json({ success: true, reseller: updated });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
+  }
+}

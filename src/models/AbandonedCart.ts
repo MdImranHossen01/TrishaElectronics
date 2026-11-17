@@ -1,5 +1,8 @@
 import mongoose, { Document, Model, Schema } from 'mongoose';
 
+import './User';
+import './Product';
+import './Reseller';
 export interface IAbandonedCartItem {
   product: mongoose.Types.ObjectId;
   name: string;
@@ -12,6 +15,7 @@ export interface IAbandonedCartItem {
 
 export interface IAbandonedCart extends Document {
   user?: mongoose.Types.ObjectId;
+  resellerId?: mongoose.Types.ObjectId;
   fullName: string;
   phone: string;
   email?: string;
@@ -26,6 +30,7 @@ export interface IAbandonedCart extends Document {
 const AbandonedCartSchema: Schema<IAbandonedCart> = new Schema(
   {
     user: { type: Schema.Types.ObjectId, ref: 'User' },
+    resellerId: { type: Schema.Types.ObjectId, ref: 'Reseller', default: null, index: true },
     fullName: { type: String, required: true, trim: true },
     phone: { type: String, required: true, index: true, trim: true },
     email: { type: String, trim: true },

@@ -1,173 +1,227 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import * as React from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { AlertCircle, Calendar, CalendarClock, DollarSign } from 'lucide-react';
-import { format } from 'date-fns';
+import { Button } from '@/components/ui/button';
+import { 
+  Building, 
+  CalendarClock, 
+  DollarSign, 
+  Loader2, 
+  RefreshCw, 
+  ArrowLeft, 
+  AlertCircle,
+  MoreVertical,
+  CreditCard,
+  History
+} from 'lucide-react';
+import Link from 'next/link';
+import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { LoanRepaymentDialog } from '@/components/admin/LoanRepaymentDialog';
 
 export default function UpcomingPayablePage() {
-  const [upcoming, setUpcoming] = useState<any[]>([]);
+  const [loans, setLoans] = useState<any[]>([]);
+  const [accounts, setAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchUpcoming();
-  }, []);
+  // Repayment Modal State
+  const [selectedLoanForRepayment, setSelectedLoanForRepayment] = useState<any | null>(null);
+  const [repaymentOpen, setRepaymentOpen] = useState(false);
 
   const fetchUpcoming = async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      const res = await fetch('/api/admin/loans/upcoming');
-      if (res.ok) {
-        const data = await res.json();
-        setUpcoming(data);
+      const [loansRes, accRes] = await Promise.all([
+        fetch('/api/admin/loans?status=Active'),
+        fetch('/api/admin/accounts')
+      ]);
+
+      if (loansRes.ok) {
+        const json = await loansRes.json();
+        // Sort by expectedRepaymentDate ascending (nearest dues first)
+        const sorted = (json.loans || []).sort((a: any, b: any) => 
+          new Date(a.expectedRepaymentDate).getTime() - new Date(b.expectedRepaymentDate).getTime()
+        );
+        setLoans(sorted);
+      }
+
+      if (accRes.ok) {
+        const accJson = await accRes.json();
+        setAccounts(accJson.accounts || []);
       }
     } catch (error) {
+      console.error('Failed to fetch upcoming payables:', error);
       toast.error('Failed to load upcoming payables');
     } finally {
       setLoading(false);
     }
   };
 
-  const totalUpcomingAmount = upcoming.reduce((sum, item) => sum + item.amount, 0);
+  useEffect(() => {
+    fetchUpcoming();
+  }, []);
+
+  const totalUpcomingDue = loans.reduce((acc, l) => acc + (l.dueAmount || 0), 0);
 
   return (
-    <div className="space-y-0 md:space-y-6 px-[1px] pt-[1px] pb-4 md:p-8 max-w-7xl mx-auto w-full max-w-full overflow-x-hidden">
-      <div className="hidden md:block">
-        <h1 className="text-3xl font-bold text-primary tracking-tight">Upcoming Payables</h1>
-        <p className="text-muted-foreground mt-1">Repayments and installments scheduled within the next 30 days</p>
-      </div>
-
-      <div className="grid gap-2 grid-cols-2 md:gap-4 md:grid-cols-2 lg:grid-cols-3 px-0 md:px-0 !mt-[1px] md:!mt-6">
-        <Card className="border-l-4 border-l-rose-500 shadow-md">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-semibold">Total Upcoming Due (30d)</CardTitle>
-            <DollarSign className="h-4 w-4 text-rose-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-black text-rose-600">৳{totalUpcomingAmount.toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground mt-1">Across {upcoming.length} scheduled payments</p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-l-4 border-l-amber-500 shadow-md">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-semibold">Pending Schedules</CardTitle>
-            <Calendar className="h-4 w-4 text-amber-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-black text-amber-600">{upcoming.length}</div>
-            <p className="text-xs text-muted-foreground mt-1">Payments requiring cash flow prep</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="px-0 md:px-0 !mt-[1px] md:!mt-6">
-        <Card className="border-t-4 border-t-primary shadow-md">
-          <CardHeader className="bg-slate-50/50 border-b pb-4">
-            <CardTitle className="hidden md:flex text-lg font-semibold text-primary items-center gap-2">
-              <CalendarClock className="h-5 w-5" />
-              30-Day Repayment Schedule
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="hidden md:block">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Loan ID</TableHead>
-                    <TableHead>Lender</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Scheduled Date</TableHead>
-                    <TableHead className="text-right">Amount Due</TableHead>
-                  </TableRow>
-                </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableRow><TableCell colSpan={5} className="text-center py-6">Loading...</TableCell></TableRow>
-                ) : upcoming.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                      <div className="flex flex-col items-center justify-center gap-2">
-                        <AlertCircle className="h-8 w-8 text-muted-foreground" />
-                        <span>No upcoming payments due in the next 30 days.</span>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  upcoming.map((item, idx) => (
-                    <TableRow key={idx}>
-                      <TableCell className="font-semibold">{item.loanId}</TableCell>
-                      <TableCell className="font-medium">{item.lenderName}</TableCell>
-                      <TableCell>
-                        <span className={`px-2 py-1 text-xs rounded-full font-semibold ${
-                          item.type === 'Installment' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'
-                        }`}>
-                          {item.type}
-                        </span>
-                      </TableCell>
-                      <TableCell className="font-medium text-amber-600">
-                        {format(new Date(item.dueDate), 'dd MMM yyyy')}
-                      </TableCell>
-                      <TableCell className="text-right text-rose-600 font-bold">
-                        ৳{item.amount.toLocaleString()}
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
+    <div className="flex-1 space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b pb-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <Link href="/admin/loans" className="text-muted-foreground hover:text-foreground">
+              <ArrowLeft className="h-5 w-5" />
+            </Link>
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Upcoming Payable</h1>
           </div>
+          <p className="text-muted-foreground text-xs md:text-sm mt-1">
+            Active loans ordered chronologically by repayment maturity date for financial planning.
+          </p>
+        </div>
 
-          {/* Mobile View */}
-          <div className="block md:hidden space-y-3 p-4 bg-muted/10">
-            {loading ? (
-              <div className="text-center py-8 text-sm text-muted-foreground">Loading...</div>
-            ) : upcoming.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <div className="flex flex-col items-center justify-center gap-2">
-                  <AlertCircle className="h-8 w-8 text-muted-foreground" />
-                  <span className="text-xs">No upcoming payments due in the next 30 days.</span>
-                </div>
-              </div>
-            ) : (
-              upcoming.map((item, idx) => (
-                <div key={idx} className="p-4 mb-3 border border-border/50 rounded-xl bg-card shadow-sm flex flex-col gap-2.5 relative">
-                  {/* Top Row: Loan ID & Type Badge */}
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-base text-primary">{item.loanId}</span>
-                    <span className={`px-2 py-0.5 text-xs rounded-full font-semibold ${
-                      item.type === 'Installment' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'
-                    }`}>
-                      {item.type}
-                    </span>
-                  </div>
+        <Button variant="outline" size="sm" onClick={fetchUpcoming} disabled={loading} className="h-9">
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+        </Button>
+      </div>
 
-                  {/* Lender & Date Details */}
-                  <div className="space-y-2 text-sm md:text-xs border-t pt-2">
-                    <div className="flex justify-between items-center py-0.5">
-                      <span className="text-muted-foreground">Lender:</span>
-                      <span className="font-semibold text-foreground">{item.lenderName}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-0.5 border-t border-border/30">
-                      <span className="text-muted-foreground">Scheduled Date:</span>
-                      <span className="text-amber-600 font-bold">{format(new Date(item.dueDate), 'dd MMM yyyy')}</span>
-                    </div>
-                  </div>
-
-                  {/* Bottom Row: Amount Due */}
-                  <div className="flex items-center justify-between border-t pt-2 mt-1">
-                    <span className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">Amount Due</span>
-                    <span className="font-extrabold text-base text-rose-600">৳{item.amount.toLocaleString()}</span>
-                  </div>
-                </div>
-              ))
-            )}
+      {/* Summary Alert Card */}
+      <Card className="bg-amber-500/5 border-amber-500/20 shadow-xs">
+        <CardContent className="p-4 flex items-center justify-between">
+          <div>
+            <p className="text-xs font-semibold text-amber-600 uppercase flex items-center gap-1.5">
+              <AlertCircle className="h-4 w-4" /> Total Active Loan Repayment Liability
+            </p>
+            <p className="text-2xl font-black text-amber-700 dark:text-amber-400 mt-1">
+              ৳{Math.round(totalUpcomingDue).toLocaleString()}
+            </p>
+          </div>
+          <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-600">
+            <CalendarClock className="h-5 w-5" />
           </div>
         </CardContent>
       </Card>
-    </div>
+
+      {/* Upcoming Table */}
+      <Card className="shadow-xs overflow-hidden">
+        <CardHeader className="bg-muted/30 py-3 px-4 border-b flex flex-row items-center justify-between">
+          <CardTitle className="text-sm md:text-base font-bold flex items-center gap-2">
+            <CalendarClock className="h-4 w-4 text-primary" /> Active Repayment Schedule
+          </CardTitle>
+          <Badge variant="outline" className="text-xs font-mono">{loans.length} Due Loans</Badge>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs md:text-sm text-center border-collapse">
+              <thead>
+                <tr className="bg-muted/20 border-b text-muted-foreground font-semibold">
+                  <th className="p-3 text-left font-bold text-foreground">Repayment Date</th>
+                  <th className="p-3 font-bold text-foreground">Loan ID</th>
+                  <th className="p-3 text-left font-bold text-foreground">Lender / Bank</th>
+                  <th className="p-3 font-bold text-foreground">Principal (৳)</th>
+                  <th className="p-3 font-bold text-emerald-600">Paid (৳)</th>
+                  <th className="p-3 font-bold text-rose-600">Payable Due</th>
+                  <th className="p-3 font-bold text-right text-foreground">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                      <div className="flex items-center justify-center gap-2">
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                        <span>Loading upcoming schedule...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : loans.length > 0 ? (
+                  loans.map((l: any) => {
+                    const dueDate = new Date(l.expectedRepaymentDate);
+                    const dueEndOfDay = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate(), 23, 59, 59, 999);
+                    const isOverdue = dueEndOfDay.getTime() < Date.now();
+                    return (
+                      <tr key={l._id} className="border-b border-muted/30 hover:bg-muted/30 transition-colors">
+                        <td className="p-3 text-left">
+                          <div className={`font-bold ${isOverdue ? 'text-destructive flex items-center gap-1' : 'text-foreground'}`}>
+                            {new Date(l.expectedRepaymentDate).toLocaleDateString()}
+                            {isOverdue && <Badge variant="destructive" className="text-[9px] py-0 px-1">Overdue</Badge>}
+                          </div>
+                        </td>
+                        <td className="p-3 font-mono font-bold text-foreground">{l.loanId}</td>
+                        <td className="p-3 text-left">
+                          <div className="font-bold text-foreground">{l.lenderName}</div>
+                          {l.lenderId?.phone && <div className="text-[11px] text-muted-foreground">{l.lenderId.phone}</div>}
+                        </td>
+                        <td className="p-3 font-medium text-foreground">৳{Math.round(l.amount).toLocaleString()}</td>
+                        <td className="p-3 font-medium text-emerald-600">৳{Math.round(l.paidAmount || 0).toLocaleString()}</td>
+                        <td className="p-3 font-bold text-rose-600">
+                          ৳{Math.round(l.dueAmount || 0).toLocaleString()}
+                        </td>
+                        <td className="p-3 text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-8 w-8 p-0 hover:bg-muted">
+                                <MoreVertical className="h-4 w-4" />
+                                <span className="sr-only">Actions</span>
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-44">
+                              {l.status === 'Active' && l.dueAmount > 0 ? (
+                                <DropdownMenuItem
+                                  className="cursor-pointer font-bold text-emerald-600 focus:text-emerald-700 text-xs"
+                                  onClick={() => {
+                                    setSelectedLoanForRepayment(l);
+                                    setRepaymentOpen(true);
+                                  }}
+                                >
+                                  <CreditCard className="mr-2 h-3.5 w-3.5" />
+                                  Pay Loan
+                                </DropdownMenuItem>
+                              ) : null}
+                              {l.repayments && l.repayments.length > 0 ? (
+                                <DropdownMenuItem
+                                  className="cursor-pointer text-xs"
+                                  onClick={() => {
+                                    setSelectedLoanForRepayment(l);
+                                    setRepaymentOpen(true);
+                                  }}
+                                >
+                                  <History className="mr-2 h-3.5 w-3.5 text-primary" />
+                                  Payment History
+                                </DropdownMenuItem>
+                              ) : null}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={7} className="p-6 text-center text-muted-foreground">No active upcoming loan repayments due.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Loan Repayment Modal */}
+      <LoanRepaymentDialog
+        open={repaymentOpen}
+        onOpenChange={setRepaymentOpen}
+        loan={selectedLoanForRepayment}
+        accounts={accounts}
+        onSuccess={fetchUpcoming}
+      />
     </div>
   );
 }

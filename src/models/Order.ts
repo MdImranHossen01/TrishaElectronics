@@ -1,5 +1,8 @@
 import mongoose, { Document, Model, Schema } from 'mongoose';
 
+import './User';
+import './Product';
+import './Reseller';
 export interface IOrderItem {
   product: mongoose.Types.ObjectId;
   name: string;
@@ -9,10 +12,6 @@ export interface IOrderItem {
   image?: string;
   color?: string;
   size?: string;
-  batchesUsed?: {
-    batchNumber: string;
-    quantity: number;
-  }[];
 }
 
 export interface IOrder extends Document {
@@ -21,9 +20,12 @@ export interface IOrder extends Document {
   shortId: string;
   totalAmount: number;
   deliveryCharge: number;
+  courierCharge?: number;
+  isFreeDelivery?: boolean;
   shippingAddress: {
     fullName: string;
     phone: string;
+    email?: string;
     street: string;
     city: string;
     state: string;
@@ -33,13 +35,24 @@ export interface IOrder extends Document {
   };
   paymentMethod: string;
   paymentStatus: 'Pending' | 'Paid' | 'Failed';
-  status: 'Order Placed' | 'Confirmed' | 'Paid' | 'Ready for Delivery' | 'Released for Delivery' | 'Cancelled' | 'Delivered';
+  status: 'Order Placed' | 'Confirmed' | 'Paid' | 'Hold' | 'Processing' | 'Ready for Delivery' | 'Released for Delivery' | 'Cancelled' | 'Delivered';
   transactionId?: string;
   walletAmountUsed?: number;
   earnedRewardAmount?: number;
   couponCode?: string;
   couponDiscountAmount?: number;
   isRewarded?: boolean;
+  resellerId?: mongoose.Types.ObjectId;
+  orderSource?: 'mother' | 'reseller_storefront';
+  storefrontResellerId?: mongoose.Types.ObjectId;
+  pickupLocation?: {
+    hubName?: string;
+    contactPerson?: string;
+    phone?: string;
+    address?: string;
+    district?: string;
+    thana?: string;
+  };
   shippingDetails?: {
     courierName?: string;
     trackingId?: string;
@@ -48,16 +61,21 @@ export interface IOrder extends Document {
     courierStatus?: string;
   };
   isSalesCounted?: boolean;
+  isStockRestored?: boolean;
   manualPaymentDetails?: {
     methodName?: string;
     senderNumber?: string;
     transactionId?: string;
   };
   internalNote?: string;
-  showroom?: mongoose.Types.ObjectId;
-  isCreditOrder?: boolean;
-  expectedPaymentDate?: Date;
-  paidAmount?: number;
+  customerNote?: string;
+  systemNote?: string;
+  resellerCommission?: number;
+  systemFee?: number;
+  salesProfit?: number;
+  commissionStatus?: 'pending' | 'cleared' | 'cancelled';
+  courierReturnLossDeducted?: boolean;
+  courierReturnLossAmount?: number;
   createdAt: Date;
   updatedAt: Date;
   deletedAt?: Date | null;
@@ -77,20 +95,17 @@ const OrderSchema: Schema<IOrder> = new Schema(
         image: { type: String },
         color: { type: String },
         size: { type: String },
-        batchesUsed: [
-          {
-            batchNumber: { type: String, required: true },
-            quantity: { type: Number, required: true, min: [1, 'Quantity must be at least 1'] },
-          }
-        ],
       },
     ],
     totalAmount: { type: Number, required: true, min: [0, 'Total amount cannot be negative'] },
     deliveryCharge: { type: Number, required: true, default: 0, min: [0, 'Delivery charge cannot be negative'] },
+    courierCharge: { type: Number, default: 0 },
+    isFreeDelivery: { type: Boolean, default: false },
     shippingAddress: {
       type: {
         fullName: { type: String, required: true },
         phone: { type: String, required: true },
+        email: { type: String, required: false },
         street: { type: String, required: true },
         city: { type: String, required: true },
         state: { type: String, required: true },
@@ -104,7 +119,7 @@ const OrderSchema: Schema<IOrder> = new Schema(
     paymentStatus: { type: String, enum: ['Pending', 'Paid', 'Failed'], default: 'Pending' },
     status: {
       type: String,
-      enum: ['Order Placed', 'Confirmed', 'Paid', 'Ready for Delivery', 'Released for Delivery', 'Cancelled', 'Delivered'],
+      enum: ['Order Placed', 'Confirmed', 'Paid', 'Hold', 'Processing', 'Ready for Delivery', 'Released for Delivery', 'Cancelled', 'Delivered'],
       default: 'Order Placed',
     },
     transactionId: { type: String },
@@ -113,6 +128,17 @@ const OrderSchema: Schema<IOrder> = new Schema(
     couponCode: { type: String },
     couponDiscountAmount: { type: Number, default: 0, min: 0 },
     isRewarded: { type: Boolean, default: false },
+    resellerId: { type: Schema.Types.ObjectId, ref: 'Reseller', default: null, index: true },
+    orderSource: { type: String, enum: ['mother', 'reseller_storefront'], default: 'mother', index: true },
+    storefrontResellerId: { type: Schema.Types.ObjectId, ref: 'Reseller', default: null, index: true },
+    pickupLocation: {
+      hubName: { type: String, default: '' },
+      contactPerson: { type: String, default: '' },
+      phone: { type: String, default: '' },
+      address: { type: String, default: '' },
+      district: { type: String, default: '' },
+      thana: { type: String, default: '' },
+    },
     shippingDetails: {
       courierName: { type: String },
       trackingId: { type: String },
@@ -121,26 +147,25 @@ const OrderSchema: Schema<IOrder> = new Schema(
       courierStatus: { type: String },
     },
     isSalesCounted: { type: Boolean, default: false },
+    isStockRestored: { type: Boolean, default: false },
     manualPaymentDetails: {
       methodName: { type: String },
       senderNumber: { type: String },
       transactionId: { type: String },
     },
     internalNote: { type: String, default: '' },
-    showroom: { type: Schema.Types.ObjectId, ref: 'Showroom' },
-    isCreditOrder: { type: Boolean, default: false },
-    expectedPaymentDate: { type: Date },
-    paidAmount: { type: Number, default: 0 },
-    deletedAt: { type: Date, default: null },
+    customerNote: { type: String, default: '' },
+    systemNote: { type: String, default: '' },
+    resellerCommission: { type: Number, default: 0, min: 0 },
+    systemFee: { type: Number, default: 0, min: 0 },
+    salesProfit: { type: Number, default: 0 },
+    commissionStatus: { type: String, enum: ['pending', 'cleared', 'cancelled'], default: undefined },
+    courierReturnLossDeducted: { type: Boolean, default: false },
+    courierReturnLossAmount: { type: Number, default: 0 },
+    deletedAt: { type: Date, default: null, index: true },
   },
   { timestamps: true }
 );
-
-// Indexes for fast dashboard and report aggregation
-OrderSchema.index({ status: 1, createdAt: -1, deletedAt: 1, showroom: 1 });
-OrderSchema.index({ paymentMethod: 1, paymentStatus: 1, status: 1, deletedAt: 1 });
-OrderSchema.index({ user: 1, createdAt: -1, deletedAt: 1 });
-OrderSchema.index({ createdAt: -1, deletedAt: 1 });
 
 const Order: Model<IOrder> = mongoose.models.Order || mongoose.model<IOrder>('Order', OrderSchema);
 

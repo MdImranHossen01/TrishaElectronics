@@ -7,7 +7,6 @@ import * as z from 'zod';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSession } from 'next-auth/react';
-import { useLanguage } from '@/contexts/LanguageContext';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -40,7 +39,6 @@ const profileSchema = z.object({
     division: z.string().optional(),
     city: z.string().optional(),
     state: z.string().optional(),
-    area: z.string().optional(),
     zipCode: z.string().optional(),
     country: z.string().optional(),
   }).optional()
@@ -49,7 +47,6 @@ const profileSchema = z.object({
 type ProfileFormValues = z.infer<typeof profileSchema>;
 
 export function ProfileForm() {
-  const { t } = useLanguage();
   const { update } = useSession();
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -66,7 +63,6 @@ export function ProfileForm() {
         division: '',
         city: '',
         state: '',
-        area: '',
         zipCode: '',
         country: 'Bangladesh',
       }
@@ -103,10 +99,9 @@ export function ProfileForm() {
             image: data.image || '',
             address: {
               street: data.addresses?.[0]?.street || '',
-              division: data.division || data.addresses?.[0]?.division || '',
-              city: data.district || data.addresses?.[0]?.district || data.addresses?.[0]?.city || '',
-              state: data.thana || data.addresses?.[0]?.thana || data.addresses?.[0]?.state || '',
-              area: data.area || data.addresses?.[0]?.area || '',
+              division: data.addresses?.[0]?.division || '',
+              city: data.addresses?.[0]?.city || '',
+              state: data.addresses?.[0]?.state || '',
               zipCode: data.addresses?.[0]?.zipCode || '',
               country: data.addresses?.[0]?.country || 'Bangladesh',
             }
@@ -165,24 +160,31 @@ export function ProfileForm() {
 
   return (
     <Card className="max-w-2xl w-full">
-      <CardContent className="pt-6">
+      <CardHeader>
+        <CardTitle>Personal Information</CardTitle>
+        <CardDescription>
+          Update your public profile and default shipping address.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
             
             <div className="space-y-4">
+              <h3 className="text-lg font-medium border-b pb-2">Basic Info</h3>
               <div className="flex flex-col md:flex-row gap-6">
                  <div className="w-full md:w-1/3">
                     <FormField
                       control={form.control}
                       name="image"
                       render={({ field }) => (
-                        <FormItem className="flex flex-col items-center justify-center">
-                          <FormLabel className="mb-2 self-start md:self-center">{t('store.dashboard.profile_picture') || 'Profile Picture'}</FormLabel>
+                        <FormItem>
+                          <FormLabel>Profile Picture</FormLabel>
                           <FormControl>
                             <ImageUpload 
                                 value={field.value || ''} 
                                 onUpload={(url) => field.onChange(url)} 
-                                aspect="circle"
+                                aspect="square"
                             />
                           </FormControl>
                           <FormMessage />
@@ -196,9 +198,9 @@ export function ProfileForm() {
                       name="name"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>{t('store.dashboard.full_name') || 'Full Name'}</FormLabel>
+                          <FormLabel>Full Name</FormLabel>
                           <FormControl>
-                            <Input placeholder={t('store.dashboard.full_name_placeholder') || 'John Doe'} {...field} disabled={isSubmitting} />
+                            <Input placeholder="John Doe" {...field} disabled={isSubmitting} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -209,9 +211,9 @@ export function ProfileForm() {
                       name="email"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>{t('store.dashboard.email_address') || 'Email Address'}</FormLabel>
+                          <FormLabel>Email Address</FormLabel>
                           <FormControl>
-                            <Input placeholder={t('store.dashboard.email_placeholder') || 'you@example.com'} {...field} disabled={true} />
+                            <Input placeholder="you@example.com" {...field} disabled={true} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -222,7 +224,7 @@ export function ProfileForm() {
                       name="phone"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>{t('store.dashboard.mobile_number') || 'Mobile Number'}</FormLabel>
+                          <FormLabel>Mobile Number</FormLabel>
                           <FormControl>
                             <Input placeholder="+8801XXXXXXXXX" {...field} disabled={isSubmitting} />
                           </FormControl>
@@ -235,7 +237,7 @@ export function ProfileForm() {
             </div>
 
             <div className="space-y-4 pt-4">
-              <h3 className="text-lg font-medium border-b pb-2">{t('store.dashboard.default_shipping_address') || 'Default Shipping Address'}</h3>
+              <h3 className="text-lg font-medium border-b pb-2">Default Shipping Address</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="md:col-span-2">
                       <FormField
@@ -243,7 +245,7 @@ export function ProfileForm() {
                         name="address.street"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>{t('store.dashboard.street_address') || 'Street Address'}</FormLabel>
+                            <FormLabel>Street Address</FormLabel>
                             <FormControl>
                               <Input placeholder="123 Main St, Apt 4B" {...field} disabled={isSubmitting} />
                             </FormControl>
@@ -257,7 +259,7 @@ export function ProfileForm() {
                     name="address.division"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{t('store.dashboard.division') || 'Division'}</FormLabel>
+                        <FormLabel>Division</FormLabel>
                         <Select
                           disabled={isSubmitting}
                           onValueChange={(val) => {
@@ -291,7 +293,7 @@ export function ProfileForm() {
                     name="address.city"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{t('store.dashboard.district') || 'District'}</FormLabel>
+                        <FormLabel>District</FormLabel>
                         <Select
                           disabled={isSubmitting || !selectedDivision}
                           onValueChange={(val) => {
@@ -324,7 +326,7 @@ export function ProfileForm() {
                     name="address.state"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{t('store.dashboard.thana') || 'Thana / Upazila'}</FormLabel>
+                        <FormLabel>Thana / Upazila</FormLabel>
                         <Select
                           disabled={isSubmitting || !selectedDistrict}
                           onValueChange={field.onChange}
@@ -350,23 +352,10 @@ export function ProfileForm() {
                   />
                   <FormField
                     control={form.control}
-                    name="address.area"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t('store.dashboard.area') || 'Area / Village / Sector'}</FormLabel>
-                        <FormControl>
-                          <Input placeholder="e.g. Uttara Sector 10" {...field} disabled={isSubmitting} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
                     name="address.zipCode"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{t('store.dashboard.zip_code') || 'Post Office / ZIP Code'}</FormLabel>
+                        <FormLabel>Post Office / ZIP Code</FormLabel>
                         <FormControl>
                           <Input placeholder="1200" {...field} disabled={isSubmitting} />
                         </FormControl>
@@ -379,7 +368,7 @@ export function ProfileForm() {
                     name="address.country"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{t('store.dashboard.country') || 'Country'}</FormLabel>
+                        <FormLabel>Country</FormLabel>
                         <FormControl>
                           <Input placeholder="Bangladesh" {...field} disabled={isSubmitting} />
                         </FormControl>
@@ -392,7 +381,7 @@ export function ProfileForm() {
 
             <Button type="submit" disabled={isSubmitting}>
               {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {t('store.dashboard.save_changes') || 'Save Changes'}
+              Save Changes
             </Button>
           </form>
         </Form>

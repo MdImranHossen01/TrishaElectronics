@@ -1,0 +1,200 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/auth';
+import connectToDatabase from '@/lib/db';
+import Order from '@/models/Order';
+import Expense from '@/models/Expense';
+
+export async function GET(req: NextRequest) {
+  try {
+    const session = await auth();
+    const userRole = (session?.user as any)?.role;
+    if (!session || !['admin', 'super_admin', 'manager'].includes(userRole)) {
+      return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const now = new Date();
+    const year = parseInt(searchParams.get('year') || now.getFullYear().toString());
+
+    // Calculate start and end dates for selected year (BST +06:00)
+    const startDate = new Date(`${year}-01-01T00:00:00+06:00`);
+    const endDate = new Date(`${year}-12-31T23:59:59.999+06:00`);
+
+    const sourceParam = searchParams.get('source'); // 'all' | 'mother' | 'reseller'
+
+    const orderMatch: any = {
+      status: { $in: ['Paid', 'Confirmed', 'Processing', 'Ready for Delivery', 'Released for Delivery', 'Delivered'] },
+      createdAt: { $gte: startDate, $lte: endDate },
+      $or: [
+        { deletedAt: null },
+        { paymentStatus: 'Paid' },
+        { status: 'Delivered' }
+      ],
+    };
+
+    if (sourceParam === 'mother') {
+      orderMatch.orderSource = { $ne: 'reseller_storefront' };
+      orderMatch.systemNote = { $not: /^Reseller Order/ };
+    } else if (sourceParam === 'reseller') {
+      orderMatch.$or = [
+        { orderSource: 'reseller_storefront' },
+        { systemNote: /^Reseller Order/ }
+      ];
+    }
+
+    await connectToDatabase();
+
+    const [ordersAggregation, expensesAggregation] = await Promise.all([
+      // Orders Aggregated by month (%Y-%m) (BST +06:00)
+      Order.aggregate([
+        {
+          $match: orderMatch
+        },
+        {
+          $group: {
+            _id: { $dateToString: { format: '%Y-%m', date: '$createdAt', timezone: '+06:00' } },
+            totalSales: { $sum: '$totalAmount' },
+            deliveryCost: { $sum: '$deliveryCharge' },
+            resellerCommission: { $sum: { $ifNull: ['$resellerCommission', 0] } },
+            orderCount: { $sum: 1 },
+            cogs: {
+              $sum: {
+                $cond: [
+                  { $regexMatch: { input: { $ifNull: ['$systemNote', ''] }, regex: /own product/i } },
+                  0,
+                  {
+                    $sum: {
+                      $map: {
+                        input: '$items',
+                        as: 'item',
+                        in: { $multiply: ['$$item.quantity', { $ifNull: ['$$item.purchasePrice', 0] }] }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]),
+
+      // Expenses Aggregated by month (%Y-%m) (BST +06:00) - Only Mother general operating expenses
+      Expense.aggregate([
+        {
+          $match: {
+            date: { $gte: startDate, $lte: endDate },
+            type: { $ne: 'income' },
+            category: { $ne: 'Courier & Shipping' }, // Exclude courier charge as it is already subtracted in Net Sales
+            $or: [{ resellerId: null }, { resellerId: { $exists: false } }]
+          }
+        },
+        {
+          $group: {
+            _id: { $dateToString: { format: '%Y-%m', date: '$date', timezone: '+06:00' } },
+            expense: { $sum: '$amount' }
+          }
+        }
+      ])
+    ]);
+
+    const orderMap = new Map<string, any>();
+    ordersAggregation.forEach(o => orderMap.set(o._id, o));
+
+    const expenseMap = new Map<string, number>();
+    expensesAggregation.forEach(e => expenseMap.set(e._id, e.expense || 0));
+
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+
+    const monthlyRows = [];
+    let summaryNetSales = 0;
+    let summaryDeliveryCost = 0;
+    let summaryTotal = 0;
+    let summaryCOGS = 0;
+    let summaryResellerCommission = 0;
+    let summarySalesProfit = 0;
+    let summaryExpense = 0;
+    let summaryNetProfit = 0;
+    let summaryOrderCount = 0;
+
+    // Loop descending from 12 down to 1 so latest month is on top
+    for (let m = 12; m >= 1; m--) {
+      const monthStr = m.toString().padStart(2, '0');
+      const monthKey = `${year}-${monthStr}`;
+      const monthName = monthNames[m - 1];
+
+      const orderData = orderMap.get(monthKey) || { totalSales: 0, deliveryCost: 0, cogs: 0, resellerCommission: 0, orderCount: 0 };
+      const expense = expenseMap.get(monthKey) || 0;
+
+      const netSales = Math.max(0, orderData.totalSales - orderData.deliveryCost);
+      const deliveryCost = orderData.deliveryCost || 0;
+      const total = orderData.totalSales || 0;
+      const cogs = orderData.cogs || 0;
+      const resellerCommission = orderData.resellerCommission || 0;
+      const salesProfit = Math.max(0, netSales - cogs - resellerCommission);
+      const netProfit = salesProfit - expense;
+      const orderCount = orderData.orderCount || 0;
+
+      summaryNetSales += netSales;
+      summaryDeliveryCost += deliveryCost;
+      summaryTotal += total;
+      summaryCOGS += cogs;
+      summaryResellerCommission += resellerCommission;
+      summarySalesProfit += salesProfit;
+      summaryExpense += expense;
+      summaryNetProfit += netProfit;
+      summaryOrderCount += orderCount;
+
+      monthlyRows.push({
+        monthNumber: m,
+        month: monthName,
+        monthName,
+        monthKey,
+        orders: orderCount,
+        orderCount,
+        netSales,
+        deliveryCost,
+        total,
+        totalSales: total,
+        cogs,
+        productCost: cogs,
+        resellerCommission,
+        salesProfit,
+        grossProfit: salesProfit,
+        expense,
+        netProfit
+      });
+    }
+
+    return NextResponse.json({
+      year,
+      rows: monthlyRows,
+      monthlyRows,
+      summary: {
+        totalNetSales: summaryNetSales,
+        netSales: summaryNetSales,
+        totalDeliveryCost: summaryDeliveryCost,
+        deliveryCost: summaryDeliveryCost,
+        grandTotal: summaryTotal,
+        totalSales: summaryTotal,
+        totalCOGS: summaryCOGS,
+        cogs: summaryCOGS,
+        totalOrderCount: summaryOrderCount,
+        orderCount: summaryOrderCount,
+        totalResellerCommission: summaryResellerCommission,
+        totalSalesProfit: summarySalesProfit,
+        salesProfit: summarySalesProfit,
+        grossProfit: summarySalesProfit,
+        totalExpense: summaryExpense,
+        expense: summaryExpense,
+        totalNetProfit: summaryNetProfit,
+        netProfit: summaryNetProfit
+      }
+    });
+  } catch (error) {
+    console.error('Monthly Report API Error:', error);
+    return NextResponse.json({ message: 'Internal Server Error' }, { status: 500 });
+  }
+}

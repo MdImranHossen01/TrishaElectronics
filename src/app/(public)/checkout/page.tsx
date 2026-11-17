@@ -6,7 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { addToCart, removeFromCart, clearCart, syncItems } from '@/store/slices/cartSlice';
+import { addToCart, updateQuantity, removeFromCart, clearCart, syncItems, keepOnlySeller } from '@/store/slices/cartSlice';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
@@ -22,8 +22,9 @@ import { Input } from '@/components/ui/input';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import { Loader2, CreditCard, Truck, ShoppingBag, CheckCircle2, Plus, Minus, X, Globe, ArrowRight, PartyPopper, XCircle } from 'lucide-react';
+import { Loader2, CreditCard, Truck, ShoppingBag, CheckCircle2, Plus, Minus, X, Globe, ArrowRight, PartyPopper, XCircle, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
+import Swal from 'sweetalert2';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 import { fbEvent } from '@/lib/fpixel';
@@ -43,15 +44,16 @@ import {
 
 const checkoutSchema = z.object({
   fullName: z.string().min(2, 'নাম আবশ্যক'),
-  phone: z.string().min(11, 'সঠিক মোবাইল নম্বর দিন'),
+  phone: z.string().regex(/^(?:\+88|88|\+৮৮|৮৮|0088|০০৮৮)?(?:01|০১)[3-9৩-৯][\d০-৯]{8}$/, 'সঠিক মোবাইল নম্বর দিন (যেমন: 01XXXXXXXXX)'),
+  email: z.string().email('সঠিক ইমেইল ঠিকানা দিন').or(z.literal('')).optional(),
   street: z.string().min(5, 'ঠিকানা আবশ্যক'),
   deliveryArea: z.enum(['inside', 'outside'], {
     message: 'ডেলিভারি এলাকা নির্বাচন করুন',
   }),
-  paymentMethod: z.enum(['COD', 'Online', 'Manual', 'Credit'], {
+  paymentMethod: z.enum(['COD', 'Online', 'Manual'], {
     message: 'Select a payment method'
   }),
-  expectedPaymentDate: z.string().optional(),
+  notes: z.string().optional(),
 });
 
 type CheckoutValues = z.infer<typeof checkoutSchema>;
@@ -85,9 +87,11 @@ function CheckoutContent() {
     defaultValues: {
       fullName: '',
       phone: '',
+      email: '',
       street: '',
       deliveryArea: 'inside',
       paymentMethod: 'COD',
+      notes: '',
     },
   });
 
@@ -134,13 +138,29 @@ function CheckoutContent() {
             form.reset({
               fullName: profileData.name || '',
               phone: profileData.phone || '',
+              email: profileData.email || '',
               street: profileData.address || '',
               deliveryArea: (profileData.division?.toLowerCase().includes('dhaka') || profileData.district?.toLowerCase().includes('dhaka')) ? 'inside' : 'outside',
               paymentMethod: 'COD',
             });
           }
         }
-        if (settingsRes.ok) setSettings(await settingsRes.json());
+        if (settingsRes.ok) {
+          const sData = await settingsRes.json();
+          setSettings(sData);
+          if (sData?.paymentConfig?.cashOnDelivery === false && form.getValues('paymentMethod') === 'COD') {
+            if (sData?.paymentConfig?.sslcommerz?.active || sData?.paymentConfig?.activeMethod === 'sslcommerz') {
+              form.setValue('paymentMethod', 'Online');
+            } else if (
+              sData?.manualPaymentConfig?.bkash?.active ||
+              sData?.manualPaymentConfig?.nagad?.active ||
+              sData?.manualPaymentConfig?.rocket?.active ||
+              sData?.manualPaymentConfig?.banglaQr?.active
+            ) {
+              form.setValue('paymentMethod', 'Manual');
+            }
+          }
+        }
 
         // --- CART SYNC LOGIC ---
         // Verify all items in cart still exist, have correct variants, and have sufficient stock
@@ -235,6 +255,11 @@ function CheckoutContent() {
 
   const [syncData, setSyncData] = useState<any>(null);
   const [isPendingOrderBlocked, setIsPendingOrderBlocked] = useState(false);
+
+  const handleKeepOnlySeller = (targetSellerId: string) => {
+    dispatch(keepOnlySeller(targetSellerId));
+    toast.success('শুধুমাত্র নির্বাচিত শপের পণ্যগুলো কার্টে রাখা হয়েছে');
+  };
 
   const hasTrackedInitiate = useRef(false);
   // Track InitiateCheckout
@@ -354,11 +379,19 @@ function CheckoutContent() {
   const submissionSucceededRef = useRef(false);
 
   const onSubmit = async (values: CheckoutValues) => {
+    if (syncData?.hasMultipleSellers) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'ভিন্ন ভিন্ন শপের পণ্য!',
+        text: 'আপনার কার্টে একাধিক শপের পণ্য রয়েছে। প্রতিটি শপের পণ্য আলাদা লোকেশন থেকে পাঠানো হয়, তাই একসাথে অর্ডার করা সম্ভব নয়। অনুগ্রহ করে একটি নির্দিষ্ট শপের পণ্য রেখে বাকিগুলো আলাদাভাবে অর্ডার সম্পন্ন করুন।',
+        confirmButtonText: 'ঠিক আছে',
+        confirmButtonColor: '#f97316'
+      });
+      return;
+    }
     setLoading(true);
     try {
-      // Normalize Bangla digits to English digits and sanitize phone
-      const cleanedPhone = normalizePhoneNumber(values.phone);
-
+      const cleanedPhone = normalizePhoneNumber(values.phone) || values.phone;
       const orderData = {
         items: items.map(item => ({
           product: item.productId,
@@ -371,8 +404,8 @@ function CheckoutContent() {
         })),
         shippingAddress: {
           fullName: values.fullName,
-          phone: cleanedPhone || values.phone,
-          email: profile?.email || `${cleanedPhone || Date.now()}@store.com`,
+          phone: cleanedPhone,
+          email: values.email?.trim() || profile?.email || undefined,
           street: values.street,
           city: values.deliveryArea === 'inside' ? 'Dhaka' : 'Outside Dhaka',
           state: values.deliveryArea === 'inside' ? 'Dhaka' : 'Outside Dhaka',
@@ -383,11 +416,10 @@ function CheckoutContent() {
           country: 'Bangladesh'
         },
         paymentMethod: values.paymentMethod,
-        isCreditOrder: values.paymentMethod === 'Credit',
-        expectedPaymentDate: values.paymentMethod === 'Credit' ? values.expectedPaymentDate : undefined,
         deliveryCharge: deliveryCharge,
         useWallet: useWallet,
         couponCode: appliedCoupon || undefined,
+        internalNote: values.notes || undefined,
         manualPaymentDetails: values.paymentMethod === 'Manual' ? {
           methodName: selectedMethod?.id,
           senderNumber: manualDetails.senderNumber,
@@ -474,7 +506,17 @@ function CheckoutContent() {
         }
       } else {
         const error = await response.json();
-        toast.error(error.message || 'Failed to place order');
+        if (error.message?.includes('ভিন্ন ভিন্ন বিক্রেতার পণ্য')) {
+          Swal.fire({
+            icon: 'warning',
+            title: 'ভিন্ন ভিন্ন শপের পণ্য!',
+            text: error.message,
+            confirmButtonText: 'ঠিক আছে',
+            confirmButtonColor: '#f97316'
+          });
+        } else {
+          toast.error(error.message || 'Failed to place order');
+        }
       }
     } catch (error) {
       toast.error('An error occurred while placing your order');
@@ -578,7 +620,7 @@ function CheckoutContent() {
       dispatch(removeFromCart({ productId: item.productId, color: item.color, size: item.size }));
       toast.info(`${item.name} removed from cart`);
     } else {
-      dispatch(addToCart({ ...item, quantity: delta }));
+      dispatch(updateQuantity({ productId: item.productId, color: item.color, size: item.size, delta }));
     }
   };
 
@@ -611,18 +653,55 @@ function CheckoutContent() {
   );
 
   return (
-    <div className="container px-4 md:px-6 py-12">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-start">
-        {/* Left Side: Order Summary */}
-        <div className="lg:sticky lg:top-24 self-start space-y-6">
+    <div className="container mx-auto px-4 py-6 md:py-10">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-10 items-start">
+        {/* Left Side: Order Summary (Desktop Sticky, Mobile Top) */}
+        <div className="block lg:sticky lg:top-24 self-start space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Your Items</CardTitle>
-              <CardDescription>Items you are about to purchase.</CardDescription>
+              <CardTitle className="flex items-center gap-2">
+                <ShoppingBag className="h-5 w-5 text-primary" />
+                আপনার অর্ডারকৃত পণ্যসমূহ ({items.reduce((sum, i) => sum + i.quantity, 0)})
+              </CardTitle>
+              <CardDescription>যে পণ্যগুলো আপনি কিনতে যাচ্ছেন।</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* Multiple Sellers Warning Alert */}
+              {syncData?.hasMultipleSellers && (
+                <div className="p-3.5 rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-950/40 dark:border-amber-700/60 text-amber-900 dark:text-amber-200 space-y-2.5">
+                  <div className="flex items-start gap-2.5">
+                    <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-bold text-xs sm:text-sm">ভিন্ন ভিন্ন শপের পণ্য একসাথে অর্ডার করা সম্ভব নয়</h4>
+                      <p className="text-[11px] sm:text-xs text-amber-800 dark:text-amber-300/90 mt-0.5 leading-relaxed">
+                        আপনার কার্টে একাধিক বিক্রেতা/শপের পণ্য রয়েছে। প্রতিটি শপের পণ্য ভিন্ন লোকেশন থেকে পাঠানো হয়, তাই একসাথে ডেলিভারি করা যাবে না। অনুগ্রহ করে একটি নির্দিষ্ট শপের পণ্য রেখে বাকিগুলো আলাদাভাবে অর্ডার করুন।
+                      </p>
+                    </div>
+                  </div>
+
+                  {syncData.sellerGroups && syncData.sellerGroups.length > 1 && (
+                    <div className="pt-2 border-t border-amber-200 dark:border-amber-800/60 flex flex-wrap gap-1.5 items-center">
+                      <span className="text-[10px] font-bold text-amber-900 dark:text-amber-200">শুধুমাত্র নির্দিষ্ট প্যাকেজের পণ্য রাখুন:</span>
+                      {syncData.sellerGroups.map((g: any, gIdx: number) => (
+                        <Button
+                          key={g.sellerId}
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-6 text-[11px] px-2.5 py-0 border-amber-400 bg-white dark:bg-amber-900/60 hover:bg-amber-100 text-amber-900 dark:text-amber-100 font-bold"
+                          onClick={() => handleKeepOnlySeller(g.sellerId)}
+                        >
+                          প্যাকেজ {gIdx + 1} ({g.items.length}টি পণ্য)
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="max-h-[500px] overflow-y-auto space-y-4 pr-2 -mr-2">
-                {items.map((item, index) => (
+                {items.map((item, index) => {
+                  return (
                   <div key={`${item.productId}-${item.color || 'no-color'}-${item.size || 'no-size'}-${index}`} className="flex gap-4 items-start relative group">
                     <div className="h-16 w-16 rounded-md border bg-muted flex-shrink-0 relative overflow-hidden">
                       {item.image && (
@@ -700,7 +779,8 @@ function CheckoutContent() {
                       </div>
                     </div>
                   </div>
-                ))}
+                );
+              })}
               </div>
               <Separator />
               <div className="flex justify-between items-center pt-2">
@@ -752,11 +832,37 @@ function CheckoutContent() {
                             placeholder="যেমন: 017XXXXXXXX"
                             {...field}
                             onChange={(e) => {
-                              let value = e.target.value;
-                              // Keep only English/Bangla digits and plus sign
-                              let sanitized = value.replace(/[^\d০-৯+]/g, '');
+                              const sanitized = e.target.value.replace(/[^\d০-৯+]/g, '');
                               field.onChange(sanitized);
                             }}
+                            onBlur={(e) => {
+                              field.onBlur();
+                              const norm = normalizePhoneNumber(e.target.value);
+                              if (norm) {
+                                form.setValue('phone', norm, { shouldValidate: true });
+                              }
+                            }}
+                            className="h-11 focus-visible:ring-primary/20"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="email"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="flex items-center gap-1.5">
+                          <span>ইমেইল অ্যাড্রেস</span>
+                          <span className="text-xs font-normal text-muted-foreground">(ঐচ্ছিক - ইনভয়েস ও অর্ডারের আপডেট পেতে)</span>
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            type="email"
+                            placeholder="যেমন: name@example.com"
+                            {...field}
                             className="h-11 focus-visible:ring-primary/20"
                           />
                         </FormControl>
@@ -806,6 +912,19 @@ function CheckoutContent() {
                         <FormLabel>সম্পূর্ণ ঠিকানা</FormLabel>
                         <FormControl>
                           <Input placeholder="গ্রাম/বাসা নং, রোড নং, এলাকা, থানা, জেলা" {...field} className="h-11 focus-visible:ring-primary/20" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="notes"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>বিশেষ নির্দেশনা (ঐচ্ছিক)</FormLabel>
+                        <FormControl>
+                          <Input placeholder="ডেলিভারি সংক্রান্ত কোনো নির্দেশনা থাকলে লিখুন" {...field} className="h-11 focus-visible:ring-primary/20" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -927,24 +1046,33 @@ function CheckoutContent() {
                             value={field.value}
                             className="flex flex-col space-y-2"
                           >
-                            <FormItem className="flex items-center space-x-3 space-y-0 border rounded-lg p-4 cursor-pointer hover:bg-muted/50 transition-colors">
-                              <FormControl>
-                                <RadioGroupItem value="COD" />
-                              </FormControl>
-                              <FormLabel className="font-bold flex-1 cursor-pointer">
-                                Cash on Delivery (COD)
-                                <p className="text-xs font-normal text-muted-foreground mt-1">Pay when you receive the product.</p>
-                              </FormLabel>
-                            </FormItem>
-                            {settings?.paymentConfig?.activeMethod === 'sslcommerz' && (
+                            {settings?.paymentConfig?.cashOnDelivery !== false && (
+                              <FormItem className="flex items-center space-x-3 space-y-0 border rounded-lg p-4 cursor-pointer hover:bg-muted/50 transition-colors">
+                                <FormControl>
+                                  <RadioGroupItem value="COD" />
+                                </FormControl>
+                                <FormLabel className="font-bold flex-1 cursor-pointer">
+                                  Cash on Delivery (COD)
+                                  <p className="text-xs font-normal text-muted-foreground mt-1">Pay when you receive the product.</p>
+                                </FormLabel>
+                              </FormItem>
+                            )}
+                            {(settings?.paymentConfig?.sslcommerz?.active || settings?.paymentConfig?.activeMethod === 'sslcommerz') && (
                               <FormItem className="flex items-center space-x-3 space-y-0 border rounded-lg p-4 cursor-pointer hover:bg-muted/50 transition-colors">
                                 <FormControl>
                                   <RadioGroupItem value="Online" />
                                 </FormControl>
                                 <FormLabel className="font-bold flex-1 cursor-pointer">
-                                  Online Payment (SSLCommerz)
-                                  <p className="text-xs font-normal text-muted-foreground mt-1">Pay securely via Credit Card, bKash, or Rocket.</p>
-                                  <Badge variant="secondary" className="mt-2 text-[10px]">Recommended</Badge>
+                                  <div className="flex items-center justify-between">
+                                    <span>Online Payment (SSLCommerz)</span>
+                                    <Badge variant="secondary" className="text-[10px]">Recommended</Badge>
+                                  </div>
+                                  <p className="text-xs font-normal text-muted-foreground mt-1">Pay securely via Credit Card, Debit Card, bKash, or Nagad.</p>
+                                  {field.value === 'Online' && (
+                                    <p className="text-[11px] text-primary font-medium mt-2 bg-primary/10 p-2.5 rounded-lg border border-primary/20">
+                                      ℹ️ ডেলিভারি তথ্য পূরণ করে নিচের বাটনে ক্লিক করলেই সরাসরি SSLCommerz-এর নিরাপদ পেমেন্ট পেজে নিয়ে যাওয়া হবে, যেখান থেকে কার্ড/বিকাশ/নগদ দিয়ে পেমেন্ট সম্পন্ন করতে পারবেন।
+                                    </p>
+                                  )}
                                 </FormLabel>
                               </FormItem>
                             )}
@@ -963,41 +1091,12 @@ function CheckoutContent() {
                                   </FormLabel>
                                 </FormItem>
                               )}
-                            {profile?.role === 'wholesaler' && (
-                              <FormItem className="flex items-center space-x-3 space-y-0 border rounded-lg p-4 cursor-pointer hover:bg-muted/50 transition-colors">
-                                <FormControl>
-                                  <RadioGroupItem value="Credit" />
-                                </FormControl>
-                                <FormLabel className="font-bold flex-1 cursor-pointer">
-                                  Credit Order (বকেয়া অর্ডার)
-                                  <p className="text-xs font-normal text-muted-foreground mt-1">Place order on credit. Payment can be settled later.</p>
-                                </FormLabel>
-                              </FormItem>
-                            )}
                           </RadioGroup>
                         </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
-
-                  {form.watch('paymentMethod') === 'Credit' && (
-                    <div className="mt-4 p-4 border border-dashed rounded-xl space-y-2 bg-muted/30 animate-in fade-in duration-300">
-                      <Label htmlFor="expectedPaymentDate" className="font-bold text-xs text-foreground">
-                        Expected Payment Date (সম্ভাব্য পেমেন্টের তারিখ)
-                      </Label>
-                      <Input
-                        type="date"
-                        id="expectedPaymentDate"
-                        min={new Date().toISOString().split('T')[0]}
-                        {...form.register('expectedPaymentDate')}
-                        className="h-11 text-sm focus-visible:ring-primary/20 bg-background"
-                      />
-                      <p className="text-[10px] text-muted-foreground">
-                        কবে নাগাদ এই অর্ডারের পেমেন্ট পরিশোধ করবেন অনুগ্রহ করে সেই তারিখটি সিলেক্ট করুন।
-                      </p>
-                    </div>
-                  )}
 
                   {/* Manual Payment Option Selection (Cards) */}
                   {form.watch('paymentMethod') === 'Manual' && settings?.manualPaymentConfig && (
@@ -1018,7 +1117,7 @@ function CheckoutContent() {
                           >
                             <div className="h-10 w-10 flex items-center justify-center">
                               {method === 'banglaQr' ? (
-                                <Globe className="h-8 w-8 text-primary" />
+                                <Image src="/qrlogo.jpg" alt="Bangla QR" width={40} height={40} className="h-full w-auto object-contain rounded" />
                               ) : (
                                 <Image src={`/assets/${method}logo.webp`} alt={method || "Payment MFS Logo"} width={40} height={40} className="h-full w-auto object-contain" />
                               )}
@@ -1066,20 +1165,36 @@ function CheckoutContent() {
                 <CardFooter className="pt-2 border-t flex flex-col gap-3">
                   <Button
                     type="submit"
-                    className={`w-full h-14 rounded-full font-black uppercase tracking-widest text-sm transition-all ${isFormValid && !syncData?.hasInsufficientStock && !isPendingOrderBlocked
+                    className={`w-full h-14 rounded-full font-black uppercase tracking-widest text-sm transition-all ${isFormValid && !syncData?.hasInsufficientStock && !isPendingOrderBlocked && !syncData?.hasMultipleSellers
                       ? 'bg-primary shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-95'
                       : 'bg-muted text-muted-foreground cursor-not-allowed opacity-70'
                       }`}
-                    disabled={loading || !isFormValid || syncData?.hasInsufficientStock || isPendingOrderBlocked}
+                    disabled={loading || !isFormValid || syncData?.hasInsufficientStock || isPendingOrderBlocked || syncData?.hasMultipleSellers}
                   >
-                    {loading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <CheckCircle2 className="mr-2 h-5 w-5" />}
-                    {isPendingOrderBlocked ? 'পেন্ডিং অর্ডার রয়েছে' : syncData?.hasInsufficientStock ? 'পর্যাপ্ত স্টক নেই' : 'অর্ডার নিশ্চিত করুন'}
+                    {loading ? (
+                      <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="mr-2 h-5 w-5" />
+                    )}
+                    {isPendingOrderBlocked
+                      ? 'পেন্ডিং অর্ডার রয়েছে'
+                      : syncData?.hasInsufficientStock
+                      ? 'পর্যাপ্ত স্টক নেই'
+                      : syncData?.hasMultipleSellers
+                      ? 'ভিন্ন শপের পণ্য রয়েছে'
+                      : form.watch('paymentMethod') === 'Online'
+                      ? `পেমেন্ট করুন (SSLCommerz) — ৳${Math.round(totalAmount + (deliveryCharge || 0) - couponDiscount - (useWallet ? walletAmountToUse : 0))}`
+                      : 'অর্ডার নিশ্চিত করুন'}
                   </Button>
-                  {!isFormValid && (
+                  {syncData?.hasMultipleSellers ? (
+                    <p className="text-[11px] font-bold text-destructive text-center w-full">
+                      ⚠️ ভিন্ন শপের পণ্য একসাথে অর্ডার করা যাবে না। একটি শপের পণ্য রেখে বাকিগুলো রিমুভ করুন।
+                    </p>
+                  ) : !isFormValid ? (
                     <p className="text-[10px] font-bold text-muted-foreground text-center w-full uppercase tracking-widest">
                       অর্ডার সম্পন্ন করতে ডেলিভারি তথ্য পূরণ করুন
                     </p>
-                  )}
+                  ) : null}
                 </CardFooter>
               </Card>
             </form>
@@ -1094,7 +1209,7 @@ function CheckoutContent() {
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 bg-white rounded-xl p-1.5 shadow-md shrink-0 flex items-center justify-center">
                 {selectedMethod?.id === 'banglaQr' ? (
-                  <Globe className="h-6 w-6 text-primary" />
+                  <Image src="/qrlogo.jpg" alt="Bangla QR" width={32} height={32} className="h-full w-auto object-contain rounded" />
                 ) : (
                   <Image src={`/assets/${selectedMethod?.id}logo.webp`} alt={selectedMethod?.id || "Payment Method Logo"} width={40} height={40} className="h-full w-auto object-contain" />
                 )}
@@ -1110,54 +1225,98 @@ function CheckoutContent() {
           {/* Scrollable Modal Body */}
           <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 max-h-[60vh] pr-2">
             {/* Payment Info */}
-            <div className="bg-primary/5 rounded-2xl p-4 border border-primary/10 space-y-3">
-              {selectedMethod?.id !== 'banglaQr' && (
-                <>
-                  <div className="flex justify-between items-center">
-                    <span className="text-[9px] font-black uppercase tracking-widest opacity-50">Send Money To</span>
-                    <Badge variant="secondary" className="bg-primary/10 text-primary border-none font-bold text-[9px] py-0.5 px-1.5">Personal Number</Badge>
-                  </div>
-                  <div className="flex items-center justify-between gap-3 mt-1">
-                    <p className="text-lg font-black tracking-widest text-slate-900 dark:text-zinc-50 bg-white dark:bg-zinc-800 px-3 py-1.5 rounded-lg border border-primary/10 flex-1 text-center select-all">
-                      {selectedMethod?.number}
-                    </p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-9 rounded-lg text-[10px] font-bold border hover:bg-primary hover:text-white transition-all shrink-0"
-                      onClick={() => {
-                        navigator.clipboard.writeText(selectedMethod?.number);
-                        toast.success('Number copied to clipboard!');
-                      }}
-                    >
-                      Copy
-                    </Button>
-                  </div>
-                </>
-              )}
-
-              {(selectedMethod?.qrCode || selectedMethod?.id === 'banglaQr') && (
-                <div className="flex flex-col items-center gap-1.5 pt-2 border-t border-primary/10">
-                  <p className="text-[9px] font-bold uppercase opacity-40">Scan QR Code to Pay</p>
-                  <div className="p-1.5 bg-white rounded-lg shadow-sm border border-primary/10">
-                    <Image src={selectedMethod?.qrCode || '/assets/placeholder-qr.png'} alt="QR" width={128} height={128} className="h-32 w-32 object-contain" />
-                  </div>
+            {selectedMethod?.id === 'banglaQr' ? (
+              <div className="relative bg-gradient-to-b from-primary/10 via-primary/5 to-transparent rounded-3xl p-4 border-2 border-primary/20 flex flex-col items-center text-center shadow-inner">
+                <div className="flex items-center gap-1.5 mb-2.5">
+                  <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-[10px] font-black uppercase tracking-wider text-primary">Interoperable Universal QR</span>
                 </div>
-              )}
-            </div>
+
+                {/* QR Frame with stylish scanner corners */}
+                <div className="relative p-2.5 bg-white dark:bg-zinc-900 rounded-2xl shadow-xl border-2 border-primary/20">
+                  <div className="absolute -top-1 -left-1 w-4 h-4 border-t-2 border-l-2 border-primary rounded-tl" />
+                  <div className="absolute -top-1 -right-1 w-4 h-4 border-t-2 border-r-2 border-primary rounded-tr" />
+                  <div className="absolute -bottom-1 -left-1 w-4 h-4 border-b-2 border-l-2 border-primary rounded-bl" />
+                  <div className="absolute -bottom-1 -right-1 w-4 h-4 border-b-2 border-r-2 border-primary rounded-br" />
+
+                  <Image
+                    src={selectedMethod?.qrCode || '/assets/placeholder-qr.png'}
+                    alt="Bangla QR"
+                    width={180}
+                    height={180}
+                    className="h-44 w-44 object-contain rounded-lg"
+                  />
+                </div>
+
+                {/* Supported apps badges */}
+                <div className="mt-3 flex flex-wrap items-center justify-center gap-1 max-w-[320px]">
+                  <Badge variant="outline" className="text-[9px] font-bold bg-white/70 dark:bg-zinc-800 border-primary/20">bKash</Badge>
+                  <Badge variant="outline" className="text-[9px] font-bold bg-white/70 dark:bg-zinc-800 border-primary/20">Nagad</Badge>
+                  <Badge variant="outline" className="text-[9px] font-bold bg-white/70 dark:bg-zinc-800 border-primary/20">Rocket</Badge>
+                  <Badge variant="outline" className="text-[9px] font-bold bg-white/70 dark:bg-zinc-800 border-primary/20">Citytouch</Badge>
+                  <Badge variant="outline" className="text-[9px] font-bold bg-white/70 dark:bg-zinc-800 border-primary/20">Cellfin</Badge>
+                  <Badge variant="outline" className="text-[9px] font-bold bg-white/70 dark:bg-zinc-800 border-primary/20">যেকোনো ব্যাংক</Badge>
+                </div>
+
+                <div className="mt-2.5 py-1 px-4 bg-primary/10 rounded-full border border-primary/20">
+                  <span className="text-xs font-black text-primary">
+                    মোট প্রদেয়: ৳{Math.round(totalAmount + (deliveryCharge || 0) - couponDiscount - (useWallet ? walletAmountToUse : 0))}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-primary/5 rounded-2xl p-4 border border-primary/10 space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-[9px] font-black uppercase tracking-widest opacity-50">Send Money To</span>
+                  <Badge variant="secondary" className="bg-primary/10 text-primary border-none font-bold text-[9px] py-0.5 px-1.5">Personal Number</Badge>
+                </div>
+                <div className="flex items-center justify-between gap-3 mt-1">
+                  <p className="text-lg font-black tracking-widest text-slate-900 dark:text-zinc-50 bg-white dark:bg-zinc-800 px-3 py-1.5 rounded-lg border border-primary/10 flex-1 text-center select-all">
+                    {selectedMethod?.number}
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9 rounded-lg text-[10px] font-bold border hover:bg-primary hover:text-white transition-all shrink-0"
+                    onClick={() => {
+                      navigator.clipboard.writeText(selectedMethod?.number);
+                      toast.success('Number copied to clipboard!');
+                    }}
+                  >
+                    Copy
+                  </Button>
+                </div>
+
+                {selectedMethod?.qrCode && (
+                  <div className="flex flex-col items-center gap-1.5 pt-2 border-t border-primary/10">
+                    <p className="text-[9px] font-bold uppercase opacity-40">Scan QR Code to Pay</p>
+                    <div className="p-1.5 bg-white rounded-lg shadow-sm border border-primary/10">
+                      <Image src={selectedMethod?.qrCode || '/assets/placeholder-qr.png'} alt="QR" width={128} height={128} className="h-32 w-32 object-contain" />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Instruction Panel */}
             <div className="bg-slate-50 dark:bg-zinc-950 rounded-xl p-3 border border-slate-200 dark:border-zinc-800 space-y-1.5">
               <p className="text-[10px] font-black text-slate-700 dark:text-zinc-300 uppercase tracking-wider">পেমেন্ট নির্দেশিকা (পড়ুন):</p>
               <div className="max-h-24 overflow-y-auto pr-1 space-y-1 text-[9px] leading-relaxed text-slate-600 dark:text-zinc-400 font-medium">
-                <p>১. আপনার <strong>{selectedMethod?.id === 'bkash' ? 'বিকাশ' : selectedMethod?.id === 'nagad' ? 'নগদ' : selectedMethod?.id === 'rocket' ? 'রকেট' : 'মোবাইল'}</strong> অ্যাপে যান অথবা USSD ডায়াল করে <strong>"Send Money"</strong> অপশন সিলেক্ট করুন।</p>
-                {selectedMethod?.id !== 'banglaQr' ? (
-                  <p>২. উপরে দেওয়া <strong>Personal</strong> নম্বরটি কপি করে প্রাপক হিসেবে দিন।</p>
+                {selectedMethod?.id === 'banglaQr' ? (
+                  <>
+                    <p>১. আপনার ব্যাংক (Citytouch, EBL, ইত্যাদি) বা MFS (বিকাশ, নগদ, রকেট) অ্যাপ ওপেন করুন।</p>
+                    <p>২. অ্যাপের <strong>"QR Pay"</strong> বা <strong>"Scan QR"</strong> অপশন সিলেক্ট করে ওপরের কোডটি স্ক্যান করুন।</p>
+                    <p>৩. মোট পেমেন্ট অ্যামাউন্ট <strong>৳{Math.round(totalAmount + (deliveryCharge || 0) - couponDiscount - (useWallet ? walletAmountToUse : 0))}</strong> নিশ্চিত করে সেন্ড/পে সম্পন্ন করুন।</p>
+                    <p>৪. সফলভাবে পেমেন্টের পর নিচের ঘরে <strong>TrxID</strong> বা <strong>মোবাইল নম্বর</strong> প্রদান করুন।</p>
+                  </>
                 ) : (
-                  <p>২. উপরে দেওয়া <strong>Bangla QR</strong> কোডটি আপনার ব্যাংক বা পেমেন্ট অ্যাপ দিয়ে স্ক্যান করুন।</p>
+                  <>
+                    <p>১. আপনার <strong>{selectedMethod?.id === 'bkash' ? 'বিকাশ' : selectedMethod?.id === 'nagad' ? 'নগদ' : selectedMethod?.id === 'rocket' ? 'রকেট' : 'মোবাইল'}</strong> অ্যাপে যান অথবা USSD ডায়াল করে <strong>"Send Money"</strong> অপশন সিলেক্ট করুন।</p>
+                    <p>২. উপরে দেওয়া <strong>Personal</strong> নম্বরটি কপি করে প্রাপক হিসেবে দিন।</p>
+                    <p>৩. মোট পেমেন্ট অ্যামাউন্ট <strong>৳{Math.round(totalAmount + (deliveryCharge || 0) - couponDiscount - (useWallet ? walletAmountToUse : 0))}</strong> সেন্ড মানি করুন।</p>
+                    <p>৪. সফলভাবে টাকা পাঠানোর পর নিচের ট্যাব থেকে <strong>মোবাইল নম্বর</strong> অথবা <strong>TrxID</strong> যেকোনো একটি তথ্য দিয়ে পেমেন্ট নিশ্চিত করুন।</p>
+                  </>
                 )}
-                <p>৩. মোট পেমেন্ট অ্যামাউন্ট <strong>৳{Math.round(totalAmount + (deliveryCharge || 0) - couponDiscount - (useWallet ? walletAmountToUse : 0))}</strong> সেন্ড মানি করুন।</p>
-                <p>৪. সফলভাবে টাকা পাঠানোর পর নিচের ট্যাব থেকে <strong>মোবাইল নম্বর</strong> অথবা <strong>TrxID</strong> যেকোনো একটি তথ্য দিয়ে পেমেন্ট নিশ্চিত করুন।</p>
               </div>
             </div>
 
@@ -1268,7 +1427,7 @@ function CheckoutContent() {
               </p>
               {successOrderId && (
                 <p className="text-xs font-mono bg-muted px-3 py-1.5 rounded-full inline-block text-muted-foreground">
-                  Order ID: <span className="font-bold text-foreground">#{successOrderId.slice(-8).toUpperCase()}</span>
+                  Order ID: <span className="font-bold text-foreground">#{successOrderId.toUpperCase()}</span>
                 </p>
               )}
             </div>
@@ -1284,7 +1443,7 @@ function CheckoutContent() {
               </Button>
               <Button
                 variant="outline"
-                onClick={() => { setShowSuccessModal(false); router.push('/dashboard'); }}
+                onClick={() => { setShowSuccessModal(false); router.push('/dashboard/orders'); }}
                 className="w-full h-11 rounded-full font-bold"
               >
                 আমার অর্ডার দেখুন

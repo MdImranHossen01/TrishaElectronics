@@ -1,5 +1,7 @@
 import mongoose, { Document, Model, Schema } from 'mongoose';
 
+import './LedgerAccount';
+import './Reseller';
 export interface ILedgerTransaction extends Document {
   account: mongoose.Types.ObjectId | string;
   date: Date;
@@ -7,27 +9,33 @@ export interface ILedgerTransaction extends Document {
   type: 'debit' | 'credit';
   amount: number;
   reference?: string;
-  transferId?: string;
   balanceAfter: number;
-  showroom?: mongoose.Types.ObjectId;
+  resellerId?: mongoose.Types.ObjectId | null;
   createdAt: Date;
   updatedAt: Date;
 }
 
 const LedgerTransactionSchema: Schema<ILedgerTransaction> = new Schema(
   {
-    account: { type: Schema.Types.ObjectId, ref: 'LedgerAccount', required: true },
+    account: { type: Schema.Types.ObjectId, ref: 'LedgerAccount', required: true, index: true },
     date: { type: Date, default: Date.now, required: true },
     description: { type: String, required: true },
     type: { type: String, required: true, enum: ['debit', 'credit'] },
     amount: { type: Number, required: true, min: [0, 'Amount cannot be negative'] },
-    reference: { type: String },
-    transferId: { type: String },
+    reference: { type: String, index: true },
     balanceAfter: { type: Number, required: true },
-    showroom: { type: Schema.Types.ObjectId, ref: 'Showroom' },
+    resellerId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Reseller',
+      default: null,
+      index: true,
+    },
   },
   { timestamps: true }
 );
+
+LedgerTransactionSchema.index({ resellerId: 1, account: 1, date: -1 });
+LedgerTransactionSchema.index({ account: 1, reference: 1, type: 1 });
 
 const LedgerTransaction: Model<ILedgerTransaction> =
   mongoose.models.LedgerTransaction || mongoose.model<ILedgerTransaction>('LedgerTransaction', LedgerTransactionSchema);

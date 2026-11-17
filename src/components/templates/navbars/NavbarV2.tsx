@@ -16,15 +16,15 @@ import {
   Truck,
   Mic,
   MicOff,
-  Package
+  Package,
+  Store
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAppSelector } from '@/store/hooks';
 import { useSession, signOut } from 'next-auth/react';
-import { toast } from 'sonner';
+import { handleSignOut } from '@/lib/logout';
 import { CartDrawer } from '@/components/layout/CartDrawer';
 import { ModeToggle } from '@/components/mode-toggle';
-import { AIChatbot } from '@/components/layout/AIChatbot';
 import { useSettings } from '@/components/SettingsProvider';
 import { MobileNavbar } from '@/components/layout/MobileNavbar';
 import {
@@ -36,31 +36,42 @@ import {
   DropdownMenuTrigger,
   DropdownMenuGroup,
 } from '@/components/ui/dropdown-menu';
+import { UserAvatar } from '@/components/ui/user-avatar';
+import { formatBrandText } from '@/components/ui/logo';
 import Swal from 'sweetalert2';
-import { useLanguage } from '@/contexts/LanguageContext';
+import { ImpersonationDropdownCard } from '@/components/admin/ImpersonationDropdownCard';
 
 import { CategoryNav } from '@/components/layout/CategoryNav';
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
+
 import { MobileMenu } from '@/components/layout/MobileMenu';
 
-export default function NavbarV2() {
-  const { t } = useLanguage();
-  const router = useRouter();
+const navItems = [
+  { href: '/', label: 'Home' },
+  { href: '/shop', label: 'Shop' },
+  { href: '/blog', label: 'Blogs' },
+  { href: '/contact', label: 'Contact' },
+];
 
-  const navItems = [
-    { href: '/', label: t('store.nav.home') },
-    { href: '/shop', label: t('store.nav.shop') },
-    { href: '/blog', label: t('store.nav.blogs') },
-    { href: '/contact', label: t('store.nav.contact') },
-  ];
+export default function NavbarV2() {
+  const router = useRouter();
   const pathname = usePathname();
   const { data: session, status } = useSession();
   const settings = useSettings();
+  const isResellerStore = Boolean(
+    settings?.isReseller ||
+    (typeof window !== 'undefined' && (
+      window.location.pathname.startsWith('/store/') ||
+      (window.location.hostname !== 'localhost' &&
+       window.location.hostname !== '127.0.0.1' &&
+       (process.env.NEXT_PUBLIC_ROOT_DOMAIN ? (
+          window.location.hostname !== process.env.NEXT_PUBLIC_ROOT_DOMAIN &&
+          window.location.hostname !== `www.${process.env.NEXT_PUBLIC_ROOT_DOMAIN}`
+        ) : true))
+    ))
+  );
+  const filteredNavItems = isResellerStore
+    ? navItems.filter((i) => i.href !== '/reseller-program')
+    : navItems;
 
   const [isScrolled, setIsScrolled] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -171,7 +182,7 @@ export default function NavbarV2() {
   return (
     <>
       {/* ── Mobile Top Bar (V1 Standard) — lg:hidden ──────────────── */}
-      <MobileNavbar navItems={navItems} categories={categories} />
+      <MobileNavbar navItems={filteredNavItems} categories={categories} />
 
       {/* ── Desktop Navbar ─────────────────────────────────────────── */}
       <nav className={`
@@ -182,29 +193,29 @@ export default function NavbarV2() {
         ${isHomePage && !isScrolled ? 'lg:bg-transparent lg:border-none lg:shadow-none lg:py-4' : ''}
         ${isHomePage && isScrolled ? 'lg:bg-background/80 lg:backdrop-blur-md lg:shadow-md lg:py-2' : ''}
       `}>
-        <div className="container mx-auto px-4 flex items-center justify-between">
+        <div className="container mx-auto px-2 md:px-4 flex items-center justify-between">
 
           {/* Left: Logo & Mobile Menu */}
           <div className="flex items-center gap-2">
             <MobileMenu
-              navItems={navItems}
+              navItems={filteredNavItems}
               categories={categories}
               session={session}
               triggerClassName={!isHomePage || isScrolled ? 'text-foreground hover:text-primary' : 'text-white hover:text-white/70'}
             />
 
-            <Link href="/" className={`text-2xl md:text-3xl font-black tracking-tighter hover:scale-105 transition-all flex items-center gap-2 group ${!isHomePage || isScrolled ? 'text-foreground' : 'text-white'}`}>
-              <Image src="/logo.webp" width={40} height={40} alt="Omor Auto Corner Logo" className="object-contain" />
-              {settings?.brandName || 'Omor Auto Corner'}
+            <Link href="/" className={`text-lg md:text-xl font-black tracking-tight hover:scale-105 transition-all flex items-center gap-2 whitespace-nowrap shrink-0 group ${!isHomePage || isScrolled ? 'text-foreground' : 'text-white'}`}>
+              <Image src="/logo.webp" width={34} height={34} alt="Logo" className="object-contain shrink-0" />
+              {formatBrandText(settings?.brandName || process.env.NEXT_PUBLIC_STORE_NAME || 'Store')}
             </Link>
           </div>
 
           {/* Center: Search Bar (Desktop) */}
-          <div ref={searchContainerRef} className="hidden lg:flex flex-1 max-w-md mx-8 relative">
+          <div ref={searchContainerRef} className="hidden lg:flex flex-1 max-w-sm mx-4 relative">
             <form className="relative w-full group" onSubmit={handleSearch}>
               <input
                 type="text"
-                placeholder={isListening ? (t('store.nav.listening') as string) : (t('store.nav.search_placeholder') as string)}
+                placeholder={isListening ? 'Listening...' : 'Search products...'}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 onFocus={() => { if (liveResults.length > 0) setShowDropdown(true); }}
@@ -226,7 +237,7 @@ export default function NavbarV2() {
               <div className="absolute top-full left-0 right-0 mt-2 bg-background border border-border rounded-2xl shadow-xl z-50 overflow-hidden">
                 {isSearching ? (
                   <div className="flex items-center justify-center py-6 gap-2 text-muted-foreground text-xs">
-                    <div className="h-3 w-3 rounded-full border-2 border-primary border-t-transparent animate-spin" /> {t('store.nav.searching')}
+                    <div className="h-3 w-3 rounded-full border-2 border-primary border-t-transparent animate-spin" /> Searching...
                   </div>
                 ) : liveResults.length > 0 ? (
                   <>
@@ -257,13 +268,13 @@ export default function NavbarV2() {
                     </ul>
                     <div className="border-t border-border/50 px-4 py-2.5">
                       <Link href={`/shop?search=${encodeURIComponent(searchTerm.trim())}`} onClick={handleResultClick} className="flex items-center justify-center gap-1.5 text-xs font-semibold text-primary hover:underline">
-                        <Search className="h-3 w-3" /> {t('store.nav.see_all_results')} &ldquo;{searchTerm}&rdquo;
+                        <Search className="h-3 w-3" /> See all results for &ldquo;{searchTerm}&rdquo;
                       </Link>
                     </div>
                   </>
                 ) : (
                   <div className="flex flex-col items-center py-6 text-muted-foreground text-xs gap-1">
-                    <Search className="h-5 w-5 mb-1 opacity-40" /> {t('store.nav.no_results')} &ldquo;{searchTerm}&rdquo;
+                    <Search className="h-5 w-5 mb-1 opacity-40" /> No results found for &ldquo;{searchTerm}&rdquo;
                   </div>
                 )}
               </div>
@@ -273,7 +284,7 @@ export default function NavbarV2() {
           {/* Right: Actions */}
           <div className="flex items-center gap-2 md:gap-4">
             <ul className="hidden lg:flex items-center gap-6 mr-4">
-              {navItems.map((item, index) => (
+              {filteredNavItems.map((item, index) => (
                 <React.Fragment key={item.label}>
                   <li>
                     <Link
@@ -302,7 +313,7 @@ export default function NavbarV2() {
                 <ModeToggle />
               </div>
 
-              <Link href="/dashboard/wishlist" aria-label="Wishlist">
+              <Link href="/dashboard/wishlist" prefetch={false} aria-label="Wishlist">
                 <Button variant="ghost" size="icon" aria-label="Wishlist" className={`rounded-full relative group ${!isHomePage || isScrolled ? 'text-foreground hover:bg-muted' : 'text-white hover:bg-white/10'}`}>
                   <Heart className={`h-5 w-5 transition-all ${wishlistCount > 0 ? 'fill-primary text-primary' : ((!isHomePage || isScrolled) ? 'group-hover:text-primary' : 'group-hover:text-white')}`} />
                   {wishlistCount > 0 && (
@@ -339,17 +350,16 @@ export default function NavbarV2() {
                     <DropdownMenuTrigger asChild>
                       <button className="flex items-center gap-2 group cursor-pointer outline-none">
                         <div className="h-9 w-9 rounded-full border-2 border-primary/50 overflow-hidden group-hover:scale-110 transition-transform">
-                          <Image
-                            src={session.user?.image || `https://ui-avatars.com/api/?name=${encodeURIComponent(session.user?.name || '')}`}
-                            alt={session.user?.name || 'User'}
-                            width={36}
-                            height={36}
-                            className="h-full w-full object-cover"
+                          <UserAvatar
+                            src={profile?.image || session.user?.image}
+                            name={session.user?.name}
+                            size={36}
                           />
                         </div>
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-56 mt-2">
+                      <ImpersonationDropdownCard />
                       <DropdownMenuGroup>
                         <DropdownMenuLabel className="font-serif">
                           <div className="flex flex-col">
@@ -358,7 +368,7 @@ export default function NavbarV2() {
                             {profile && (
                               <div className="mt-1.5 flex items-center gap-1.5 bg-primary/10 px-2.5 py-0.5 rounded-full w-fit border border-primary/20">
                                 <Package className="h-3 w-3 text-primary" />
-                                <span className="text-[10px] font-bold text-primary">৳{profile.walletBalance || 0} {t('store.nav.tokens')}</span>
+                                <span className="text-[10px] font-bold text-primary">৳{profile.walletBalance || 0} Tokens</span>
                               </div>
                             )}
                           </div>
@@ -370,12 +380,12 @@ export default function NavbarV2() {
                           <>
                             <DropdownMenuItem asChild>
                               <Link href="/admin/dashboard" className="cursor-pointer">
-                                <LayoutDashboard className="mr-2 h-4 w-4" /> {t('store.nav.admin_dashboard')}
+                                <LayoutDashboard className="mr-2 h-4 w-4" /> Admin Dashboard
                               </Link>
                             </DropdownMenuItem>
                             <DropdownMenuItem asChild>
                               <Link href="/admin/system-design" className="cursor-pointer">
-                                <Settings className="mr-2 h-4 w-4" /> {t('store.nav.infrastructure')}
+                                <Settings className="mr-2 h-4 w-4" /> Infrastructure & Marketing
                               </Link>
                             </DropdownMenuItem>
                           </>
@@ -385,12 +395,32 @@ export default function NavbarV2() {
                           <>
                             <DropdownMenuItem asChild>
                               <Link href="/admin/dashboard" className="cursor-pointer">
-                                <LayoutDashboard className="mr-2 h-4 w-4" /> {t('store.nav.admin_dashboard')}
+                                <LayoutDashboard className="mr-2 h-4 w-4" /> Admin Dashboard
                               </Link>
                             </DropdownMenuItem>
                             <DropdownMenuItem asChild>
                               <Link href="/admin/orders" className="cursor-pointer">
-                                <Truck className="mr-2 h-4 w-4" /> {t('store.nav.manage_orders')}
+                                <Truck className="mr-2 h-4 w-4" /> Manage Orders
+                              </Link>
+                            </DropdownMenuItem>
+                          </>
+                        )}
+
+                        {(session.user as any)?.role === 'reseller' && (
+                          <>
+                            <DropdownMenuItem asChild>
+                              <Link href="/reseller-dashboard" className="cursor-pointer">
+                                <LayoutDashboard className="mr-2 h-4 w-4" /> Reseller Dashboard
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem asChild>
+                              <Link href="/reseller/products" className="cursor-pointer">
+                                <Store className="mr-2 h-4 w-4" /> My Products
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem asChild>
+                              <Link href="/reseller/orders" className="cursor-pointer">
+                                <Truck className="mr-2 h-4 w-4" /> Store Orders
                               </Link>
                             </DropdownMenuItem>
                           </>
@@ -400,20 +430,20 @@ export default function NavbarV2() {
                           <>
                             <DropdownMenuItem asChild>
                               <Link href="/dashboard" className="cursor-pointer">
-                                <LayoutDashboard className="mr-2 h-4 w-4" /> {t('store.nav.dashboard')}
+                                <LayoutDashboard className="mr-2 h-4 w-4" /> Dashboard
                               </Link>
                             </DropdownMenuItem>
                             <DropdownMenuItem asChild>
                               <Link href="/track-order" className="cursor-pointer">
-                                <Truck className="mr-2 h-4 w-4" /> {t('store.nav.track_order')}
+                                <Truck className="mr-2 h-4 w-4" /> Track Order
                               </Link>
                             </DropdownMenuItem>
                           </>
                         )}
                       </DropdownMenuGroup>
                       <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={() => signOut({ callbackUrl: window.location.origin })} className="text-destructive cursor-pointer">
-                        <LogOut className="mr-2 h-4 w-4" /> {t('store.nav.sign_out')}
+                      <DropdownMenuItem onClick={() => handleSignOut()} className="text-destructive cursor-pointer">
+                        <LogOut className="mr-2 h-4 w-4" /> Sign Out
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>

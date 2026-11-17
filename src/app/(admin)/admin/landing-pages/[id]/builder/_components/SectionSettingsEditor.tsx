@@ -12,7 +12,7 @@ import {
   TabsContent, 
   TabsList, 
   TabsTrigger 
-} from "@/components/ui/tabs";
+} from"@/components/ui/tabs";
 import { ImageUpload } from '@/components/ui/image-upload';
 import {
   Select,
@@ -20,7 +20,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from"@/components/ui/select";
 import { 
   SectionType, 
   LandingPageSection, 
@@ -65,13 +65,15 @@ interface SectionSettingsEditorProps {
   onUpdateContent: (content: SectionContent) => void;
   onUpdateStyles: (styles: SectionStyles) => void;
   onClose: () => void;
+  productsApiUrl?: string;
 }
 
 export default function SectionSettingsEditor({
   section,
   onUpdateContent,
   onUpdateStyles,
-  onClose
+  onClose,
+  productsApiUrl = '/api/products'
 }: SectionSettingsEditorProps) {
   if (!section) return null;
 
@@ -117,7 +119,9 @@ export default function SectionSettingsEditor({
     const delayDebounce = setTimeout(async () => {
       setIsSearching(true);
       try {
-        const res = await fetch(`/api/products?search=${encodeURIComponent(searchTerm)}&limit=10`);
+        const endpoint = productsApiUrl || '/api/products';
+        const sep = endpoint.includes('?') ? '&' : '?';
+        const res = await fetch(`${endpoint}${sep}search=${encodeURIComponent(searchTerm)}&limit=10`);
         if (res.ok) {
           const data = await res.json();
           setSearchResults(data.products || []);
@@ -316,7 +320,7 @@ export default function SectionSettingsEditor({
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
-                    <Label className="text-[10px] font-bold uppercase opacity-50">Regular Price</Label>
+                    <Label className="text-[10px] font-bold uppercase opacity-50">Price</Label>
                     <Input 
                       type="number"
                       value={section.content?.price ?? 0} 
@@ -325,7 +329,7 @@ export default function SectionSettingsEditor({
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-[10px] font-bold uppercase opacity-50">Sale Price</Label>
+                    <Label className="text-[10px] font-bold uppercase opacity-50">Discounted Price</Label>
                     <Input 
                       type="number"
                       value={section.content?.salePrice ?? 0} 
@@ -731,7 +735,7 @@ export default function SectionSettingsEditor({
                           if (typeof window !== 'undefined' && textVal.includes('<')) {
                             const tempDiv = document.createElement("div");
                             tempDiv.innerHTML = textVal;
-                            textVal = tempDiv.textContent || tempDiv.innerText || "";
+                            textVal = tempDiv.textContent || tempDiv.innerText ||"";
                           }
                           return {
                             type: 'doc',
@@ -763,9 +767,8 @@ export default function SectionSettingsEditor({
                       <button 
                         key={color}
                         onClick={() => handleStyleChange('backgroundColor', color)}
-                        className={cn(
-                          "h-8 rounded-lg border shadow-sm transition-all",
-                          section.styles?.backgroundColor === color ? "ring-2 ring-primary ring-offset-2" : ""
+                        className={cn("h-8 rounded-lg border shadow-sm transition-all",
+                          section.styles?.backgroundColor === color ?"ring-2 ring-primary ring-offset-2" :""
                         )}
                         style={{ backgroundColor: color }}
                       />

@@ -1,21 +1,21 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Image from 'next/image';
+import ProductVideoThumbnailModal from '@/components/storefront/ProductVideoThumbnailModal';
 
 interface ProductImageGalleryProps {
   images: string[];
+  videoUrl?: string | null;
+  title?: string;
 }
 
-export function ProductImageGallery({ images }: ProductImageGalleryProps) {
-  const [prevImagesKey, setPrevImagesKey] = useState(() => (images || []).join(','));
+export function ProductImageGallery({ images, videoUrl, title }: ProductImageGalleryProps) {
   const [activeImage, setActiveImage] = useState(images?.[0] || '/placeholder.png');
-
-  const currentImagesKey = (images || []).join(',');
-  if (currentImagesKey !== prevImagesKey) {
-    setPrevImagesKey(currentImagesKey);
+  
+  useEffect(() => {
     setActiveImage(images?.[0] || '/placeholder.png');
-  }
+  }, [images]);
 
   if (!images || images.length === 0) {
     return (
@@ -36,8 +36,14 @@ export function ProductImageGallery({ images }: ProductImageGalleryProps) {
           priority
         />
       </div>
-      {images.length > 1 && (
+      {(images.length > 1 || Boolean(videoUrl)) && (
         <div className="grid grid-cols-4 gap-4">
+          <ProductVideoThumbnailModal
+            videoUrl={videoUrl}
+            thumbnailImage={images?.[0]}
+            className="relative aspect-square rounded-2xl overflow-hidden cursor-pointer"
+            title={title}
+          />
           {images.map((img, i) => (
             <button
               key={i}

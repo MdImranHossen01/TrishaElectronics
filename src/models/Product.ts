@@ -1,5 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import mongoose, { Document, Model, Schema } from 'mongoose';
+import './Category';
+import './Brand';
+import './Reseller';
 
 export interface IProduct extends Document {
   name: string;
@@ -7,26 +10,21 @@ export interface IProduct extends Document {
   description: string;
   price: number;
   salePrice?: number;
-  wholesalePrice?: number;
-  wholesaleSalePrice?: number;
-  showroomPrice?: number;
   purchasePrice?: number;
+  resellerPrice?: number;
   discountRate?: number;
   sku: string;
+  barcode?: string;
   stock: number;
-  showroomStocks?: {
-    showroom: mongoose.Types.ObjectId;
-    stock: number;
-  }[];
+  categories: mongoose.Types.ObjectId[];
+  brand?: mongoose.Types.ObjectId;
+  tags: string[];
+  images: string[];
   batches?: {
     batchNumber: string;
     expiryDate?: Date;
     stock: number;
   }[];
-  categories: mongoose.Types.ObjectId[];
-  brand?: mongoose.Types.ObjectId;
-  tags: string[];
-  images: string[];
   attributes: {
     key: string;
     value: string;
@@ -37,13 +35,12 @@ export interface IProduct extends Document {
     size?: string;
     price: number;
     salePrice?: number;
-    wholesalePrice?: number;
-    wholesaleSalePrice?: number;
-    showroomPrice?: number;
     purchasePrice?: number;
+    resellerPrice?: number;
     discountRate?: number;
     stock: number;
     sku?: string;
+    barcode?: string;
     image?: string;
     images?: string[];
     batches?: {
@@ -61,6 +58,13 @@ export interface IProduct extends Document {
   views: number;
   totalSales: number;
   embedding?: number[];
+  uploadedBy?: mongoose.Types.ObjectId | null;
+  isShared?: boolean;
+  isMotherProduct?: boolean;
+  isApprovedByAdmin?: boolean;
+  metaTitle?: string;
+  metaDescription?: string;
+  videoUrl?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -70,47 +74,45 @@ const ProductSchema: Schema<IProduct> = new Schema(
     name: { type: String, required: true },
     slug: { type: String, required: true, unique: true },
     description: { type: String, required: true },
-    price: { type: Number, required: true, min: [0, 'Price cannot be negative'] },
+    price: { 
+      type: Number, 
+      min: [0, 'Price cannot be negative'] 
+    },
     salePrice: { 
       type: Number,
       min: [0, 'Sale price cannot be negative'],
-    },
-    wholesalePrice: {
-      type: Number,
-      min: [0, 'Wholesale price cannot be negative'],
-    },
-    wholesaleSalePrice: {
-      type: Number,
-      min: [0, 'Wholesale sale price cannot be negative'],
     },
     purchasePrice: { 
       type: Number,
       min: [0, 'Purchase price cannot be negative'],
     },
-    showroomPrice: {
+    resellerPrice: {
       type: Number,
-      min: [0, 'Showroom price cannot be negative'],
+      min: [0, 'Reseller price cannot be negative'],
     },
     discountRate: { type: Number },
-    sku: { type: String, required: true, unique: true },
+    sku: { 
+      type: String, 
+      unique: true,
+      sparse: true
+    },
+    barcode: {
+      type: String,
+      sparse: true,
+      trim: true,
+    },
     stock: { type: Number, required: true, default: 0, min: [0, 'Stock cannot be negative'] },
-    showroomStocks: [
-      {
-        showroom: { type: Schema.Types.ObjectId, ref: 'Showroom', required: true },
-        stock: { type: Number, required: true, default: 0, min: [0, 'Stock cannot be negative'] },
-      }
-    ],
+    categories: [{ type: Schema.Types.ObjectId, ref: 'Category' }],
+    brand: { type: Schema.Types.ObjectId, ref: 'Brand' },
+    tags: [{ type: String }],
+    images: [{ type: String }],
     batches: [
       {
         batchNumber: { type: String, required: true },
         expiryDate: { type: Date },
-        stock: { type: Number, required: true, default: 0, min: [0, 'Stock cannot be negative'] },
-      }
+        stock: { type: Number, default: 0 },
+      },
     ],
-    categories: [{ type: Schema.Types.ObjectId, ref: 'Category', required: true }],
-    brand: { type: Schema.Types.ObjectId, ref: 'Brand' },
-    tags: [{ type: String }],
-    images: [{ type: String }],
     attributes: [
       {
         key: { type: String },
@@ -123,21 +125,20 @@ const ProductSchema: Schema<IProduct> = new Schema(
         size: { type: String },
         price: { type: Number, required: true, min: [0, 'Price cannot be negative'] },
         salePrice: { type: Number, min: [0, 'Sale price cannot be negative'] },
-        wholesalePrice: { type: Number, min: [0, 'Wholesale price cannot be negative'] },
-        wholesaleSalePrice: { type: Number, min: [0, 'Wholesale sale price cannot be negative'] },
-        showroomPrice: { type: Number, min: [0, 'Showroom price cannot be negative'] },
         purchasePrice: { type: Number, min: [0, 'Purchase price cannot be negative'] },
+        resellerPrice: { type: Number, min: [0, 'Reseller price cannot be negative'] },
         discountRate: { type: Number },
         stock: { type: Number, required: true, default: 0, min: [0, 'Stock cannot be negative'] },
         sku: { type: String },
+        barcode: { type: String, trim: true },
         image: { type: String },
         images: [{ type: String }],
         batches: [
           {
-            batchNumber: { type: String, required: true },
+            batchNumber: { type: String },
             expiryDate: { type: Date },
-            stock: { type: Number, required: true, default: 0, min: [0, 'Stock cannot be negative'] },
-          }
+            stock: { type: Number, default: 0 },
+          },
         ],
       },
     ],
@@ -150,39 +151,77 @@ const ProductSchema: Schema<IProduct> = new Schema(
     views: { type: Number, default: 0, min: [0, 'Views cannot be negative'] },
     totalSales: { type: Number, default: 0, min: [0, 'Total sales cannot be negative'] },
     embedding: { type: [Number] },
+    uploadedBy: { type: Schema.Types.ObjectId, ref: 'Reseller', default: null },
+    isShared: { type: Boolean, default: false },
+    isMotherProduct: { type: Boolean, default: false },
+    isApprovedByAdmin: { type: Boolean, default: false },
+    metaTitle: { type: String, maxlength: 70 },
+    metaDescription: { type: String, maxlength: 160 },
+    videoUrl: { type: String },
   },
   { timestamps: true }
 );
 
+ProductSchema.index({ isMotherProduct: 1 });
+ProductSchema.index({ uploadedBy: 1 });
+ProductSchema.index({ isApprovedByAdmin: 1 });
 ProductSchema.index({ name: 1 }); // Optimized for search
 ProductSchema.index({ categories: 1 }); // Optimized for category filtering
 
 ProductSchema.pre('validate', function(this: any) {
-  // Main product validation
-  if (this.salePrice !== undefined && this.salePrice !== null && this.salePrice > this.price) {
-    throw new Error(
-      `Sale price (৳${this.salePrice}) should be lower than or equal to regular price (৳${this.price})`
-    );
+  // If no uploadedBy reseller is specified, this product is owned by Mother Shop Admin
+  if (!this.uploadedBy) {
+    this.isMotherProduct = true;
+    this.isApprovedByAdmin = true;
   }
 
-  // Variants validation
+  // Strict Rule: If product has variants, root pricing MUST be derived strictly from the first variant (ignore main pricing)
+  if (this.variants && Array.isArray(this.variants) && this.variants.length > 0) {
+    const firstV = this.variants[0];
+    if (firstV) {
+      this.price = Number(firstV.price || 0);
+      const rawVSale = firstV.salePrice !== undefined && firstV.salePrice !== null ? Number(firstV.salePrice) : undefined;
+      if (rawVSale !== undefined && rawVSale > 0 && rawVSale < this.price) {
+        this.salePrice = rawVSale;
+        this.discountRate = firstV.discountRate;
+      } else {
+        this.salePrice = undefined;
+        this.discountRate = undefined;
+        firstV.salePrice = undefined;
+        firstV.discountRate = undefined;
+      }
+    }
+  } else {
+    // If no variants, validate main salePrice: if <= 0 or >= price, treat as NO DISCOUNT
+    if (this.salePrice !== undefined && this.salePrice !== null) {
+      if (this.salePrice <= 0 || (this.price !== undefined && this.salePrice >= this.price)) {
+        this.salePrice = undefined;
+        this.discountRate = undefined;
+      }
+    }
+  }
+
+  // Variants validation and sanitization
   if (this.variants && Array.isArray(this.variants)) {
-    this.variants.forEach((v: any, index: number) => {
-      if (
-        v.salePrice !== undefined &&
-        v.salePrice !== null &&
-        typeof v.price === 'number' &&
-        v.salePrice > v.price
-      ) {
-        const variantDesc = [v.color, v.size].filter(Boolean).join(' / ') || `at index ${index}`;
-        throw new Error(
-          `Variant "${variantDesc}" has a sale price (৳${v.salePrice}) higher than its regular price (৳${v.price})`
-        );
+    this.variants.forEach((v: any) => {
+      if (v.salePrice !== undefined && v.salePrice !== null) {
+        if (v.salePrice <= 0 || (v.price !== undefined && v.salePrice >= v.price)) {
+          v.salePrice = undefined;
+          v.discountRate = undefined;
+        }
       }
     });
   }
 });
 
 const Product: Model<IProduct> = mongoose.models.Product || mongoose.model<IProduct>('Product', ProductSchema);
+
+export const MOTHER_SHOP_PRODUCT_FILTER = {
+  $or: [
+    { isMotherProduct: true },
+    { uploadedBy: null },
+    { uploadedBy: { $exists: false } },
+  ],
+};
 
 export default Product;

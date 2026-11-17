@@ -1,0 +1,97 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+'use client';
+
+import { use, useEffect } from 'react';
+import { notFound, useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
+import { Loader2 } from 'lucide-react';
+
+const Fallback = () => (
+  <div className="flex h-[60vh] items-center justify-center">
+    <div className="flex flex-col items-center gap-2">
+      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <p className="text-xs text-muted-foreground font-bold">Loading...</p>
+    </div>
+  </div>
+);
+
+const ReportsRedirect = () => {
+  const router = useRouter();
+  useEffect(() => {
+    router.replace('/reseller-dashboard/reports/daily');
+  }, [router]);
+  return <Fallback />;
+};
+
+// Map slug path → existing reseller page component
+const PAGE_MAP: Record<string, React.ComponentType<any>> = {
+  'dashboard': dynamic(() => import('@/app/(reseller)/reseller/dashboard/page'), { loading: Fallback }),
+  'wallet': dynamic(() => import('@/app/(reseller)/reseller/wallet/page'), { loading: Fallback }),
+  'orders': dynamic(() => import('@/app/(reseller)/reseller/orders/page'), { loading: Fallback }),
+  'products': dynamic(() => import('@/app/(reseller)/reseller/products/page'), { loading: Fallback }),
+  'products/new': dynamic(() => import('@/app/(reseller)/reseller/products/new/page'), { loading: Fallback }),
+  'products/source': dynamic(() => import('@/app/(reseller)/reseller/products/source/page'), { loading: Fallback }),
+  'abandoned-carts': dynamic(() => import('@/app/(reseller)/reseller/abandoned-carts/page'), { loading: Fallback }),
+  'accounts': dynamic(() => import('@/app/(reseller)/reseller/accounts/page'), { loading: Fallback }),
+  'expenses-incomes': dynamic(() => import('@/app/(reseller)/reseller/expenses-incomes/page'), { loading: Fallback }),
+  'expenses-incomes/categories': dynamic(() => import('@/app/(reseller)/reseller/expenses-incomes/categories/page'), { loading: Fallback }),
+  'ledger': dynamic(() => import('@/app/(reseller)/reseller/ledger/page'), { loading: Fallback }),
+  'ledger/payable': dynamic(() => import('@/app/(reseller)/reseller/ledger/payable/page'), { loading: Fallback }),
+  'ledger/receivable': dynamic(() => import('@/app/(reseller)/reseller/ledger/receivable/page'), { loading: Fallback }),
+  'low-stock': dynamic(() => import('@/app/(reseller)/reseller/low-stock/page'), { loading: Fallback }),
+  'upcoming-expiry': dynamic(() => import('@/app/(reseller)/reseller/upcoming-expiry/page'), { loading: Fallback }),
+  'users': dynamic(() => import('@/app/(reseller)/reseller/users/page'), { loading: Fallback }),
+  'cms/banners': dynamic(() => import('@/app/(reseller)/reseller/cms/banners/page'), { loading: Fallback }),
+  'cms/banners/new': dynamic(() => import('@/app/(reseller)/reseller/cms/banners/new/page'), { loading: Fallback }),
+  'cms/faqs': dynamic(() => import('@/app/(reseller)/reseller/cms/faqs/page'), { loading: Fallback }),
+  'cms/testimonials': dynamic(() => import('@/app/(reseller)/reseller/cms/testimonials/page'), { loading: Fallback }),
+  'coupons': dynamic(() => import('@/app/(reseller)/reseller/coupons/page'), { loading: Fallback }),
+  'settings': dynamic(() => import('@/app/(reseller)/reseller/settings/page'), { loading: Fallback }),
+  'marketing': dynamic(() => import('@/app/(reseller)/reseller/marketing/page'), { loading: Fallback }),
+  'landing-pages': dynamic(() => import('@/app/(reseller)/reseller/landing-pages/page'), { loading: Fallback }),
+  'reports': ReportsRedirect,
+  'reports/daily': dynamic(() => import('@/app/(reseller)/reseller/reports/daily/page'), { loading: Fallback }),
+  'reports/monthly': dynamic(() => import('@/app/(reseller)/reseller/reports/monthly/page'), { loading: Fallback }),
+  'reports/order-profit': dynamic(() => import('@/app/(reseller)/reseller/reports/order-profit/page'), { loading: Fallback }),
+  'reports/item-profit': dynamic(() => import('@/app/(reseller)/reseller/reports/item-profit/page'), { loading: Fallback }),
+  'reports/product-sales': dynamic(() => import('@/app/(reseller)/reseller/reports/product-sales/page'), { loading: Fallback }),
+  'reports/brand-sales': dynamic(() => import('@/app/(reseller)/reseller/reports/brand-sales/page'), { loading: Fallback }),
+  'reports/payouts': dynamic(() => import('@/app/(reseller)/reseller/reports/payouts/page'), { loading: Fallback }),
+  'reports/expense': dynamic(() => import('@/app/(reseller)/reseller/reports/expense/page'), { loading: Fallback }),
+};
+
+const DynamicEditProduct = dynamic(() => import('@/app/(reseller)/reseller/products/[id]/edit/page'), { loading: Fallback });
+const DynamicEditBanner = dynamic(() => import('@/app/(reseller)/reseller/cms/banners/[id]/edit/page'), { loading: Fallback });
+const DynamicLandingPageBuilder = dynamic(() => import('@/app/(reseller)/reseller/landing-pages/[id]/builder/page'), { loading: Fallback });
+
+export default function ResellerPanelSubPage({
+  params,
+}: {
+  params: Promise<{ slug: string[] }>;
+}) {
+  const { slug } = use(params);
+  const key = slug.join('/');
+
+  // Handle static page mapping
+  const Page = PAGE_MAP[key];
+  if (Page) {
+    return <Page />;
+  }
+
+  // Handle dynamic products/[id]/edit
+  if (slug.length === 3 && slug[0] === 'products' && slug[2] === 'edit') {
+    return <DynamicEditProduct />;
+  }
+
+  // Handle dynamic cms/banners/[id]/edit
+  if (slug.length === 4 && slug[0] === 'cms' && slug[1] === 'banners' && slug[3] === 'edit') {
+    return <DynamicEditBanner />;
+  }
+
+  // Handle dynamic landing-pages/[id]/builder
+  if (slug.length === 3 && slug[0] === 'landing-pages' && slug[2] === 'builder') {
+    return <DynamicLandingPageBuilder params={Promise.resolve({ id: slug[1] })} />;
+  }
+
+  return notFound();
+}

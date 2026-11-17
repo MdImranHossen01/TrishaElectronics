@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, Suspense } from 'react';
-import { useSession } from 'next-auth/react';
+import { useSession, signIn } from 'next-auth/react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Pagination } from '@/components/ui/pagination';
 import {
@@ -14,15 +14,14 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  MoreHorizontal,
-  Loader2,
-  User as UserIcon,
-  Eye,
-  ShieldAlert,
+import { 
+  MoreHorizontal, 
+  Loader2, 
+  User as UserIcon, 
+  Eye, 
+  ShieldAlert, 
   Calendar,
   Phone,
-  Mail,
   MapPin,
   ShoppingBag,
   CreditCard,
@@ -30,13 +29,14 @@ import {
   ShieldCheck,
   UserCog,
   Trash2,
-  Search
+  Search,
+  Store,
+  KeyRound,
+  Download,
+  Mail,
+  Copy
 } from 'lucide-react';
-import { AdminTableSkeleton } from '@/components/admin/AdminSkeletons';
-import { normalizePhoneNumber } from '@/lib/utils';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
-import { ImageUpload } from '@/components/ui/image-upload';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,7 +45,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
   DropdownMenuGroup,
-} from "@/components/ui/dropdown-menu";
+} from"@/components/ui/dropdown-menu";
 import { toast } from 'sonner';
 import Image from 'next/image';
 import Swal from 'sweetalert2';
@@ -54,8 +54,8 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { useLanguage } from '@/contexts/LanguageContext';
+} from"@/components/ui/dialog";
+import { MobileDataCard, MobileDataRow } from '@/components/common/MobileDataCard';
 
 interface UserData {
   _id: string;
@@ -69,15 +69,17 @@ interface UserData {
   lastActive?: string;
   totalOrders: number;
   totalSpent: number;
-  totalDue?: number;
   lastOrderDate?: string;
+  storeOrigin?: string;
 }
 
 function UsersContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { t } = useLanguage();
+  const roleParam = searchParams.get('role') || 'all';
   const [currentPage, setCurrentPage] = useState(Math.max(1, parseInt(searchParams.get('page') || '1')));
+  const [sourceFilter, setSourceFilter] = useState<string>('mother');
+  const [activeResellers, setActiveResellers] = useState<{ _id: string; storeName: string; subdomain: string }[]>([]);
 
   const [users, setUsers] = useState<UserData[]>([]);
   const [totalPages, setTotalPages] = useState(1);
@@ -98,42 +100,40 @@ function UsersContent() {
   // Reset page when filters change
   useEffect(() => {
     if (currentPage > 1) {
-      Promise.resolve().then(() => {
-        setCurrentPage(1);
-      });
+      setCurrentPage(1);
       const params = new URLSearchParams(searchParams.toString());
       params.delete('page');
       router.push(`/admin/users?${params.toString()}`);
     }
-  }, [debouncedSearchTerm]);
+  }, [debouncedSearchTerm, roleParam, sourceFilter]);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isAssignAdminOpen, setIsAssignAdminOpen] = useState(false);
-  const [adminIdentifier, setAdminIdentifier] = useState('');
+  const [adminEmail, setAdminEmail] = useState('');
   const [adminName, setAdminName] = useState('');
-  const [adminImage, setAdminImage] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
+  const [adminImage, setAdminImage] = useState('');
+  const [assignRole, setAssignRole] = useState<'admin' | 'manager' | 'moderator' | 'user'>('admin');
   const [isAssigning, setIsAssigning] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
-  const { data: session, status } = useSession();
-  const userRole = (session?.user as any)?.role;
-  const isAuthorized = userRole === 'super_admin' || userRole === 'admin';
-  const isSuperAdmin = userRole === 'super_admin'; // kept for assign-admin button visibility
-
-  useEffect(() => {
-    if (status === 'authenticated' && !isAuthorized) {
-      router.push('/admin/dashboard');
-    }
-  }, [status, isAuthorized, router]);
+  const { data: session } = useSession();
+  const isSuperAdmin = (session?.user as any)?.role === 'super_admin' || session?.user?.email === 'imranshuvo101@gmail.com';
 
   const fetchUsers = async (page = currentPage) => {
     setLoading(true);
     try {
-      const response = await fetch(`/api/admin/users?page=${page}&limit=20&search=${debouncedSearchTerm}`);
+      const searchEncoded = encodeURIComponent(debouncedSearchTerm || '');
+      const roleEncoded = encodeURIComponent(roleParam || '');
+      const sourceEncoded = encodeURIComponent(sourceFilter || 'mother');
+      const response = await fetch(`/api/admin/users?page=${page}&limit=20&search=${searchEncoded}&role=${roleEncoded}&source=${sourceEncoded}`);
       if (!response.ok) throw new Error('Failed to fetch users');
       const data = await response.json();
       setUsers(data.users || []);
       setTotalPages(data.totalPages || 1);
       setTotalCount(data.totalCount || 0);
+      if (Array.isArray(data.activeResellers)) {
+        setActiveResellers(data.activeResellers);
+      }
     } catch (error) {
       console.error('Error fetching users:', error);
       toast.error('Failed to load users');
@@ -143,39 +143,177 @@ function UsersContent() {
   };
 
   useEffect(() => {
-    let active = true;
-    const load = async () => {
-      await Promise.resolve();
-      if (active) {
-        fetchUsers(currentPage);
-      }
-    };
-    load();
-    return () => {
-      active = false;
-    };
-  }, [currentPage, debouncedSearchTerm]);
+    fetchUsers(currentPage);
+  }, [currentPage, debouncedSearchTerm, roleParam, sourceFilter]);
 
   useEffect(() => {
     const pageFromParams = Math.max(1, parseInt(searchParams.get('page') || '1'));
     if (pageFromParams !== currentPage) {
-      Promise.resolve().then(() => {
-        setCurrentPage(pageFromParams);
-      });
+      setCurrentPage(pageFromParams);
     }
   }, [searchParams]);
-
-  if (status === 'loading') {
-    return <AdminTableSkeleton rowCount={7} columnCount={5} titleWidth="w-48" />;
-  }
-
-  if (status === 'authenticated' && !isAuthorized) {
-    return null;
-  }
 
   const openUserDetails = (user: UserData) => {
     setSelectedUser(user);
     setIsDetailsOpen(true);
+  };
+
+  const handleExportCSV = async () => {
+    if (totalCount === 0 && users.length === 0) {
+      toast.error('No users available to export');
+      return;
+    }
+    setIsExporting(true);
+    try {
+      let exportList: UserData[] = users;
+      if (totalCount > users.length) {
+        const searchEncoded = encodeURIComponent(debouncedSearchTerm || '');
+        const roleEncoded = encodeURIComponent(roleParam || '');
+        const sourceEncoded = encodeURIComponent(sourceFilter || 'mother');
+        const res = await fetch(
+          `/api/admin/users?page=1&limit=${Math.max(totalCount, 5000)}&search=${searchEncoded}&role=${roleEncoded}&source=${sourceEncoded}`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.users)) {
+            exportList = data.users;
+          }
+        }
+      }
+
+      const escapeCsv = (val: any) => `"${String(val ?? '').replace(/"/g, '""')}"`;
+      const headers = ['Name', 'Email', 'Phone', 'Role', 'Store Origin', 'Total Orders', 'Total Spent (BDT)', 'Joined Date', 'Address'];
+      const rows = exportList.map((u) => {
+        let primaryAddr = '';
+        if (Array.isArray(u.addresses) && u.addresses.length > 0) {
+          const a = u.addresses[0] || {};
+          const fullStreet = a.street || a.streetAddress || a.address || '';
+          const stateOrArea = a.state || a.area || a.thana || '';
+          const cityOrDistrict = a.city || a.district || '';
+          const division = a.division || '';
+          const parts = [fullStreet, stateOrArea, cityOrDistrict, division]
+            .map((s) => String(s || '').trim())
+            .filter(Boolean);
+          // deduplicate parts (e.g. if city and division both say "Dhaka")
+          primaryAddr = parts.filter((p, idx) => parts.indexOf(p) === idx).join(', ');
+        }
+        const joinedDate = u.createdAt ? new Date(u.createdAt).toISOString().slice(0, 10) : '';
+        return [
+          escapeCsv(u.name || ''),
+          escapeCsv(u.email || ''),
+          escapeCsv(u.phone || (Array.isArray(u.addresses) && u.addresses[0]?.phone) || ''),
+          escapeCsv(u.role || 'user'),
+          escapeCsv(u.storeOrigin || 'Mother Shop'),
+          escapeCsv(u.totalOrders ?? 0),
+          escapeCsv(u.totalSpent ?? 0),
+          escapeCsv(joinedDate),
+          escapeCsv(primaryAddr),
+        ].join(',');
+      });
+
+      const csvString = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+      const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const roleSlug = roleParam === 'all' ? 'all_users' : roleParam;
+      link.href = url;
+      link.setAttribute('download', `${roleSlug}_${dateStr}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success(`Exported ${exportList.length} users to CSV`);
+    } catch (error) {
+      console.error('Export CSV error:', error);
+      toast.error('Failed to export users CSV');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const isRealEmail = (email?: string) => {
+    if (!email || !email.includes('@')) return false;
+    const lower = email.trim().toLowerCase();
+    if (lower.endsWith('@guest.com') || /^01\d{9}@/.test(lower)) return false;
+    return true;
+  };
+
+  const getStoreDisplayName = () => {
+    if (process.env.NEXT_PUBLIC_STORE_NAME) return process.env.NEXT_PUBLIC_STORE_NAME;
+    if (typeof window !== 'undefined') {
+      const host = window.location.hostname.replace(/^www\./, '').toLowerCase();
+      if (host.includes('dhakafairprice')) return 'Dhaka Fair Price';
+      if (host.includes('janopriyo')) return 'Janopriyo';
+      if (host.includes('trishnaelectronics')) return 'Trishna Electronics';
+    }
+    return 'Our Store';
+  };
+
+  const handleSendEmail = (user: UserData) => {
+    if (!isRealEmail(user.email)) {
+      toast.error('This user registered with a phone number only and has no valid email address.');
+      return;
+    }
+    const storeName = getStoreDisplayName();
+    const subject = encodeURIComponent(`Update from ${storeName}`);
+    const body = encodeURIComponent(`Hello ${user.name || 'Customer'},\n\n\n\nBest regards,\n${storeName}`);
+    const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(user.email.trim())}&su=${subject}&body=${body}`;
+    window.open(gmailUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleCopyEmail = async (email?: string) => {
+    if (!email) {
+      toast.error('No email address available');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(email.trim());
+      toast.success('Email address copied to clipboard');
+    } catch {
+      toast.error('Failed to copy email address');
+    }
+  };
+
+  const handleBulkSendEmail = async () => {
+    if (totalCount === 0 && users.length === 0) {
+      toast.error('No users available to email');
+      return;
+    }
+    try {
+      let targetUsers: UserData[] = users;
+      if (totalCount > users.length) {
+        const searchEncoded = encodeURIComponent(debouncedSearchTerm || '');
+        const roleEncoded = encodeURIComponent(roleParam || '');
+        const sourceEncoded = encodeURIComponent(sourceFilter || 'mother');
+        const res = await fetch(
+          `/api/admin/users?page=1&limit=${Math.max(totalCount, 5000)}&search=${searchEncoded}&role=${roleEncoded}&source=${sourceEncoded}`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.users)) {
+            targetUsers = data.users;
+          }
+        }
+      }
+      const validEmails = Array.from(
+        new Set(
+          targetUsers
+            .map((u) => (u.email || '').trim())
+            .filter((em) => isRealEmail(em))
+        )
+      );
+      if (validEmails.length === 0) {
+        toast.error('No valid email addresses found in this list');
+        return;
+      }
+      const storeName = getStoreDisplayName();
+      const subject = encodeURIComponent(`Update from ${storeName}`);
+      const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&bcc=${encodeURIComponent(validEmails.join(','))}&su=${subject}`;
+      window.open(gmailUrl, '_blank', 'noopener,noreferrer');
+    } catch {
+      toast.error('Failed to open bulk email composer');
+    }
   };
 
   const handleUpdateRole = async (userId: string, newRole: string) => {
@@ -184,8 +322,8 @@ function UsersContent() {
       text: `Are you sure you want to change this user's role to ${newRole}?`,
       icon: 'question',
       showCancelButton: true,
-      confirmButtonColor: '#2563eb', // blue-600
-      cancelButtonColor: '#64748b', // slate-500
+      confirmButtonColor: '#2563eb',
+      cancelButtonColor: '#64748b',
       confirmButtonText: 'Yes, change it!',
       customClass: {
         popup: 'rounded-3xl',
@@ -217,43 +355,38 @@ function UsersContent() {
 
   const handleAssignAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!adminIdentifier.trim()) {
-      toast.error('Email or phone number is required');
-      return;
-    }
-
-    const isEmail = adminIdentifier.includes('@');
-    const email = isEmail ? adminIdentifier.trim() : undefined;
-    const phone = !isEmail ? normalizePhoneNumber(adminIdentifier) : undefined;
+    if (!adminEmail.trim()) return;
 
     setIsAssigning(true);
     try {
       const response = await fetch('/api/admin/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          email,
-          name: adminName,
-          image: adminImage,
-          phone,
-          password: adminPassword
+        body: JSON.stringify({
+          emailOrPhone: adminEmail.trim(),
+          name: adminName.trim() || undefined,
+          password: adminPassword.trim() || undefined,
+          image: adminImage || undefined,
+          role: assignRole,
         }),
       });
 
+      const data = await response.json();
+
       if (response.ok) {
-        toast.success(`Successfully assigned Admin role to ${adminIdentifier}`);
-        setAdminIdentifier('');
+        toast.success(data.message || 'User role assigned successfully');
+        setAdminEmail('');
         setAdminName('');
-        setAdminImage('');
         setAdminPassword('');
+        setAdminImage('');
+        setAssignRole('admin');
         setIsAssignAdminOpen(false);
         fetchUsers();
       } else {
-        const error = await response.json();
-        toast.error(error.message || 'Failed to assign admin');
+        toast.error(data.message || 'Failed to assign role');
       }
     } catch (error) {
-      toast.error('Error assigning admin');
+      toast.error('Error assigning user role');
     } finally {
       setIsAssigning(false);
     }
@@ -262,11 +395,11 @@ function UsersContent() {
   const handleDeleteUser = async (userId: string, userName: string) => {
     const result = await Swal.fire({
       title: 'Delete User?',
-      text: `Are you sure you want to permanently delete user "${userName}"? This action cannot be undone.`,
+      text: `Are you sure you want to permanently delete user"${userName}"? This action cannot be undone.`,
       icon: 'warning',
       showCancelButton: true,
-      confirmButtonColor: '#ef4444', // red-500
-      cancelButtonColor: '#64748b', // slate-500
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#64748b',
       confirmButtonText: 'Yes, delete permanently!',
       customClass: {
         popup: 'rounded-3xl',
@@ -285,7 +418,7 @@ function UsersContent() {
       });
 
       if (response.ok) {
-        toast.success(`User "${userName}" deleted successfully`);
+        toast.success(`User"${userName}" deleted successfully`);
         fetchUsers();
       } else {
         const error = await response.json();
@@ -296,617 +429,647 @@ function UsersContent() {
     }
   };
 
+  const handleImpersonateUser = async (targetUserId: string, targetName: string, targetRole: string, contact?: string) => {
+    const result = await Swal.fire({
+      title: 'Login as ' + targetName + '?',
+      html: `Are you sure you want to log in as <b>${targetName}</b> (${contact || targetRole})?<br/><span class="text-xs text-muted-foreground mt-2 block">You can return to the Super Admin Panel at any time from the topbar profile dropdown.</span>`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, Login as User',
+      cancelButtonText: 'Cancel',
+      confirmButtonColor: '#f59e0b',
+      customClass: {
+        popup: 'rounded-2xl',
+        confirmButton: 'rounded-xl font-bold px-5 py-2.5',
+        cancelButton: 'rounded-xl font-medium px-5 py-2.5',
+      },
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+      toast.loading('Starting user session...', { id: 'impersonate-user' });
+      const res = await fetch('/api/admin/impersonate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetUserId }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to start impersonation');
+      }
+
+      const tokenToUse = data.impersonationToken || data.token;
+      if (!tokenToUse) {
+        throw new Error('No impersonation token returned by server');
+      }
+
+      toast.loading(`Signing in as ${targetName}...`, { id: 'impersonate-user' });
+      const signInRes = await signIn('credentials', {
+        impersonationToken: tokenToUse,
+        redirect: false,
+      });
+
+      if (signInRes?.error) {
+        throw new Error(signInRes.error);
+      }
+
+      toast.success(`Logged in as ${targetName}`, { id: 'impersonate-user' });
+      window.location.href = data.redirectUrl || '/dashboard';
+    } catch (err: any) {
+      toast.error(err.message || 'Error logging in as user', { id: 'impersonate-user' });
+    }
+  };
+
   return (
-    <div className="flex flex-col gap-0 md:gap-6 px-[1px] pt-[1px] pb-4 md:p-8 w-full max-w-full overflow-x-hidden animate-in fade-in duration-500">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="flex flex-col gap-4 md:gap-6">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b pb-3">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-black tracking-tighter text-slate-900">{t("users.title")}</h1>
-          <p className="text-muted-foreground text-xs sm:text-sm font-medium">{t("users.subtitle")}</p>
+          <h1 className="text-xl md:text-3xl font-black tracking-tight text-slate-900 capitalize">
+            {roleParam === 'all' ? 'All Users' : roleParam === 'user' ? 'Customers' : `${roleParam}s`} Management
+          </h1>
+          <p className="text-muted-foreground text-xs md:text-sm font-medium mt-0.5">
+            {roleParam === 'all' 
+              ? 'Manage and view all registered customers and staff.' 
+              : `Directory of all registered ${roleParam === 'user' ? 'customers' : roleParam + 's'}.`}
+          </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          <Button
+            onClick={handleBulkSendEmail}
+            disabled={loading || totalCount === 0}
+            variant="outline"
+            size="sm"
+            className="rounded-full px-4 h-9 text-xs font-bold gap-1.5"
+          >
+            <Mail className="h-3.5 w-3.5" />
+            Send Email to All
+          </Button>
+          <Button
+            onClick={handleExportCSV}
+            disabled={loading || isExporting || totalCount === 0}
+            variant="outline"
+            size="sm"
+            className="rounded-full px-4 h-9 text-xs font-bold gap-1.5"
+          >
+            {isExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            Export CSV
+          </Button>
           {(isSuperAdmin || (session?.user as any)?.role === 'admin') && (
-            <Button
-              onClick={() => setIsAssignAdminOpen(true)}
-              className="bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-full px-4 sm:px-6 h-10 sm:h-11 shadow-lg shadow-blue-200 border-none transition-all hover:scale-105 active:scale-95 text-xs sm:text-sm"
+            <Button 
+              onClick={() => {
+                setAssignRole('admin');
+                setIsAssignAdminOpen(true);
+              }}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-full px-4 h-9 text-xs shadow-md shadow-blue-200 border-none flex items-center gap-1.5"
             >
-              <ShieldCheck className="mr-1.5 sm:mr-2 h-4 w-4" />
-              {t("users.assign_admin")}
+              <UserCog className="h-3.5 w-3.5" />
+              Assign Role / Add User
             </Button>
           )}
-          <div className="bg-primary/10 px-4 py-2 sm:px-5 sm:py-2.5 rounded-full border border-primary/20">
-            <span className="text-primary font-bold text-xs sm:text-sm">{totalCount} {t("users.total_users")}</span>
+          <div className="bg-primary/10 px-3 py-1.5 rounded-full border border-primary/20">
+            <span className="text-primary font-bold text-xs">
+              {totalCount} {roleParam === 'all' ? 'Users' : roleParam === 'user' ? 'Customers' : `${roleParam}s`}
+            </span>
           </div>
         </div>
       </div>
+      
+      {/* Search and Store Filter */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+        <div className="relative w-full max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <Input
+            placeholder="Search name, email or phone..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-8 h-9 rounded-xl border bg-white text-xs shadow-xs"
+          />
+        </div>
 
-      {/* Search Filter Input */}
-      <div className="relative w-full max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder={t("users.search_placeholder") as string}
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="pl-9 h-10 sm:h-11 rounded-xl border bg-white focus-visible:ring-primary/20 shadow-sm text-sm"
-        />
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-muted-foreground whitespace-nowrap flex items-center gap-1">
+            <Store className="h-3.5 w-3.5" /> Store Scope:
+          </span>
+          <select
+            value={sourceFilter}
+            onChange={(e) => {
+              setSourceFilter(e.target.value);
+              setCurrentPage(1);
+            }}
+            className="h-9 rounded-xl border bg-white text-xs px-3 font-semibold text-slate-800 shadow-xs focus:outline-none focus:ring-2 focus:ring-primary/20"
+          >
+            <option value="mother">Mother Shop Customers</option>
+            <option value="all">All Stores (Global)</option>
+            {activeResellers.map((r) => (
+              <option key={r._id} value={r._id}>
+                {r.storeName} (Reseller)
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
-      {/* Desktop Table View */}
-      <div className="hidden md:block rounded-2xl border shadow-sm overflow-hidden bg-white">
-        <Table>
-          <TableHeader className="bg-muted/50">
-            <TableRow>
-              <TableHead className="font-bold">{t("users.name")} / {t("users.contact") || "Contact"}</TableHead>
-              <TableHead className="font-bold">{t("users.orders")}</TableHead>
-              <TableHead className="font-bold">{t("users.total_due") || "Due"}</TableHead>
-              <TableHead className="font-bold">{t("users.role")}</TableHead>
-              <TableHead className="font-bold">{t("users.joined")}</TableHead>
-              <TableHead className="font-bold">{t("users.last_visit") || "Last Login"}</TableHead>
-              <TableHead className="text-right font-bold">{t("users.actions")}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              Array.from({ length: 6 }).map((_, i) => (
-                <TableRow key={i}>
-                  <TableCell>
-                    <div className="flex items-center gap-3">
-                      <Skeleton className="h-10 w-10 rounded-full shrink-0" />
-                      <div className="space-y-1.5">
-                        <Skeleton className="h-4 w-32 rounded" />
-                        <Skeleton className="h-3 w-40 rounded" />
-                      </div>
+      <div className="rounded-2xl border shadow-xs overflow-hidden bg-white">
+        {/* Desktop Table */}
+        <div className="hidden md:block overflow-x-auto">
+          <Table>
+            <TableHeader className="bg-muted/50">
+              <TableRow>
+                <TableHead className="w-[60px]">Avatar</TableHead>
+                <TableHead className="font-bold">Name</TableHead>
+                <TableHead className="font-bold">Email</TableHead>
+                <TableHead className="font-bold">Store Origin</TableHead>
+                <TableHead className="font-bold">Orders</TableHead>
+                <TableHead className="font-bold">Role</TableHead>
+                <TableHead className="font-bold">Joined</TableHead>
+                <TableHead className="text-right font-bold">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="h-48 text-center">
+                    <div className="flex flex-col items-center justify-center gap-2">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                      <p className="text-muted-foreground font-medium text-xs">Loading user data...</p>
                     </div>
                   </TableCell>
-                  <TableCell><Skeleton className="h-5 w-16 rounded-full" /></TableCell>
-                  <TableCell><Skeleton className="h-5 w-16 rounded-full" /></TableCell>
-                  <TableCell><Skeleton className="h-5 w-14 rounded-full" /></TableCell>
-                  <TableCell><Skeleton className="h-4 w-24 rounded" /></TableCell>
-                  <TableCell><Skeleton className="h-4 w-24 rounded" /></TableCell>
-                  <TableCell className="text-right">
-                    <Skeleton className="h-8 w-8 rounded-md ml-auto" />
+                </TableRow>
+              ) : users.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="h-48 text-center text-xs text-muted-foreground">
+                    No users found.
                   </TableCell>
                 </TableRow>
-              ))
-            ) : users.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={7} className="h-48 text-center">
-                  <p className="text-muted-foreground">{t("users.no_users_found")}</p>
-                </TableCell>
-              </TableRow>
-            ) : (
-              users.map((user) => (
-                <TableRow key={user._id} className="hover:bg-muted/30 transition-colors">
-                  <TableCell>
-                    <div className="flex items-center gap-3">
+              ) : (
+                users.map((user) => (
+                  <TableRow key={user._id} className="hover:bg-muted/30 transition-colors">
+                    <TableCell>
                       {user.image && user.image !== '' ? (
-                        <div className="relative h-10 w-10 rounded-full overflow-hidden border shrink-0">
-                          <Image
-                            src={user.image}
-                            alt={user.name}
-                            width={40}
-                            height={40}
+                        <div className="relative h-9 w-9 rounded-full overflow-hidden border">
+                          <Image 
+                            src={user.image} 
+                            alt={user.name} 
+                            width={36}
+                            height={36}
                             className="h-full w-full object-cover"
                           />
                         </div>
                       ) : (
-                        <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary border border-primary/20 shrink-0">
-                          <UserIcon className="h-5 w-5" />
+                        <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center text-primary border border-primary/20">
+                          <UserIcon className="h-4 w-4" />
                         </div>
                       )}
-                      <div className="flex flex-col text-left">
-                        <button
-                          onClick={() => openUserDetails(user)}
-                          className="font-bold text-slate-900 hover:text-primary transition-colors text-left text-sm"
-                        >
-                          {user.name}
-                        </button>
-                        {user.phone && (
-                          <div className="flex items-center gap-1 text-slate-600 font-medium text-xs mt-0.5">
-                            <Phone className="h-3 w-3 text-slate-400 shrink-0" />
-                            <span>{user.phone}</span>
-                          </div>
-                        )}
-                        {user.email && (
-                          <div className="flex items-center gap-1 text-slate-500 font-normal text-xs mt-0.5">
-                            <Mail className="h-3 w-3 text-slate-400 shrink-0" />
-                            <span className="truncate max-w-[240px]">{user.email}</span>
-                          </div>
-                        )}
+                    </TableCell>
+                    <TableCell>
+                      <button 
+                        onClick={() => openUserDetails(user)}
+                        className="font-semibold text-slate-900 hover:text-primary transition-colors text-left"
+                      >
+                        {user.name}
+                      </button>
+                    </TableCell>
+                    <TableCell className="text-slate-600 text-xs">{user.email}</TableCell>
+                    <TableCell>
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] font-semibold px-2 py-0.5 rounded-md ${
+                          user.storeOrigin === 'Mother Shop'
+                            ? 'border-primary/40 text-primary bg-primary/5'
+                            : 'border-amber-400 text-amber-800 bg-amber-50'
+                        }`}
+                      >
+                        <Store className="w-2.5 h-2.5 mr-1 inline" />
+                        {user.storeOrigin || 'Mother Shop'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col">
+                        <span className="font-bold text-slate-700 text-xs">{user.totalOrders} Orders</span>
+                        <span className="text-[10px] text-muted-foreground font-medium">৳{user.totalSpent.toLocaleString()}</span>
                       </div>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-col">
-                      <span className="font-bold text-slate-700">{user.totalOrders} {t("users.orders")}</span>
-                      <span className="text-[10px] text-muted-foreground font-medium">৳{user.totalSpent.toLocaleString()}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <span className={`font-bold px-2 py-0.5 rounded text-xs inline-block ${(user.totalDue || 0) > 0 ? 'text-red-700 bg-red-50 border border-red-100' : 'text-slate-500 bg-slate-50 border border-slate-200'}`}>
-                      ৳{Math.round(user.totalDue || 0).toLocaleString()}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={user.role === 'admin' || user.role === 'manager' ? 'default' : 'outline'}
-                      className={`
-                        capitalize px-3 py-0.5 rounded-full font-bold text-[10px] tracking-wider
-                        ${user.role === 'admin' ? 'bg-blue-600 hover:bg-blue-700' : ''}
-                        ${user.role === 'manager' ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : ''}
-                      `}
-                    >
-                      {user.role}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-slate-500 text-sm">
-                    {new Date(user.createdAt).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric'
-                    })}
-                  </TableCell>
-                  <TableCell className="text-slate-500 text-sm">
-                    {user.lastActive ? new Date(user.lastActive).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    }) : t("users.never") || 'Never'}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="rounded-full hover:bg-primary/10 hover:text-primary">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-48">
-                        <DropdownMenuGroup>
-                          <DropdownMenuLabel className="text-[10px] font-black uppercase text-muted-foreground px-2 py-1.5">{t("users.user_actions")}</DropdownMenuLabel>
-                          <DropdownMenuItem onClick={() => openUserDetails(user)} className="cursor-pointer">
-                            <Eye className="mr-2 h-4 w-4" /> {t("bills.view_details")}
-                          </DropdownMenuItem>
-                        </DropdownMenuGroup>
-
-                        <DropdownMenuSeparator />
-
-                        <DropdownMenuGroup>
-                          <DropdownMenuLabel className="text-[10px] font-black uppercase text-muted-foreground px-2 py-1.5">{t("users.management")}</DropdownMenuLabel>
-
-                          {user.role !== 'admin' && (
-                            <DropdownMenuItem
-                              onClick={() => handleUpdateRole(user._id, 'admin')}
-                              className="cursor-pointer text-blue-600 font-bold"
-                            >
-                              <ShieldCheck className="mr-2 h-4 w-4" /> {t("users.make_admin")}
+                    </TableCell>
+                    <TableCell>
+                      <Badge 
+                        variant={user.role === 'admin' || user.role === 'manager' || user.role === 'moderator' ? 'default' : 'outline'}
+                        className={`
+                          capitalize px-2.5 py-0.5 rounded-full font-bold text-[10px] tracking-wider
+                          ${user.role === 'admin' ? 'bg-blue-600 hover:bg-blue-700 text-white' : ''}
+                          ${user.role === 'manager' ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : ''}
+                          ${user.role === 'moderator' ? 'bg-purple-600 hover:bg-purple-700 text-white' : ''}
+                        `}
+                      >
+                        {user.role}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-slate-500 text-xs">
+                      {new Date(user.createdAt).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric'
+                      })}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="rounded-full hover:bg-primary/10 hover:text-primary h-8 w-8">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-48">
+                          <DropdownMenuGroup>
+                            <DropdownMenuLabel className="text-[10px] font-black uppercase text-muted-foreground px-2 py-1.5">User Actions</DropdownMenuLabel>
+                            <DropdownMenuItem onClick={() => openUserDetails(user)} className="cursor-pointer text-xs">
+                              <Eye className="mr-2 h-3.5 w-3.5" /> View Details
                             </DropdownMenuItem>
-                          )}
-
-                          {user.role !== 'manager' && (
-                            <DropdownMenuItem
-                              onClick={() => handleUpdateRole(user._id, 'manager')}
-                              className="cursor-pointer text-primary font-bold"
-                            >
-                              <UserCog className="mr-2 h-4 w-4" /> {t("users.make_manager")}
+                            <DropdownMenuItem onClick={() => handleSendEmail(user)} className="cursor-pointer text-xs font-medium">
+                              <Mail className="mr-2 h-3.5 w-3.5 text-primary" /> Send Email
                             </DropdownMenuItem>
-                          )}
-
-                          {user.role !== 'user' && (
-                            <DropdownMenuItem
-                              onClick={() => handleUpdateRole(user._id, 'user')}
-                              className="cursor-pointer text-slate-600 font-bold"
-                            >
-                              <UserCog className="mr-2 h-4 w-4" /> {t("users.make_user")}
+                            <DropdownMenuItem onClick={() => handleCopyEmail(user.email)} className="cursor-pointer text-xs">
+                              <Copy className="mr-2 h-3.5 w-3.5" /> Copy Email
                             </DropdownMenuItem>
-                          )}
-
+                            {isSuperAdmin && (session?.user as any)?.id !== user._id && (
+                              <DropdownMenuItem
+                                onClick={() => handleImpersonateUser(user._id, user.name, user.role, user.phone || user.email)}
+                                className="cursor-pointer text-amber-600 focus:text-amber-700 font-bold text-xs"
+                              >
+                                <KeyRound className="mr-2 h-3.5 w-3.5 text-amber-600" /> Login as User
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuGroup>
+                          
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem className="text-destructive cursor-pointer font-medium">
-                            <ShieldAlert className="mr-2 h-4 w-4" /> {t("users.suspend_user")}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleDeleteUser(user._id, user.name)}
-                            className="text-destructive cursor-pointer font-bold bg-red-50 hover:bg-red-100 mt-1"
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" /> {t("users.delete_user")}
-                          </DropdownMenuItem>
-                        </DropdownMenuGroup>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
+                          
+                          <DropdownMenuGroup>
+                            <DropdownMenuLabel className="text-[10px] font-black uppercase text-muted-foreground px-2 py-1.5">Management</DropdownMenuLabel>
+                            
+                            {user.role !== 'admin' && (
+                              <DropdownMenuItem 
+                                onClick={() => handleUpdateRole(user._id, 'admin')}
+                                className="cursor-pointer text-blue-600 font-bold text-xs"
+                              >
+                                <ShieldCheck className="mr-2 h-3.5 w-3.5" /> Make Admin
+                              </DropdownMenuItem>
+                            )}
 
-      {/* Mobile Card List View */}
-      <div className="block md:hidden space-y-3">
-        {loading ? (
-          <div className="space-y-3">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="bg-white border border-slate-150 rounded-2xl shadow-sm p-4 space-y-3">
-                <div className="flex items-center gap-3">
-                  <Skeleton className="h-10 w-10 rounded-full" />
-                  <div className="space-y-1.5 flex-1">
-                    <Skeleton className="h-4 w-32 rounded" />
-                    <Skeleton className="h-3 w-40 rounded" />
-                  </div>
-                </div>
-                <div className="flex items-center justify-between pt-2 border-t">
-                  <Skeleton className="h-5 w-16 rounded-full" />
-                  <Skeleton className="h-8 w-8 rounded-md" />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : users.length === 0 ? (
-          <div className="p-8 text-center text-muted-foreground text-xs bg-white rounded-2xl border border-slate-100">
-            {t("users.no_users_found")}
-          </div>
-        ) : (
-          users.map((user) => (
-            <div key={user._id} className="p-4 mb-3 border border-border/50 rounded-xl bg-card shadow-sm flex flex-col gap-2.5 relative">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  {user.image && user.image !== '' ? (
-                    <div className="relative h-11 w-11 rounded-full overflow-hidden border border-border/60">
-                      <Image
-                        src={user.image}
-                        alt={user.name}
-                        width={44}
-                        height={44}
-                        className="h-full w-full object-cover"
-                      />
-                    </div>
-                  ) : (
-                    <div className="h-11 w-11 rounded-full bg-primary/10 flex items-center justify-center text-primary border border-primary/20">
-                      <UserIcon className="h-5.5 w-5.5" />
-                    </div>
-                  )}
-                  <div className="flex flex-col text-left">
-                    <button
-                      onClick={() => openUserDetails(user)}
-                      className="font-bold text-base text-slate-900 hover:underline text-left block"
-                    >
-                      {user.name}
-                    </button>
-                    {user.phone && (
-                      <div className="flex items-center gap-1 text-slate-600 font-medium text-xs mt-0.5">
-                        <Phone className="h-3 w-3 text-slate-400 shrink-0" />
-                        <span>{user.phone}</span>
-                      </div>
-                    )}
-                    {user.email && (
-                      <div className="flex items-center gap-1 text-slate-500 font-normal text-xs mt-0.5">
-                        <Mail className="h-3 w-3 text-slate-400 shrink-0" />
-                        <span className="truncate max-w-[180px]">{user.email}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                            {user.role !== 'manager' && (
+                              <DropdownMenuItem 
+                                onClick={() => handleUpdateRole(user._id, 'manager')}
+                                className="cursor-pointer text-primary font-bold text-xs"
+                              >
+                                <UserCog className="mr-2 h-3.5 w-3.5" /> Make Manager
+                              </DropdownMenuItem>
+                            )}
 
-                <div className="flex items-center gap-2">
-                  <Badge
-                    variant={user.role === 'admin' || user.role === 'manager' ? 'default' : 'outline'}
-                    className={`
-                      capitalize px-2 py-0.5 rounded-full font-bold text-xs tracking-wider
-                      ${user.role === 'admin' ? 'bg-blue-600 hover:bg-blue-700' : ''}
-                      ${user.role === 'manager' ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : ''}
-                    `}
+                            {user.role !== 'moderator' && (
+                              <DropdownMenuItem 
+                                onClick={() => handleUpdateRole(user._id, 'moderator')}
+                                className="cursor-pointer text-purple-600 font-bold text-xs"
+                              >
+                                <UserCog className="mr-2 h-3.5 w-3.5 text-purple-600" /> Make Moderator
+                              </DropdownMenuItem>
+                            )}
+
+                            {user.role !== 'user' && (
+                              <DropdownMenuItem 
+                                onClick={() => handleUpdateRole(user._id, 'user')}
+                                className="cursor-pointer text-slate-600 font-bold text-xs"
+                              >
+                                <UserCog className="mr-2 h-3.5 w-3.5" /> Make User
+                              </DropdownMenuItem>
+                            )}
+
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem 
+                              onClick={() => handleDeleteUser(user._id, user.name)}
+                              className="text-destructive cursor-pointer font-bold bg-red-50 hover:bg-red-100 mt-1 text-xs"
+                            >
+                              <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete User
+                            </DropdownMenuItem>
+                          </DropdownMenuGroup>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+
+        {/* Mobile Card List View */}
+        <div className="block md:hidden p-2 space-y-2.5">
+          {loading ? (
+            <div className="p-8 text-center text-muted-foreground">
+              <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2 text-primary" />
+              <span>Loading users...</span>
+            </div>
+          ) : users.length === 0 ? (
+            <div className="p-6 text-center text-muted-foreground text-xs">
+              No users found.
+            </div>
+          ) : (
+            users.map((user) => (
+              <MobileDataCard
+                key={user._id}
+                title={
+                  <div className="flex items-center gap-2">
+                    <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center text-primary border border-primary/20 shrink-0">
+                      <UserIcon className="h-3.5 w-3.5" />
+                    </div>
+                    <span className="font-bold text-xs">{user.name}</span>
+                  </div>
+                }
+                badge={
+                  <Badge 
+                    variant={user.role === 'admin' || user.role === 'manager' || user.role === 'moderator' ? 'default' : 'outline'}
+                    className={`text-[10px] px-2 py-0 font-bold ${user.role === 'admin' ? 'bg-blue-600 text-white' : user.role === 'manager' ? 'bg-emerald-600 text-white' : user.role === 'moderator' ? 'bg-purple-600 text-white' : ''}`}
                   >
                     {user.role}
                   </Badge>
-
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full hover:bg-primary/10 hover:text-primary flex items-center justify-center">
-                        <MoreHorizontal className="h-4.5 w-4.5" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-48">
-                      <DropdownMenuGroup>
-                        <DropdownMenuLabel className="text-[10px] font-black uppercase text-muted-foreground px-2 py-1.5">{t("users.user_actions")}</DropdownMenuLabel>
-                        <DropdownMenuItem onClick={() => openUserDetails(user)} className="cursor-pointer">
-                          <Eye className="mr-2 h-4 w-4" /> {t("bills.view_details")}
+                }
+                footer={
+                  <div className="flex items-center justify-between w-full pt-1">
+                    <Button variant="outline" size="sm" onClick={() => openUserDetails(user)} className="h-7 text-xs px-2">
+                      <Eye className="h-3 w-3 mr-1" /> Profile
+                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" className="h-7 text-xs px-2">
+                          <MoreHorizontal className="h-3.5 w-3.5" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => handleSendEmail(user)} className="text-xs font-medium">
+                          <Mail className="mr-1.5 h-3.5 w-3.5 text-primary" /> Send Email
                         </DropdownMenuItem>
-                      </DropdownMenuGroup>
-
-                      <DropdownMenuSeparator />
-
-                      <DropdownMenuGroup>
-                        <DropdownMenuLabel className="text-[10px] font-black uppercase text-muted-foreground px-2 py-1.5">{t("users.management")}</DropdownMenuLabel>
-
+                        <DropdownMenuItem onClick={() => handleCopyEmail(user.email)} className="text-xs">
+                          <Copy className="mr-1.5 h-3.5 w-3.5" /> Copy Email
+                        </DropdownMenuItem>
+                        {isSuperAdmin && (session?.user as any)?.id !== user._id && (
+                          <DropdownMenuItem
+                            onClick={() => handleImpersonateUser(user._id, user.name, user.role, user.phone || user.email)}
+                            className="text-amber-600 focus:text-amber-700 font-bold text-xs"
+                          >
+                            <KeyRound className="mr-1.5 h-3.5 w-3.5 text-amber-600" /> Login as User
+                          </DropdownMenuItem>
+                        )}
                         {user.role !== 'admin' && (
-                          <DropdownMenuItem
-                            onClick={() => handleUpdateRole(user._id, 'admin')}
-                            className="cursor-pointer text-blue-600 font-bold"
-                          >
-                            <ShieldCheck className="mr-2 h-4 w-4" /> {t("users.make_admin")}
+                          <DropdownMenuItem onClick={() => handleUpdateRole(user._id, 'admin')} className="text-blue-600 font-bold text-xs">
+                            <ShieldCheck className="mr-1.5 h-3.5 w-3.5" /> Make Admin
                           </DropdownMenuItem>
                         )}
-
                         {user.role !== 'manager' && (
-                          <DropdownMenuItem
-                            onClick={() => handleUpdateRole(user._id, 'manager')}
-                            className="cursor-pointer text-primary font-bold"
-                          >
-                            <UserCog className="mr-2 h-4 w-4" /> {t("users.make_manager")}
+                          <DropdownMenuItem onClick={() => handleUpdateRole(user._id, 'manager')} className="text-primary font-bold text-xs">
+                            <UserCog className="mr-1.5 h-3.5 w-3.5" /> Make Manager
                           </DropdownMenuItem>
                         )}
-
+                        {user.role !== 'moderator' && (
+                          <DropdownMenuItem onClick={() => handleUpdateRole(user._id, 'moderator')} className="text-purple-600 font-bold text-xs">
+                            <UserCog className="mr-1.5 h-3.5 w-3.5 text-purple-600" /> Make Moderator
+                          </DropdownMenuItem>
+                        )}
                         {user.role !== 'user' && (
-                          <DropdownMenuItem
-                            onClick={() => handleUpdateRole(user._id, 'user')}
-                            className="cursor-pointer text-slate-600 font-bold"
-                          >
-                            <UserCog className="mr-2 h-4 w-4" /> {t("users.make_user")}
+                          <DropdownMenuItem onClick={() => handleUpdateRole(user._id, 'user')} className="text-slate-600 font-bold text-xs">
+                            <UserCog className="mr-1.5 h-3.5 w-3.5" /> Make User
                           </DropdownMenuItem>
                         )}
-
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem className="text-destructive cursor-pointer font-medium">
-                          <ShieldAlert className="mr-2 h-4 w-4" /> {t("users.suspend_user")}
+                        <DropdownMenuItem onClick={() => handleDeleteUser(user._id, user.name)} className="text-destructive font-bold text-xs">
+                          <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete
                         </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => handleDeleteUser(user._id, user.name)}
-                          className="text-destructive cursor-pointer font-bold bg-red-50 hover:bg-red-100 mt-1"
-                        >
-                          <Trash2 className="mr-2 h-4 w-4" /> {t("users.delete_user")}
-                        </DropdownMenuItem>
-                      </DropdownMenuGroup>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </div>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                }
+              >
+                <MobileDataRow label="Email" value={<span className="text-muted-foreground text-xs">{user.email}</span>} />
+                <MobileDataRow 
+                  label="Store" 
+                  value={
+                    <Badge variant="outline" className="text-[10px] font-semibold border-primary/30">
+                      {user.storeOrigin || 'Mother Shop'}
+                    </Badge>
+                  } 
+                />
+                <MobileDataRow label="Orders" value={`${user.totalOrders} (৳${user.totalSpent.toLocaleString()})`} />
+                <MobileDataRow label="Joined" value={new Date(user.createdAt).toLocaleDateString()} />
+              </MobileDataCard>
+            ))
+          )}
+        </div>
 
-              <div className="flex justify-between items-center text-xs border-t border-slate-100 pt-2 mt-2">
-                <div className="text-[10px] text-muted-foreground">
-                  <span>{t("users.joined")}: </span>
-                  <span className="font-semibold text-slate-700">
-                    {new Date(user.createdAt).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric'
-                    })}
-                  </span>
-                </div>
-                <div className="text-right">
-                  <span className="font-bold text-slate-900 text-xs block">{user.totalOrders} {t("users.orders")}</span>
-                  <span className="text-[10px] text-muted-foreground block font-medium">৳{user.totalSpent.toLocaleString()} {t("users.spent")}</span>
-                </div>
-              </div>
-            </div>
-          ))
+        {totalPages > 1 && (
+          <div className="py-3 border-t bg-white px-3">
+            <Pagination 
+              currentPage={currentPage} 
+              totalPages={totalPages} 
+              onPageChange={(page) => {
+                setCurrentPage(page);
+                const params = new URLSearchParams(searchParams.toString());
+                params.set('page', page.toString());
+                router.push(`?${params.toString()}`);
+              }}
+            />
+          </div>
         )}
       </div>
-      {totalPages > 1 && (
-        <div className="py-6 border-t bg-white px-6">
-          <Pagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            onPageChange={(page) => {
-              setCurrentPage(page);
-              const params = new URLSearchParams(searchParams.toString());
-              params.set('page', page.toString());
-              router.push(`?${params.toString()}`);
-            }}
-          />
-        </div>
-      )}
 
       {/* User Details Modal */}
       <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-2xl font-black tracking-tighter flex items-center gap-2">
-              {t("users.user_profile")}
-              <Badge className="bg-primary/10 text-primary border-none">{selectedUser?.role}</Badge>
+            <DialogTitle className="text-xl font-black tracking-tighter flex items-center gap-2">
+              User Profile
+              <Badge className="bg-primary/10 text-primary border-none text-xs">{selectedUser?.role}</Badge>
             </DialogTitle>
           </DialogHeader>
 
           {selectedUser && (
-            <div className="flex flex-col gap-6 pt-4">
-              {/* Header Info */}
-              <div className="flex flex-col md:flex-row items-center gap-6 p-6 bg-slate-50 rounded-3xl border border-slate-100">
-                <div className="relative h-24 w-24 rounded-full overflow-hidden border-4 border-white shadow-xl flex-shrink-0 bg-primary/10 flex items-center justify-center">
+            <div className="flex flex-col gap-4 pt-2 text-xs">
+              <div className="flex flex-col sm:flex-row items-center gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                <div className="relative h-16 w-16 rounded-full overflow-hidden border-2 border-white shadow-md shrink-0 bg-primary/10 flex items-center justify-center">
                   {selectedUser.image ? (
-                    <Image
-                      src={selectedUser.image}
-                      alt={selectedUser.name}
-                      width={96}
-                      height={96}
+                    <Image 
+                      src={selectedUser.image} 
+                      alt={selectedUser.name} 
+                      width={64}
+                      height={64}
                       className="h-full w-full object-cover"
                     />
                   ) : (
-                    <UserIcon className="h-10 w-10 text-primary" />
+                    <UserIcon className="h-8 w-8 text-primary" />
                   )}
                 </div>
-                <div className="text-center md:text-left space-y-1">
-                  <h2 className="font-black text-2xl tracking-tight text-slate-900">{selectedUser.name}</h2>
-                  <p className="text-muted-foreground font-medium">{selectedUser.email}</p>
-                  <div className="flex flex-wrap justify-center md:justify-start gap-2 mt-2">
-                    <Badge className="bg-primary/10 text-primary border-none font-bold">{selectedUser.role}</Badge>
-                    <Badge variant="outline" className="font-bold">{t("users.id")}: {selectedUser._id.slice(-6).toUpperCase()}</Badge>
+                <div className="text-center sm:text-left space-y-0.5">
+                  <h2 className="font-black text-lg tracking-tight text-slate-900">{selectedUser.name}</h2>
+                  <p className="text-muted-foreground">{selectedUser.email}</p>
+                  <div className="flex flex-wrap justify-center sm:justify-start gap-1.5 mt-1">
+                    <Badge className="bg-primary/10 text-primary border-none font-bold text-[10px]">{selectedUser.role}</Badge>
+                    <Badge variant="outline" className="font-bold text-[10px]">ID: {selectedUser._id.slice(-6).toUpperCase()}</Badge>
                   </div>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Contact Section */}
-                <div className="space-y-4">
-                  <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 ml-1">{t("users.contact_information")}</h3>
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-4 p-4 rounded-2xl border bg-white hover:border-primary/30 transition-colors">
-                      <div className="p-2.5 bg-blue-50 rounded-xl">
-                        <Phone className="h-5 w-5 text-blue-600" />
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">{t("users.phone_number")}</p>
-                        <p className="text-sm font-bold text-slate-700">{selectedUser.phone || 'N/A'}</p>
-                      </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Contact</h3>
+                  <div className="p-3 rounded-xl border bg-white space-y-2">
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase">Phone</p>
+                      <p className="font-bold text-slate-700">{selectedUser.phone || 'N/A'}</p>
                     </div>
-
-                    <div className="flex items-start gap-4 p-4 rounded-2xl border bg-white hover:border-primary/30 transition-colors">
-                      <div className="p-2.5 bg-emerald-50 rounded-xl">
-                        <MapPin className="h-5 w-5 text-emerald-600" />
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">{t("users.shipping_address")}</p>
-                        <p className="text-sm font-bold text-slate-700 leading-snug">
-                          {selectedUser.addresses && selectedUser.addresses.length > 0
-                            ? `${selectedUser.addresses[0].street || ''}, ${selectedUser.addresses[0].city || ''}, ${selectedUser.addresses[0].state || ''}`
-                            : t("users.no_address_saved")}
-                        </p>
-                      </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase">Address</p>
+                      <p className="font-bold text-slate-700 leading-snug">
+                        {(() => {
+                          if (!selectedUser.addresses || selectedUser.addresses.length === 0) return 'No address saved';
+                          const a = selectedUser.addresses[0] || {};
+                          const fullStreet = a.street || a.streetAddress || a.address || '';
+                          const stateOrArea = a.state || a.area || a.thana || '';
+                          const cityOrDistrict = a.city || a.district || '';
+                          const division = a.division || '';
+                          const parts = [fullStreet, stateOrArea, cityOrDistrict, division]
+                            .map((s) => String(s || '').trim())
+                            .filter(Boolean);
+                          const unique = parts.filter((p, idx) => parts.indexOf(p) === idx).join(', ');
+                          return unique || 'No address saved';
+                        })()}
+                      </p>
                     </div>
                   </div>
                 </div>
 
-                {/* Stats Section */}
-                <div className="space-y-4">
-                  <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 ml-1">{t("users.order_statistics")}</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="p-4 bg-orange-50 rounded-2xl border border-orange-100 flex flex-col items-center text-center">
-                      <ShoppingBag className="h-6 w-6 text-orange-500 mb-2" />
-                      <span className="text-2xl font-black text-orange-600">{selectedUser.totalOrders}</span>
-                      <span className="text-[10px] font-bold uppercase text-orange-400">{t("users.total_orders")}</span>
+                <div className="space-y-2">
+                  <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Orders</h3>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="p-3 bg-orange-50 rounded-xl border border-orange-100 text-center">
+                      <span className="text-xl font-black text-orange-600 block">{selectedUser.totalOrders}</span>
+                      <span className="text-[9px] font-bold uppercase text-orange-400">Orders</span>
                     </div>
-                    <div className="p-4 bg-primary/5 rounded-2xl border border-primary/10 flex flex-col items-center text-center">
-                      <CreditCard className="h-6 w-6 text-primary mb-2" />
-                      <span className="text-xl font-black text-primary">৳{selectedUser.totalSpent.toLocaleString()}</span>
-                      <span className="text-[10px] font-bold uppercase text-primary/60">{t("users.total_spent")}</span>
-                    </div>
-                  </div>
-
-                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col gap-2">
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="font-bold text-slate-400">{t("users.last_visit")}</span>
-                      <span className="font-black text-slate-700">
-                        {selectedUser.lastActive ? new Date(selectedUser.lastActive).toLocaleDateString() : t("users.never")}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="font-bold text-slate-400">{t("users.last_order")}</span>
-                      <span className="font-black text-slate-700">
-                        {selectedUser.lastOrderDate ? new Date(selectedUser.lastOrderDate).toLocaleDateString() : t("users.no_orders")}
-                      </span>
+                    <div className="p-3 bg-primary/5 rounded-xl border border-primary/10 text-center">
+                      <span className="text-base font-black text-primary block">৳{selectedUser.totalSpent.toLocaleString()}</span>
+                      <span className="text-[9px] font-bold uppercase text-primary/60">Spent</span>
                     </div>
                   </div>
                 </div>
-              </div>
-
-              <div className="pt-2">
-                <Button className="w-full h-14 rounded-2xl font-black text-sm shadow-xl shadow-primary/20 group">
-                  {t("users.view_full_order_history")}
-                  <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
-                </Button>
               </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
 
-      {/* Assign Admin Modal */}
+      {/* Assign Role / Add User Modal */}
       <Dialog open={isAssignAdminOpen} onOpenChange={setIsAssignAdminOpen}>
-        <DialogContent className="sm:max-w-[450px] p-0 overflow-hidden rounded-3xl border-none shadow-2xl max-h-[90vh] flex flex-col">
-          <div className="bg-blue-600 px-6 py-5 text-white relative overflow-hidden shrink-0">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-2xl" />
-            <div className="absolute bottom-0 left-0 w-24 h-24 bg-blue-400/20 rounded-full -ml-12 -mb-12 blur-xl" />
-
+        <DialogContent className="sm:max-w-[500px] p-0 overflow-hidden rounded-3xl border-none shadow-2xl flex flex-col max-h-[92vh]">
+          <div className="bg-blue-600 p-5 text-white relative overflow-hidden shrink-0">
             <DialogHeader className="relative z-10">
-              <DialogTitle className="text-xl sm:text-2xl font-black tracking-tight text-white">{t("users.assign_admin_access")}</DialogTitle>
-              <p className="text-blue-100 text-xs sm:text-sm font-medium mt-1">Grant admin access using email or phone number.</p>
+              <DialogTitle className="text-xl font-black tracking-tight text-white flex items-center gap-2">
+                <UserCog className="h-5 w-5" />
+                Assign Role & Access
+              </DialogTitle>
+              <p className="text-blue-100 text-xs mt-0.5">
+                Grant admin, manager, moderator, or user access using email or phone number.
+              </p>
             </DialogHeader>
           </div>
 
-          <form onSubmit={handleAssignAdmin} className="flex flex-col flex-1 overflow-hidden">
-            <div className="p-8 space-y-5 bg-white overflow-y-auto flex-1">
-              {/* Profile Image */}
-              <div className="flex flex-col items-center justify-center">
-                <ImageUpload 
-                  aspect="circle" 
-                  value={adminImage} 
-                  onUpload={setAdminImage} 
-                  label={t("users.profile_photo") || "Profile Photo"}
-                />
-              </div>
-
-              {/* Full Name */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">{t("users.full_name") || "Full Name"}</label>
-                <input
-                  type="text"
-                  value={adminName}
-                  onChange={(e) => setAdminName(e.target.value)}
-                  placeholder="e.g. John Doe"
-                  className="w-full h-12 px-4 rounded-xl border-2 border-slate-100 bg-slate-50 focus:bg-white focus:border-blue-500 transition-all outline-none font-bold text-slate-700 text-sm"
-                />
-              </div>
-
-              {/* Email or Phone Number */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">
-                  {t("auth.login.email_phone") || "Email or Phone Number"}
-                  <span className="text-red-500 ml-1">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={adminIdentifier}
-                  onChange={(e) => setAdminIdentifier(e.target.value)}
-                  placeholder="email@example.com or 017xxxxxxxx"
-                  className="w-full h-12 px-4 rounded-xl border-2 border-slate-100 bg-slate-50 focus:bg-white focus:border-blue-500 transition-all outline-none font-bold text-slate-700 text-sm"
-                />
-              </div>
-
-              {/* Password */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">{t("users.password") || "Password"}</label>
-                <input
-                  type="password"
-                  value={adminPassword}
-                  onChange={(e) => setAdminPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full h-12 px-4 rounded-xl border-2 border-slate-100 bg-slate-50 focus:bg-white focus:border-blue-500 transition-all outline-none font-bold text-slate-700 text-sm"
-                />
-              </div>
-
-              {/* Warning Note */}
-              <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 border border-amber-100 mt-2">
-                <div className="h-4 w-4 rounded-full bg-amber-500 flex-shrink-0 mt-0.5" />
-                <p className="text-[10px] text-amber-700 font-bold leading-normal">
-                  {t("users.admin_note")}
-                </p>
+          <form onSubmit={handleAssignAdmin} className="p-4 space-y-3.5 bg-white overflow-y-auto flex-1 text-xs">
+            {/* Role Selection */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider flex items-center justify-between">
+                <span>Assign Role <span className="text-red-500">*</span></span>
+                <span className="text-blue-600 capitalize font-bold text-[11px]">Selected: {assignRole}</span>
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { id: 'admin', label: 'Admin', desc: 'Full admin access' },
+                  { id: 'manager', label: 'Manager', desc: 'Products & Orders' },
+                  { id: 'moderator', label: 'Moderator', desc: 'Order review & CMS' },
+                  { id: 'user', label: 'User / Customer', desc: 'Standard account' },
+                ].map((r) => {
+                  const isSelected = assignRole === r.id;
+                  return (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => setAssignRole(r.id as any)}
+                      className={`p-2.5 rounded-xl border text-left transition-all relative ${
+                        isSelected
+                          ? 'border-blue-600 bg-blue-50/70 text-blue-950 font-bold shadow-xs ring-1 ring-blue-600'
+                          : 'border-slate-200 bg-slate-50/60 hover:bg-slate-100/80 text-slate-600'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold leading-tight">{r.label}</span>
+                        {isSelected && (
+                          <span className="h-2 w-2 rounded-full bg-blue-600 ring-2 ring-blue-200" />
+                        )}
+                      </div>
+                      <p className="text-[10px] text-slate-500 font-normal leading-tight mt-1">
+                        {r.desc}
+                      </p>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            <div className="p-6 bg-zinc-50 border-t border-zinc-100 flex gap-3 shrink-0">
-              <Button
-                type="button"
-                variant="outline"
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-slate-400 uppercase">Full Name</label>
+              <input
+                type="text"
+                value={adminName}
+                onChange={(e) => setAdminName(e.target.value)}
+                placeholder="e.g. John Doe"
+                className="w-full h-9 px-3 rounded-lg border-2 border-slate-100 bg-slate-50 focus:bg-white text-xs outline-none"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-slate-400 uppercase">
+                Email or Phone Number <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={adminEmail}
+                onChange={(e) => setAdminEmail(e.target.value)}
+                placeholder="email@example.com or 017xxxxxxxx"
+                required
+                className="w-full h-9 px-3 rounded-lg border-2 border-slate-100 bg-slate-50 focus:bg-white text-xs outline-none"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-slate-400 uppercase">Password</label>
+              <input
+                type="password"
+                value={adminPassword}
+                onChange={(e) => setAdminPassword(e.target.value)}
+                placeholder="•••••••• (Optional for initial access)"
+                className="w-full h-9 px-3 rounded-lg border-2 border-slate-100 bg-slate-50 focus:bg-white text-xs outline-none"
+              />
+            </div>
+            
+            <div className="flex gap-2 pt-2">
+              <Button 
+                type="button" 
+                variant="outline" 
+                size="sm"
                 onClick={() => setIsAssignAdminOpen(false)}
-                className="flex-1 h-12 rounded-xl font-bold border-2 hover:bg-slate-50 text-sm"
+                className="flex-1 h-9 text-xs font-bold"
               >
-                {t("users.cancel")}
+                CANCEL
               </Button>
-              <Button
-                type="submit"
+              <Button 
+                type="submit" 
+                size="sm"
                 disabled={isAssigning}
-                className="flex-[2] h-12 rounded-xl font-black bg-blue-600 hover:bg-blue-700 text-sm text-white shadow-xl shadow-blue-200 border-none group"
+                className="flex-1 h-9 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white"
               >
-                {isAssigning ? (
-                  <>
-                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                    {t("users.processing")}
-                  </>
-                ) : (
-                  <>
-                    {t("users.confirm_assign")}
-                    <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
-                  </>
-                )}
+                {isAssigning ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+                CONFIRM
               </Button>
             </div>
           </form>
@@ -918,9 +1081,12 @@ function UsersContent() {
 
 export default function UsersPage() {
   return (
-    <Suspense fallback={<AdminTableSkeleton rowCount={7} columnCount={5} titleWidth="w-48" />}>
+    <Suspense fallback={
+      <div className="flex h-[300px] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    }>
       <UsersContent />
     </Suspense>
   );
 }
-

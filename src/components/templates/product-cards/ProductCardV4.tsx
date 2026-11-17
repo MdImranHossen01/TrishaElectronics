@@ -15,14 +15,9 @@ import { addToCart } from '@/store/slices/cartSlice';
 import { toggleWishlist } from '@/store/slices/wishlistSlice';
 import { toast } from 'sonner';
 import Swal from 'sweetalert2';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  DropdownMenuSeparator,
-} from '@/components/ui/dropdown-menu';
+import { validateAndAddToCart } from '@/lib/cart-seller';
 import { QuickViewModal } from './QuickViewModal';
+import { ProductActionMenu } from './ProductActionMenu';
 import {
   Tooltip,
   TooltipContent,
@@ -46,33 +41,47 @@ interface ProductCardProps {
     ratings?: number;
     numReviews?: number;
     sku?: string;
+    uploadedBy?: any;
   };
   isFlashSale?: boolean;
 }
 
 export default function ProductCardV4({ product: initialProduct, isFlashSale }: ProductCardProps) {
   const dispatch = useAppDispatch();
+  const cartItems = useAppSelector((state) => state.cart.items);
   const { data: session, status } = useSession();
   const wishlist = useAppSelector((state) => state.wishlist.items);
   const isInWishlist = wishlist.includes(initialProduct._id);
   const router = useRouter();
   const isAdmin = (session?.user as any)?.role === 'admin';
 
-  const firstVariant = initialProduct.variants && initialProduct.variants.length > 0 ? initialProduct.variants[0] : null;
-  const product = firstVariant ? {
-    ...initialProduct,
-    price: firstVariant.price,
-    salePrice: firstVariant.salePrice,
-    stock: firstVariant.stock ?? initialProduct.stock,
-    sku: firstVariant.sku ?? initialProduct.sku,
-    images: firstVariant.image ? [firstVariant.image, ...initialProduct.images.filter((img: string) => img !== firstVariant.image)] : initialProduct.images
-  } : initialProduct;
+  const hasVariants = Boolean(initialProduct.variants && initialProduct.variants.length > 0);
+  const firstVariant = hasVariants ? initialProduct.variants![0] : null;
 
-  const hasVariants = product.variants && product.variants.length > 0;
+  const displayPrice = firstVariant && (firstVariant.price !== undefined && firstVariant.price !== null)
+    ? Number(firstVariant.price)
+    : Number(initialProduct.price ?? (initialProduct as any).retailPrice ?? 0);
+
+  // If product has variants, discount MUST come strictly from firstVariant. Never fall back to main product salePrice!
+  const rawSale = firstVariant
+    ? (firstVariant.salePrice !== undefined && firstVariant.salePrice !== null ? Number(firstVariant.salePrice) : undefined)
+    : (initialProduct.salePrice !== undefined && initialProduct.salePrice !== null ? Number(initialProduct.salePrice) : undefined);
+
+  const hasDiscount = Boolean(rawSale !== undefined && rawSale > 0 && rawSale < displayPrice);
+  const displaySalePrice = hasDiscount ? rawSale : undefined;
+
+  const product = {
+    ...initialProduct,
+    price: isNaN(displayPrice) ? 0 : displayPrice,
+    salePrice: displaySalePrice,
+    stock: firstVariant?.stock ?? initialProduct.stock ?? 0,
+    sku: firstVariant?.sku ?? initialProduct.sku,
+    images: firstVariant?.image ? [firstVariant.image, ...((initialProduct.images || []).filter((img: string) => img !== firstVariant.image))] : (initialProduct.images || [])
+  };
 
   const [showQuickViewModal, setShowQuickViewModal] = useState(false);
 
-  const discount = (product.price > 0 && product.salePrice && product.salePrice < product.price)
+  const discount = hasDiscount && product.salePrice
     ? Math.round(((product.price - product.salePrice) / product.price) * 100)
     : 0;
 
@@ -85,16 +94,26 @@ export default function ProductCardV4({ product: initialProduct, isFlashSale }: 
     }
   };
 
-  const executeAddToCart = () => {
-    dispatch(addToCart({
-      productId: product._id,
+  const executeAddToCart = async () => {
+    const itemToAdd = {
+      productId: (product as any).productId || product._id,
+      resellerProductId: (product as any).productId ? product._id : undefined,
       name: product.name,
       price: product.salePrice ?? product.price,
       basePrice: product.price,
       quantity: 1,
-      image: product.images?.[0] ?? '/placeholder.png'
-    }));
-    toast.success(`${product.name} added to cart`);
+      image: product.images?.[0] ?? '/placeholder.png',
+      uploadedBy: (initialProduct as any).uploadedBy ? String((initialProduct as any).uploadedBy) : null,
+    };
+
+    await validateAndAddToCart({
+      cartItems,
+      newItem: itemToAdd,
+      dispatch,
+      onSuccess: () => {
+        toast.success(`${product.name} added to cart`);
+      }
+    });
   };
 
   const handleFavorite = async (e: React.MouseEvent) => {
@@ -173,12 +192,14 @@ export default function ProductCardV4({ product: initialProduct, isFlashSale }: 
                 src={product.images[0]}
                 alt={product.name}
                 fill
+                sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
                 className="object-cover transition-opacity duration-1000 group-hover:opacity-0"
               />
               <Image
                 src={product.images[1]}
                 alt={product.name}
                 fill
+                sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
                 className="absolute inset-0 object-cover opacity-0 transition-opacity duration-1000 group-hover:opacity-100"
               />
             </>
@@ -187,6 +208,7 @@ export default function ProductCardV4({ product: initialProduct, isFlashSale }: 
               src={product.images?.[0] || '/placeholder.png'}
               alt={product.name}
               fill
+              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
               className="object-cover transition-transform duration-1000 group-hover:scale-105"
             />
           )}
@@ -195,12 +217,12 @@ export default function ProductCardV4({ product: initialProduct, isFlashSale }: 
         {/* Elegant Overlays */}
         <div className="absolute top-4 left-4 flex flex-col gap-2 z-10">
           {discount > 0 && (
-            <span className="bg-white/80 backdrop-blur-md text-primary text-[9px] font-black px-3 py-1 rounded-full uppercase tracking-[0.2em] shadow-sm">
-              Selection -{discount}%
+            <span className="bg-background/90 backdrop-blur-md text-primary border border-primary/20 text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-wider shadow-sm">
+              -{discount}% OFF
             </span>
           )}
           {isFlashSale && (
-            <span className="bg-primary text-white text-[9px] font-black px-3 py-1 rounded-full uppercase tracking-[0.2em] shadow-sm animate-pulse">
+            <span className="bg-primary text-primary-foreground text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-wider shadow-sm animate-pulse">
               Flash Deal
             </span>
           )}
@@ -213,11 +235,10 @@ export default function ProductCardV4({ product: initialProduct, isFlashSale }: 
               <TooltipTrigger asChild>
                 <Button
                   size="icon"
-                  variant="secondary"
-                  className="h-10 w-10 rounded-full shadow-xl bg-white/90 dark:bg-neutral-900/90 hover:bg-primary hover:text-white transition-colors"
+                  className="h-10 w-10 rounded-full shadow-lg bg-background text-foreground hover:bg-primary hover:text-primary-foreground border border-border/60 transition-all duration-200"
                   onClick={handleFavorite}
                 >
-                  <Heart className={`h-4 w-4 ${isInWishlist ? 'fill-primary text-primary' : ''}`} />
+                  <Heart className={`h-4 w-4 ${isInWishlist ? 'fill-primary text-primary' : 'text-foreground'}`} />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
@@ -229,11 +250,10 @@ export default function ProductCardV4({ product: initialProduct, isFlashSale }: 
               <TooltipTrigger asChild>
                 <Button
                   size="icon"
-                  variant="secondary"
-                  className="h-10 w-10 rounded-full shadow-xl bg-white/90 dark:bg-neutral-900/90 hover:bg-primary hover:text-white transition-colors"
+                  className="h-10 w-10 rounded-full shadow-lg bg-background text-foreground hover:bg-primary hover:text-primary-foreground border border-border/60 transition-all duration-200"
                   onClick={handleQuickView}
                 >
-                  <Search className="h-4 w-4" />
+                  <Search className="h-4 w-4 text-foreground hover:text-inherit" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
@@ -243,26 +263,12 @@ export default function ProductCardV4({ product: initialProduct, isFlashSale }: 
           </TooltipProvider>
         </div>
 
-        {/* Admin Float */}
-        {isAdmin && (
-          <div className="absolute top-4 right-4 z-20">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="icon" variant="ghost" className="h-8 w-8 rounded-full bg-white/20 backdrop-blur-md hover:bg-white/40">
-                  <MoreVertical className="h-4 w-4 text-white" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="rounded-xl">
-                <DropdownMenuItem onClick={() => router.push(`/admin/products/${product.slug}`)}>Edit</DropdownMenuItem>
-                <DropdownMenuItem onClick={handleDeleteProduct} className="text-destructive">Delete</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        )}
+        {/* Admin & Reseller Action Menu */}
+        <ProductActionMenu product={product} className="top-4 right-4 bottom-auto" />
       </div>
 
       {/* Boutique Content Section */}
-      <div className="pt-6 pb-2 px-2 flex flex-col items-center text-center">
+      <div className="px-[2px] pt-3 pb-2 md:px-2 md:pt-6 md:pb-2 flex flex-col items-center text-center">
         {(product.numReviews || 0) > 0 && (
           <div
             className="flex items-center gap-1.5 mb-2"
@@ -276,7 +282,7 @@ export default function ProductCardV4({ product: initialProduct, isFlashSale }: 
         )}
 
         <Link prefetch={true} href={`/product/${product.slug}`} className="block mb-2">
-          <h3 className="text-xl font-serif italic tracking-tight line-clamp-1 hover:text-primary transition-colors">
+          <h3 className="text-xs font-medium md:text-xl md:font-serif md:italic tracking-tight line-clamp-1 hover:text-primary transition-colors">
             {product.name}
           </h3>
         </Link>
@@ -284,15 +290,15 @@ export default function ProductCardV4({ product: initialProduct, isFlashSale }: 
         <div className="flex flex-col items-center gap-1 mb-4">
           <div className="flex items-center gap-2">
             <span className="text-2xl font-black text-primary">
-              ৳{Math.round(product.salePrice ?? product.price)}
+              ৳{Math.round(hasDiscount && product.salePrice ? product.salePrice : (product.price || 0))}
             </span>
-            {product.salePrice && (
+            {hasDiscount && (
               <span className="text-sm text-muted-foreground line-through opacity-50">
-                ৳{Math.round(product.price)}
+                ৳{Math.round(product.price ?? 0)}
               </span>
             )}
           </div>
-          {product.isNewArrival && <span className="text-[9px] font-bold text-emerald-500 uppercase tracking-[0.3em]">New Collection</span>}
+          {product.isNewArrival && <span className="text-[9px] font-bold text-primary uppercase tracking-[0.3em]">New Collection</span>}
         </div>
 
         <Button

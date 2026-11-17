@@ -1,6 +1,7 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
-import { useState, useEffect, Suspense, useRef } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import {
   Table,
@@ -17,6 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@/components/ui/badge';
 import {
   Loader2,
   Plus,
@@ -28,18 +30,21 @@ import {
   Eye,
   MapPin,
   Phone,
+  User,
+  Mail,
   CalendarDays,
   Hash,
   ArrowRight,
   MoreHorizontal,
-  Edit
+  Edit,
+  CreditCard,
+  Check,
+  Package
 } from 'lucide-react';
-import { AdminTableSkeleton } from '@/components/admin/AdminSkeletons';
-import { Skeleton } from '@/components/ui/skeleton';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import Swal from 'sweetalert2';
-import { generateBillPDF } from '@/lib/bill-invoice-generator';
+import { generateBillPDF, generateDescriptionHtml } from '@/lib/bill-invoice-generator';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -47,39 +52,53 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Pagination } from '@/components/ui/pagination';
-import { useLanguage } from '@/contexts/LanguageContext';
-import { divisions, bdDivisions, bdLocations } from '@/lib/bd-locations';
 
 interface BillItemInput {
   name: string;
+  description?: string;
   quantity: number;
   price: number;
 }
 
+const extractTextFromDescription = (description?: string): string => {
+  if (!description) return '';
+  const trimmed = description.trim();
+  // Try to parse as TipTap JSON directly
+  if (trimmed.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      const BLOCK_TYPES = new Set(['paragraph','heading','blockquote','bulletList','orderedList','listItem','codeBlock','horizontalRule']);
+      const getText = (node: any, isBlock?: boolean): string => {
+        if (node.type === 'text') return node.text || '';
+        if (node.type === 'hardBreak') return '\n';
+        if (node.content && Array.isArray(node.content)) {
+          const inner = node.content.map((n: any) => getText(n)).join('');
+          if (BLOCK_TYPES.has(node.type)) return inner + '\n';
+          return inner;
+        }
+        return '';
+      };
+      return getText(parsed).trim();
+    } catch (e) {
+      // Not valid JSON, fall through
+    }
+  }
+  // Strip any HTML tags and return
+  return trimmed.replace(/<[^>]*>?/gm, '').trim();
+};
+
 function ClientOffersContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { t } = useLanguage();
 
   const [offers, setOffers] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  
-  const [dateFilter, setDateFilter] = useState(() => {
-    const now = new Date();
-    const start = new Date(now.getFullYear(), now.getMonth(), 1);
-    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    return {
-      from: format(start, 'yyyy-MM-dd'),
-      to: format(end, 'yyyy-MM-dd')
-    };
-  });
-  const [filterByDate, setFilterByDate] = useState(true);
 
   const initialPage = Math.max(1, parseInt(searchParams.get('page') || '1'));
   const [currentPage, setCurrentPage] = useState(initialPage);
-  
+
   const [settings, setSettings] = useState<any>(null);
 
   // Sync state changes to URL query parameters
@@ -93,13 +112,7 @@ function ClientOffersContent() {
     router.push(`/admin/offers?${params.toString()}`);
   }, [currentPage]);
 
-  // Reset page when search term or dates change
-  useEffect(() => {
-    setCurrentPage(1);
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete('page');
-    router.push(`/admin/offers?${params.toString()}`);
-  }, [searchTerm, filterByDate, dateFilter.from, dateFilter.to]);
+
 
   // Offer detail view state
   const [selectedOffer, setSelectedOffer] = useState<any>(null);
@@ -112,163 +125,74 @@ function ClientOffersContent() {
   // Form states
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
-  const [clientAddress, setClientAddress] = useState('');
   const [clientEmail, setClientEmail] = useState('');
-  const [clientDivision, setClientDivision] = useState('');
-  const [clientDistrict, setClientDistrict] = useState('');
-  const [clientThana, setClientThana] = useState('');
-  const [clientArea, setClientArea] = useState('');
-  const [areas, setAreas] = useState<any[]>([]);
-  const [showMoreFields, setShowMoreFields] = useState(false);
-
+  const [clientAddress, setClientAddress] = useState('');
+  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState<string>('');
+  const [termsAndConditions, setTermsAndConditions] = useState<string>('');
+  const [vatTaxIncluded, setVatTaxIncluded] = useState<boolean>(true);
   const [billItems, setBillItems] = useState<BillItemInput[]>([
-    { name: '', quantity: 1, price: 0 }
+    { name: '', description: '', quantity: 1, price: 0 }
   ]);
   const [deliveryCharge, setDeliveryCharge] = useState<number>(0);
   const [serviceFee, setServiceFee] = useState<number>(0);
   const [discountType, setDiscountType] = useState<'fixed' | 'percentage'>('fixed');
   const [discountValue, setDiscountValue] = useState<number>(0);
 
-  // Customer auto-suggestion state
-  const [nameSuggestions, setNameSuggestions] = useState<any[]>([]);
-  const [phoneSuggestions, setPhoneSuggestions] = useState<any[]>([]);
-  const [showNameDropdown, setShowNameDropdown] = useState(false);
-  const [showPhoneDropdown, setShowPhoneDropdown] = useState(false);
-  const nameRef = useRef<HTMLDivElement>(null);
-  const phoneRef = useRef<HTMLDivElement>(null);
-
-  // Close dropdowns on outside click
-  useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
-      if (nameRef.current && !nameRef.current.contains(e.target as Node)) setShowNameDropdown(false);
-      if (phoneRef.current && !phoneRef.current.contains(e.target as Node)) setShowPhoneDropdown(false);
-    };
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, []);
-
-  const handleCustomerSelect = (customer: any) => {
-    setClientName(customer.clientName);
-    setClientPhone(customer.clientPhone);
-    setClientAddress(customer.clientAddress || '');
-    setClientEmail(customer.clientEmail || '');
-    setClientDivision(customer.clientDivision || '');
-    setClientDistrict(customer.clientDistrict || '');
-    setClientThana(customer.clientThana || '');
-    setClientArea(customer.clientArea || '');
-    setShowNameDropdown(false);
-    setShowPhoneDropdown(false);
-  };
-
-  const handleNameChange = (val: string) => {
-    setClientName(val);
-    
-    if (nameTimeoutRef.current) {
-      clearTimeout(nameTimeoutRef.current);
-    }
-    if (nameAbortControllerRef.current) {
-      nameAbortControllerRef.current.abort();
-    }
-
-    const trimmed = val.trim();
-    if (trimmed.length >= 1) {
-      const controller = new AbortController();
-      nameAbortControllerRef.current = controller;
-
-      nameTimeoutRef.current = setTimeout(async () => {
-        try {
-          const res = await fetch(`/api/admin/customers?search=${encodeURIComponent(trimmed)}`, {
-            signal: controller.signal
-          });
-          if (res.ok) {
-            const data = await res.json();
-            const list = data.customers || [];
-            setNameSuggestions(list);
-            setShowNameDropdown(list.length > 0);
-          }
-        } catch (err: any) {
-          if (err.name !== 'AbortError') {
-            console.error('Error fetching suggestions:', err);
-          }
-        }
-      }, 200);
-    } else {
-      setNameSuggestions([]);
-      setShowNameDropdown(false);
-    }
-  };
-
-
-  const handlePhoneChange = (val: string) => {
-    setClientPhone(val);
-    if (phoneError) validatePhone(val);
-
-    if (phoneTimeoutRef.current) {
-      clearTimeout(phoneTimeoutRef.current);
-    }
-
-    const trimmed = val.trim();
-    if (trimmed.length >= 1) {
-      phoneTimeoutRef.current = setTimeout(async () => {
-        try {
-          const res = await fetch(`/api/admin/customers?search=${encodeURIComponent(trimmed)}`);
-          if (res.ok) {
-            const data = await res.json();
-            const list = data.customers || [];
-            setPhoneSuggestions(list);
-            setShowPhoneDropdown(list.length > 0);
-          }
-        } catch (err) {
-          console.error('Error fetching suggestions:', err);
-        }
-      }, 200);
-    } else {
-      setPhoneSuggestions([]);
-      setShowPhoneDropdown(false);
-    }
-  };
+  // Auto suggestion states
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [activeSuggestions, setActiveSuggestions] = useState<any[]>([]);
+  const [showSuggestionsFor, setShowSuggestionsFor] = useState<'name' | 'email' | 'phone' | null>(null);
 
   // Product multi-select state
   const [productSearchTerm, setProductSearchTerm] = useState('');
   const [selectedProductVariants, setSelectedProductVariants] = useState<Record<string, string | null>>({});
   const [productPickerOpen, setProductPickerOpen] = useState(false);
+  const [inlineProductSearch, setInlineProductSearch] = useState('');
+  const [showInlineSearchDropdown, setShowInlineSearchDropdown] = useState(false);
 
   // Phone validation
   const [phoneError, setPhoneError] = useState('');
 
-  const nameTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const phoneTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const nameAbortControllerRef = useRef<AbortController | null>(null);
+  // ── Convert to Client Bill modal state ──
+  const [isConvertBillOpen, setIsConvertBillOpen] = useState(false);
+  const [convertBillLoading, setConvertBillLoading] = useState(false);
+  const [convertingFromOffer, setConvertingFromOffer] = useState<any>(null);
+  const [cbClientName, setCbClientName] = useState('');
+  const [cbClientPhone, setCbClientPhone] = useState('');
+  const [cbClientEmail, setCbClientEmail] = useState('');
+  const [cbClientAddress, setCbClientAddress] = useState('');
+  const [cbItems, setCbItems] = useState<BillItemInput[]>([{ name: '', description: '', quantity: 1, price: 0 }]);
+  const [cbDeliveryCharge, setCbDeliveryCharge] = useState<number>(0);
+  const [cbServiceFee, setCbServiceFee] = useState<number>(0);
+  const [cbDiscountType, setCbDiscountType] = useState<'fixed' | 'percentage'>('fixed');
+  const [cbDiscountValue, setCbDiscountValue] = useState<number>(0);
+  const [cbPrevDue, setCbPrevDue] = useState<number>(0);
+  const [cbCashIn, setCbCashIn] = useState<number>(0);
+  const [cbExpectedDate, setCbExpectedDate] = useState('');
+  const [cbVatTaxIncluded, setCbVatTaxIncluded] = useState<boolean>(true);
+  const [cbPhoneError, setCbPhoneError] = useState('');
+  const [cbProductPickerOpen, setCbProductPickerOpen] = useState(false);
+  const [cbProductSearchTerm, setCbProductSearchTerm] = useState('');
+  const [cbSelectedVariants, setCbSelectedVariants] = useState<Record<string, string | null>>({});
 
-  useEffect(() => {
-    return () => {
-      if (nameTimeoutRef.current) clearTimeout(nameTimeoutRef.current);
-      if (phoneTimeoutRef.current) clearTimeout(phoneTimeoutRef.current);
-      if (nameAbortControllerRef.current) nameAbortControllerRef.current.abort();
-    };
-  }, []);
-
-  const fetchAreas = async () => {
+  const fetchSuggestions = async () => {
     try {
-      const res = await fetch('/api/admin/areas');
+      const res = await fetch('/api/admin/suggest-clients');
       if (res.ok) {
-        const data = await res.json();
-        setAreas(data || []);
+        const result = await res.json();
+        if (result.success) {
+          setSuggestions(result.data || []);
+        }
       }
     } catch (err) {
-      console.error(err);
+      console.error('Error fetching client suggestions:', err);
     }
   };
 
-  useEffect(() => {
-    fetchOffers();
-    fetchProducts();
-    fetchSettings();
-    fetchAreas();
-  }, []);
-
   const fetchOffers = async () => {
     try {
+      // Defer state update to microtask queue to avoid synchronous setState inside useEffect warning
+      await Promise.resolve();
       setLoading(true);
       const res = await fetch('/api/admin/bills?type=offer');
       if (!res.ok) throw new Error('Failed to fetch offers');
@@ -305,8 +229,75 @@ function ClientOffersContent() {
     }
   };
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchOffers();
+      fetchProducts();
+      fetchSettings();
+      fetchSuggestions();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const handleNameChange = (val: string) => {
+    setClientName(val);
+    if (!val.trim()) {
+      setActiveSuggestions([]);
+      setShowSuggestionsFor(null);
+      return;
+    }
+    const filtered = suggestions.filter(s =>
+      s.name?.toLowerCase().includes(val.toLowerCase())
+    );
+    setActiveSuggestions(filtered);
+    setShowSuggestionsFor('name');
+  };
+
+  const handleEmailChange = (val: string) => {
+    setClientEmail(val);
+    if (!val.trim()) {
+      setActiveSuggestions([]);
+      setShowSuggestionsFor(null);
+      return;
+    }
+    const filtered = suggestions.filter(s =>
+      s.email?.toLowerCase().includes(val.toLowerCase())
+    );
+    setActiveSuggestions(filtered);
+    setShowSuggestionsFor('email');
+  };
+
+  const handlePhoneChange = (val: string) => {
+    setClientPhone(val);
+    if (phoneError) validatePhone(val);
+    if (!val.trim()) {
+      setActiveSuggestions([]);
+      setShowSuggestionsFor(null);
+      return;
+    }
+    const filtered = suggestions.filter(s =>
+      s.phone?.includes(val)
+    );
+    setActiveSuggestions(filtered);
+    setShowSuggestionsFor('phone');
+  };
+
+  const handleSelectSuggestion = (suggestion: any) => {
+    setClientName(suggestion.name || '');
+    setClientPhone(suggestion.phone || '');
+    setClientEmail(suggestion.email || '');
+    setClientAddress(suggestion.address || '');
+    if (phoneError) setPhoneError('');
+    setActiveSuggestions([]);
+    setShowSuggestionsFor(null);
+  };
+
   // Calculations
-  const subtotal = billItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const subtotal = billItems.reduce((sum, item) => {
+    const qty = parseInt(item.quantity as any) || 0;
+    const price = parseFloat(item.price as any) || 0;
+    return sum + (price * qty);
+  }, 0);
   const discount = discountType === 'percentage'
     ? Math.round((subtotal * discountValue) / 100)
     : discountValue;
@@ -348,12 +339,12 @@ function ClientOffersContent() {
       if (!prod) return;
 
       if (variantId === null) {
-        newItems.push({ name: prod.name, price: prod.salePrice || prod.price || 0, quantity: 1 });
+        newItems.push({ name: prod.name, description: extractTextFromDescription(prod.description), price: prod.salePrice || prod.price || 0, quantity: 1 });
       } else {
         const variant = (prod.variants || []).find((v: any) => v._id === variantId);
         if (!variant) return;
         const label = [prod.name, variant.color, variant.size].filter(Boolean).join(' — ');
-        newItems.push({ name: label, price: variant.salePrice || variant.price || 0, quantity: 1 });
+        newItems.push({ name: label, description: extractTextFromDescription(prod.description), price: variant.salePrice || variant.price || 0, quantity: 1 });
       }
     });
 
@@ -369,13 +360,44 @@ function ClientOffersContent() {
     setProductSearchTerm('');
   };
 
+  const handleAddProductDirect = (prod: any, variant?: any) => {
+    let name = prod.name;
+    let price = prod.salePrice || prod.price || 0;
+    const description = extractTextFromDescription(prod.description);
+
+    if (variant) {
+      const vLabel = [variant.color, variant.size].filter(Boolean).join(' / ');
+      if (vLabel) name = `${prod.name} (${vLabel})`;
+      if (variant.salePrice || variant.price) {
+        price = variant.salePrice || variant.price;
+      }
+    }
+
+    const newItem: BillItemInput = {
+      name,
+      description,
+      quantity: 1,
+      price
+    };
+
+    if (billItems.length === 1 && !billItems[0].name.trim() && (billItems[0].price === 0 || !billItems[0].price)) {
+      setBillItems([newItem]);
+    } else {
+      setBillItems(prev => [...prev, newItem]);
+    }
+
+    setInlineProductSearch('');
+    setShowInlineSearchDropdown(false);
+    toast.success(`Added "${name}"`);
+  };
+
   const handleAddItemRow = () => {
-    setBillItems([...billItems, { name: '', quantity: 1, price: 0 }]);
+    setBillItems([...billItems, { name: '', description: '', quantity: 1, price: 0 }]);
   };
 
   const handleRemoveItemRow = (index: number) => {
     if (billItems.length === 1) {
-      setBillItems([{ name: '', quantity: 1, price: 0 }]);
+      setBillItems([{ name: '', description: '', quantity: 1, price: 0 }]);
     } else {
       setBillItems(billItems.filter((_, i) => i !== index));
     }
@@ -384,9 +406,11 @@ function ClientOffersContent() {
   const handleItemChange = (index: number, field: keyof BillItemInput, value: any) => {
     const updated = [...billItems];
     if (field === 'quantity') {
-      updated[index].quantity = Math.max(1, parseInt(value) || 1);
+      updated[index].quantity = value === '' ? '' as any : Math.max(1, parseInt(value) || 1);
     } else if (field === 'price') {
-      updated[index].price = Math.max(0, parseFloat(value) || 0);
+      updated[index].price = value === '' ? '' as any : Math.max(0, parseFloat(value) || 0);
+    } else if (field === 'description') {
+      updated[index].description = value;
     } else {
       updated[index].name = value;
     }
@@ -395,8 +419,8 @@ function ClientOffersContent() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!clientName.trim() || !clientPhone.trim()) {
-      toast.error('Client details (name and phone) are required');
+    if (!clientName.trim() || !clientAddress.trim()) {
+      toast.error('Client details are required');
       return;
     }
     if (!validatePhone(clientPhone)) {
@@ -404,7 +428,13 @@ function ClientOffersContent() {
       return;
     }
 
-    const validItems = billItems.filter(item => item.name.trim() !== '');
+    const validItems = billItems
+      .filter(item => item.name.trim() !== '')
+      .map(item => ({
+        ...item,
+        quantity: Math.max(1, parseInt(item.quantity as any) || 1),
+        price: Math.max(0, parseFloat(item.price as any) || 0)
+      }));
     if (validItems.length === 0) {
       toast.error('At least one item with a name is required');
       return;
@@ -415,12 +445,8 @@ function ClientOffersContent() {
       const offerData = {
         clientName,
         clientPhone,
+        clientEmail: clientEmail.trim() || undefined,
         clientAddress,
-        clientEmail,
-        clientDivision,
-        clientDistrict,
-        clientThana,
-        clientArea,
         items: validItems,
         subtotal,
         deliveryCharge,
@@ -434,7 +460,10 @@ function ClientOffersContent() {
         cashIn: 0,
         currentBillDue: total,
         status: 'Due',
-        documentType: 'offer'
+        documentType: 'offer',
+        expectedDeliveryDate: expectedDeliveryDate || '',
+        termsAndConditions: termsAndConditions || '',
+        vatTaxIncluded: vatTaxIncluded !== undefined ? vatTaxIncluded : true
       };
 
       const url = editingOffer ? `/api/admin/bills/${editingOffer._id}` : '/api/admin/bills';
@@ -457,6 +486,7 @@ function ClientOffersContent() {
       setIsCreateOpen(false);
       resetForm();
       fetchOffers();
+      fetchSuggestions();
     } catch (error: any) {
       toast.error(error.message || 'Error creating quotation');
     } finally {
@@ -467,15 +497,10 @@ function ClientOffersContent() {
   const resetForm = () => {
     setClientName('');
     setClientPhone('');
+    setClientEmail('');
     setPhoneError('');
     setClientAddress('');
-    setClientEmail('');
-    setClientDivision('');
-    setClientDistrict('');
-    setClientThana('');
-    setClientArea('');
-    setShowMoreFields(false);
-    setBillItems([{ name: '', quantity: 1, price: 0 }]);
+    setBillItems([{ name: '', description: '', quantity: 1, price: 0 }]);
     setDeliveryCharge(0);
     setServiceFee(0);
     setDiscountType('fixed');
@@ -484,6 +509,11 @@ function ClientOffersContent() {
     setProductSearchTerm('');
     setProductPickerOpen(false);
     setEditingOffer(null);
+    setExpectedDeliveryDate('');
+    setTermsAndConditions('');
+    setVatTaxIncluded(true);
+    setActiveSuggestions([]);
+    setShowSuggestionsFor(null);
   };
 
   const handleConvertToChalan = async (offer: any) => {
@@ -501,16 +531,11 @@ function ClientOffersContent() {
         const challanData = {
           clientName: offer.clientName,
           clientPhone: offer.clientPhone,
+          clientEmail: offer.clientEmail || undefined,
           clientAddress: offer.clientAddress,
-          clientEmail: offer.clientEmail,
-          clientDivision: offer.clientDivision,
-          clientDistrict: offer.clientDistrict,
-          clientThana: offer.clientThana,
-          clientArea: offer.clientArea,
           items: offer.items,
           subtotal: offer.subtotal,
           deliveryCharge: offer.deliveryCharge,
-          serviceFee: offer.serviceFee || 0,
           discountType: offer.discountType,
           discountValue: offer.discountValue,
           discount: offer.discount,
@@ -520,6 +545,7 @@ function ClientOffersContent() {
           cashIn: 0,
           currentBillDue: offer.total,
           status: 'Due',
+          vatTaxIncluded: offer.vatTaxIncluded !== undefined ? offer.vatTaxIncluded : true,
           documentType: 'chalan',
           convertedFrom: offer._id
         };
@@ -551,6 +577,126 @@ function ClientOffersContent() {
     }
   };
 
+  const handleConvertToBill = (offer: any) => {
+    // Pre-fill convert bill form with offer data
+    setConvertingFromOffer(offer);
+    setCbClientName(offer.clientName || '');
+    setCbClientPhone(offer.clientPhone || '');
+    setCbClientEmail(offer.clientEmail || '');
+    setCbClientAddress(offer.clientAddress || '');
+    setCbItems(
+      Array.isArray(offer.items) && offer.items.length > 0
+        ? offer.items.map((it: any) => ({ name: it.name || '', description: it.description || '', quantity: it.quantity || 1, price: it.price || 0 }))
+        : [{ name: '', description: '', quantity: 1, price: 0 }]
+    );
+    setCbDeliveryCharge(offer.deliveryCharge || 0);
+    setCbServiceFee(offer.serviceFee || 0);
+    setCbDiscountType(offer.discountType || 'fixed');
+    setCbDiscountValue(offer.discountValue || 0);
+    setCbPrevDue(0);
+    setCbCashIn(0);
+    setCbExpectedDate('');
+    setCbVatTaxIncluded(offer.vatTaxIncluded !== undefined ? offer.vatTaxIncluded : true);
+    setCbPhoneError('');
+    setCbSelectedVariants({});
+    setCbProductSearchTerm('');
+    setCbProductPickerOpen(false);
+    setIsConvertBillOpen(true);
+  };
+
+  const resetConvertBillForm = () => {
+    setConvertingFromOffer(null);
+    setCbClientName('');
+    setCbClientPhone('');
+    setCbClientEmail('');
+    setCbClientAddress('');
+    setCbItems([{ name: '', description: '', quantity: 1, price: 0 }]);
+    setCbDeliveryCharge(0);
+    setCbServiceFee(0);
+    setCbDiscountType('fixed');
+    setCbDiscountValue(0);
+    setCbPrevDue(0);
+    setCbCashIn(0);
+    setCbExpectedDate('');
+    setCbVatTaxIncluded(true);
+    setCbPhoneError('');
+    setCbSelectedVariants({});
+    setCbProductSearchTerm('');
+    setCbProductPickerOpen(false);
+  };
+
+  const cbSubtotal = cbItems.reduce((sum, item) => sum + ((parseFloat(item.price as any) || 0) * (parseInt(item.quantity as any) || 1)), 0);
+  const cbDiscount = cbDiscountType === 'percentage' ? Math.round((cbSubtotal * cbDiscountValue) / 100) : cbDiscountValue;
+  const cbTotal = Math.max(0, cbSubtotal + cbDeliveryCharge + cbServiceFee - cbDiscount);
+  const cbGTotal = cbTotal + cbPrevDue;
+  const cbCurrentDue = Math.max(0, cbGTotal - cbCashIn);
+  const cbCalculatedStatus = cbCurrentDue <= 0 ? 'Paid' : 'Due';
+
+  const validateCbPhone = (phone: string) => {
+    const bdPhoneRegex = /^(?:\+?88)?01[3-9]\d{8}$/;
+    if (!phone.trim()) { setCbPhoneError('Phone number is required'); return false; }
+    if (!bdPhoneRegex.test(phone.replace(/\s/g, ''))) { setCbPhoneError('Enter a valid BD number (e.g. 017XXXXXXXX)'); return false; }
+    setCbPhoneError('');
+    return true;
+  };
+
+  const handleConvertBillSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cbClientName.trim() || !cbClientAddress.trim()) { toast.error('Client details are required'); return; }
+    if (!validateCbPhone(cbClientPhone)) { toast.error('Please enter a valid Bangladesh phone number'); return; }
+    const validItems = cbItems.filter(it => it.name.trim() !== '').map(it => ({ ...it, quantity: Math.max(1, parseInt(it.quantity as any) || 1), price: Math.max(0, parseFloat(it.price as any) || 0) }));
+    if (validItems.length === 0) { toast.error('At least one item is required'); return; }
+    if (cbCalculatedStatus === 'Due' && !cbExpectedDate) { toast.error('Expected receivable date is required for due bills'); return; }
+    try {
+      setConvertBillLoading(true);
+      const billData = {
+        clientName: cbClientName,
+        clientPhone: cbClientPhone,
+        clientEmail: cbClientEmail.trim() || undefined,
+        clientAddress: cbClientAddress,
+        items: validItems,
+        subtotal: cbSubtotal,
+        deliveryCharge: cbDeliveryCharge,
+        serviceFee: cbServiceFee,
+        discountType: cbDiscountType,
+        discountValue: cbDiscountValue,
+        discount: cbDiscount,
+        total: cbTotal,
+        prevDue: cbPrevDue,
+        gTotal: cbGTotal,
+        cashIn: cbCashIn,
+        currentBillDue: cbCurrentDue,
+        status: cbCalculatedStatus,
+        expectedReceivableDate: cbCalculatedStatus === 'Due' ? cbExpectedDate : undefined,
+        vatTaxIncluded: cbVatTaxIncluded,
+        documentType: 'bill',
+        convertedFrom: convertingFromOffer?._id
+      };
+      const res = await fetch('/api/admin/bills', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(billData) });
+      if (!res.ok) throw new Error('Failed to create bill');
+      const createdBill = await res.json();
+      setIsConvertBillOpen(false);
+      resetConvertBillForm();
+      // Show success with print option (direct user click avoids popup blocker)
+      await Swal.fire({
+        title: 'Bill Generated!',
+        text: `Client Bill ${createdBill.invoiceNo} has been created successfully.`,
+        icon: 'success',
+        showCancelButton: true,
+        confirmButtonText: 'Print Bill Now',
+        cancelButtonText: 'Close'
+      }).then((printRes) => {
+        if (printRes.isConfirmed) {
+          generateBillPDF(createdBill, settings, 'print');
+        }
+      });
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to create bill');
+    } finally {
+      setConvertBillLoading(false);
+    }
+  };
+
   const handleDeleteOffer = async (offerId: string) => {
     const result = await Swal.fire({
       title: 'Are you sure?',
@@ -576,23 +722,11 @@ function ClientOffersContent() {
     }
   };
 
-  const filteredOffers = offers.filter(b => {
-    const matchesSearch = b.clientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      b.clientPhone.includes(searchTerm) ||
-      b.invoiceNo.includes(searchTerm);
-
-    let matchesDate = true;
-    if (filterByDate) {
-      if (dateFilter.from) {
-        matchesDate = matchesDate && new Date(b.date) >= new Date(dateFilter.from + 'T00:00:00');
-      }
-      if (dateFilter.to) {
-        matchesDate = matchesDate && new Date(b.date) <= new Date(dateFilter.to + 'T23:59:59');
-      }
-    }
-
-    return matchesSearch && matchesDate;
-  });
+  const filteredOffers = offers.filter(b =>
+    b.clientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    b.clientPhone.includes(searchTerm) ||
+    b.invoiceNo.includes(searchTerm)
+  );
 
   const ITEMS_PER_PAGE = 20;
   const totalPages = Math.ceil(filteredOffers.length / ITEMS_PER_PAGE);
@@ -601,294 +735,147 @@ function ClientOffersContent() {
     currentPage * ITEMS_PER_PAGE
   );
 
-  const isFiltered = !!((filterByDate && (dateFilter.from || dateFilter.to)) || searchTerm);
-
   return (
-    <div className="flex-1 space-y-0 md:space-y-6 px-[1px] pt-[1px] pb-4 md:p-8 w-full max-w-full overflow-x-hidden">
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-0 md:gap-4 px-0 md:px-0 mb-[1px] md:mb-0">
-        <div className="hidden md:block">
-          <h2 className="text-3xl font-bold tracking-tight">{t("offers.title")}</h2>
-          <p className="text-muted-foreground text-sm">{t("offers.subtitle")}</p>
+    <div className="flex-1 space-y-6 px-[2px] md:px-4 py-4">
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight">Client Quotations / Offers</h2>
+          <p className="text-muted-foreground text-sm">Create, manage, and print price offers for clients, and convert them to Delivery Challans.</p>
         </div>
-        <Button onClick={() => setIsCreateOpen(true)} className="w-full sm:w-auto rounded-none h-10 bg-primary text-primary-foreground font-bold flex items-center justify-center">
-          <Plus className="mr-2 h-4 w-4" /> {t("offers.create_offer")}
+        <Button onClick={() => setIsCreateOpen(true)} className="w-full md:w-auto bg-primary text-primary-foreground">
+          <Plus className="mr-2 h-4 w-4" /> Create Offer / Quote
         </Button>
       </div>
 
       {/* Offers Table */}
-      <div className="px-0 md:px-0 !mt-[1px] md:!mt-6">
-        <Card className="border-0 bg-transparent md:border md:bg-card shadow-none md:shadow-sm">
-          <CardHeader>
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <CardTitle className="hidden md:block">{t("offers.list_title")}</CardTitle>
-            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-              <div className="relative w-full md:w-56">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder={t("offers.search_placeholder") as string}
-                  className="pl-8 text-xs h-8"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </div>
-
-              {/* Date Filter Checkbox & Date Inputs */}
-              <div className="flex items-center gap-1.5 text-xs">
-                <label className="flex items-center gap-1 cursor-pointer font-bold text-foreground shrink-0 select-none">
-                  <input
-                    type="checkbox"
-                    checked={filterByDate}
-                    onChange={(e) => setFilterByDate(e.target.checked)}
-                    className="rounded border-border text-primary focus:ring-primary h-3.5 w-3.5 accent-primary"
-                  />
-                  {t("bills.filter_by_date")}
-                </label>
-
-                <div className={`flex items-center gap-1 bg-muted/50 p-0.5 rounded-md border w-full sm:w-auto transition-opacity duration-200 ${!filterByDate ? 'opacity-40 pointer-events-none' : ''}`}>
-                  <Input
-                    type="date"
-                    className="h-7 border-none bg-transparent focus-visible:ring-0 p-0.5 text-xs md:w-28 font-medium"
-                    value={dateFilter.from}
-                    onChange={(e) => setDateFilter(prev => ({ ...prev, from: e.target.value }))}
-                    disabled={!filterByDate}
-                  />
-                  <span className="text-muted-foreground text-[10px] shrink-0 font-medium">{t("bills.to")}</span>
-                  <Input
-                    type="date"
-                    className="h-7 border-none bg-transparent focus-visible:ring-0 p-0.5 text-xs md:w-28 font-medium"
-                    value={dateFilter.to}
-                    onChange={(e) => setDateFilter(prev => ({ ...prev, to: e.target.value }))}
-                    disabled={!filterByDate}
-                  />
-                </div>
-              </div>
-
-              {isFiltered && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    const now = new Date();
-                    const start = new Date(now.getFullYear(), now.getMonth(), 1);
-                    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-                    setDateFilter({
-                      from: format(start, 'yyyy-MM-dd'),
-                      to: format(end, 'yyyy-MM-dd')
-                    });
-                    setFilterByDate(false);
-                    setSearchTerm('');
-                  }}
-                  className="text-xs text-muted-foreground hover:text-primary shrink-0 h-8"
-                >
-                  {t("bills.clear")}
-                </Button>
-              )}
+      <Card>
+        <CardHeader className="px-4 py-5">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <CardTitle>Quotations List</CardTitle>
+            <div className="relative w-full md:w-72">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by client or invoice..."
+                className="pl-8"
+                value={searchTerm}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  if (currentPage !== 1) {
+                    setCurrentPage(1);
+                  }
+                }}
+              />
             </div>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-4">
           {loading ? (
-            <div className="space-y-3 py-2">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="flex items-center justify-between p-3 border rounded-xl">
-                  <div className="flex items-center gap-3">
-                    <Skeleton className="h-4 w-4 rounded" />
-                    <div className="space-y-1.5">
-                      <Skeleton className="h-4 w-32 rounded" />
-                      <Skeleton className="h-3 w-20 rounded" />
-                    </div>
-                  </div>
-                  <Skeleton className="h-4 w-20 rounded" />
-                  <Skeleton className="h-4 w-24 rounded" />
-                  <div className="flex gap-2">
-                    <Skeleton className="h-8 w-8 rounded-lg" />
-                    <Skeleton className="h-8 w-8 rounded-lg" />
-                  </div>
-                </div>
-              ))}
+            <div className="flex h-32 items-center justify-center">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
           ) : filteredOffers.length === 0 ? (
             <div className="flex h-32 flex-col items-center justify-center text-muted-foreground">
               <FileText className="h-10 w-10 mb-2 stroke-1" />
-              <p>{t("offers.no_offers_found")}</p>
+              <p>No quotations found</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
-              {/* Desktop View */}
-              <div className="hidden md:block">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{t("offers.offer_no")}</TableHead>
-                      <TableHead>{t("bills.client_name")}</TableHead>
-                      <TableHead>{t("bills.phone")}</TableHead>
-                      <TableHead>{t("bills.date")}</TableHead>
-                      <TableHead className="text-right">{t("offers.total_offer")} (৳)</TableHead>
-                      <TableHead className="text-right">{t("bills.actions")}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {paginatedOffers.map((offer) => (
-                      <TableRow key={offer._id}>
-                        <TableCell className="font-semibold">{offer.invoiceNo}</TableCell>
-                        <TableCell>{offer.clientName}</TableCell>
-                        <TableCell>{offer.clientPhone}</TableCell>
-                        <TableCell>{format(new Date(offer.date), 'dd MMM yyyy')}</TableCell>
-                        <TableCell className="text-right font-medium">৳{Math.round(offer.total)}</TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-teal-600 hover:text-teal-700 hover:bg-teal-50"
-                              onClick={() => generateBillPDF(offer, settings, 'print')}
-                              title="Print Quotation"
-                            >
-                              <Printer className="h-4 w-4" />
-                            </Button>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8">
-                                  <MoreHorizontal className="h-4 w-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[130px]">Quotation No</TableHead>
+                    <TableHead className="min-w-[280px]">Client Name</TableHead>
+                    <TableHead className="w-[130px]">Phone</TableHead>
+                    <TableHead className="w-[110px]">Date</TableHead>
+                    <TableHead className="text-right w-[140px]">Total Offer (৳)</TableHead>
+                    <TableHead className="text-right w-[90px]">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paginatedOffers.map((offer) => (
+                    <TableRow key={offer._id}>
+                      <TableCell className="font-semibold whitespace-nowrap">{offer.invoiceNo}</TableCell>
+                      <TableCell className="whitespace-normal break-words leading-snug">
+                        {offer.clientName}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">{offer.clientPhone}</TableCell>
+                      <TableCell className="whitespace-nowrap w-[110px]">{format(new Date(offer.date), 'dd MMM yyyy')}</TableCell>
+                      <TableCell className="text-right font-medium whitespace-nowrap w-[140px]">৳{Math.round(offer.total)}</TableCell>
+                      <TableCell className="text-right w-[90px]">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-teal-600 hover:text-teal-700 hover:bg-teal-50"
+                            onClick={() => generateBillPDF(offer, settings, 'print')}
+                            title="Print Quotation"
+                          >
+                            <Printer className="h-4 w-4" />
+                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-8 w-8">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem onClick={() => setSelectedOffer(offer)}>
-                                <Eye className="mr-2 h-4 w-4" /> {t("bills.view_details")}
+                                <Eye className="mr-2 h-4 w-4" /> View Details
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 onClick={() => {
                                   setEditingOffer(offer);
                                   setClientName(offer.clientName);
                                   setClientPhone(offer.clientPhone);
-                                  setClientAddress(offer.clientAddress || '');
                                   setClientEmail(offer.clientEmail || '');
-                                  setClientDivision(offer.clientDivision || '');
-                                  setClientDistrict(offer.clientDistrict || '');
-                                  setClientThana(offer.clientThana || '');
-                                  setClientArea(offer.clientArea || '');
+                                  setClientAddress(offer.clientAddress);
                                   setBillItems(offer.items);
                                   setDeliveryCharge(offer.deliveryCharge);
                                   setServiceFee(offer.serviceFee || 0);
                                   setDiscountType(offer.discountType || 'fixed');
                                   setDiscountValue(offer.discountValue || 0);
-                                  const hasMore = !!(offer.clientEmail || offer.clientDivision || offer.clientDistrict || offer.clientThana || offer.clientArea || offer.clientAddress);
-                                  setShowMoreFields(hasMore);
+                                  let formattedExpDate = '';
+                                  if (offer.expectedDeliveryDate) {
+                                    try {
+                                      formattedExpDate = format(new Date(offer.expectedDeliveryDate), 'yyyy-MM-dd');
+                                    } catch (e) {
+                                      formattedExpDate = String(offer.expectedDeliveryDate).substring(0, 10);
+                                    }
+                                  }
+                                  setExpectedDeliveryDate(formattedExpDate);
+                                  setTermsAndConditions(offer.termsAndConditions || '');
+                                  setVatTaxIncluded(offer.vatTaxIncluded !== undefined ? offer.vatTaxIncluded : true);
                                   setIsCreateOpen(true);
                                 }}
                               >
-                                <Edit className="mr-2 h-4 w-4" /> {t("offers.edit_offer")}
+                                <Edit className="mr-2 h-4 w-4" /> Edit Offer
                               </DropdownMenuItem>
                               <DropdownMenuItem onClick={() => generateBillPDF(offer, settings, 'download')}>
-                                <Download className="mr-2 h-4 w-4" /> {t("bills.download_pdf")}
+                                <Download className="mr-2 h-4 w-4" /> Download PDF
                               </DropdownMenuItem>
                               <DropdownMenuItem onClick={() => generateBillPDF(offer, settings, 'print')}>
-                                <Printer className="mr-2 h-4 w-4" /> {t("bills.print_bill")}
+                                <Printer className="mr-2 h-4 w-4" /> Print PDF
                               </DropdownMenuItem>
                               <DropdownMenuItem onClick={() => handleConvertToChalan(offer)}>
-                                <ArrowRight className="mr-2 h-4 w-4" /> {t("offers.convert_to_chalan")}
+                                <ArrowRight className="mr-2 h-4 w-4" /> Convert to Challan
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleConvertToBill(offer)}>
+                                <FileText className="mr-2 h-4 w-4" /> Convert to Client Bill
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 className="text-destructive focus:text-destructive"
                                 onClick={() => handleDeleteOffer(offer._id)}
                               >
-                                <Trash2 className="mr-2 h-4 w-4" /> {t("bills.delete")}
+                                <Trash2 className="mr-2 h-4 w-4" /> Delete
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </div>
                       </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-
-              {/* Mobile View */}
-              <div className="block md:hidden space-y-3">
-                {paginatedOffers.map((offer) => (
-                  <div key={offer._id} className="p-4 mb-3 border border-border/50 rounded-xl bg-card shadow-sm flex flex-col gap-2.5 relative">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-base text-primary">{offer.invoiceNo}</span>
-                      <span className="text-xs text-muted-foreground">{format(new Date(offer.date), 'dd MMM yyyy')}</span>
-                    </div>
-                    <div className="space-y-2 text-sm md:text-xs">
-                      <div className="flex justify-between items-center py-0.5">
-                        <span className="text-muted-foreground">{t("bills.client")}:</span>
-                        <span className="font-semibold text-foreground">{offer.clientName}</span>
-                      </div>
-                      <div className="flex justify-between items-center py-0.5 border-t border-border/30">
-                        <span className="text-muted-foreground">{t("bills.phone")}:</span>
-                        <span className="text-foreground font-medium">{offer.clientPhone}</span>
-                      </div>
-                      <div className="flex justify-between items-center pt-2 border-t mt-1">
-                        <span className="text-muted-foreground font-bold">{t("bills.total")}:</span>
-                        <span className="font-bold text-foreground text-base md:text-sm">৳{Math.round(offer.total)}</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-end gap-2 pt-2.5 border-t mt-1">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-9 text-teal-600 hover:text-teal-700 text-xs px-3 py-1 flex items-center gap-1"
-                        onClick={() => generateBillPDF(offer, settings, 'print')}
-                      >
-                        <Printer className="h-3.5 w-3.5 mr-1" /> {t("bills.print")}
-                      </Button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="outline" size="sm" className="h-9 w-9 p-0 flex items-center justify-center">
-                            <MoreHorizontal className="h-4.5 w-4.5" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => setSelectedOffer(offer)}>
-                            <Eye className="mr-2 h-4 w-4" /> {t("bills.view_details")}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => {
-                              setEditingOffer(offer);
-                              setClientName(offer.clientName);
-                              setClientPhone(offer.clientPhone);
-                              setClientAddress(offer.clientAddress || '');
-                              setClientEmail(offer.clientEmail || '');
-                              setClientDivision(offer.clientDivision || '');
-                              setClientDistrict(offer.clientDistrict || '');
-                              setClientThana(offer.clientThana || '');
-                              setClientArea(offer.clientArea || '');
-                              setBillItems(offer.items);
-                              setDeliveryCharge(offer.deliveryCharge);
-                              setServiceFee(offer.serviceFee || 0);
-                              setDiscountType(offer.discountType || 'fixed');
-                              setDiscountValue(offer.discountValue || 0);
-                              const hasMore = !!(offer.clientEmail || offer.clientDivision || offer.clientDistrict || offer.clientThana || offer.clientArea || offer.clientAddress);
-                              setShowMoreFields(hasMore);
-                              setIsCreateOpen(true);
-                            }}
-                          >
-                            <Edit className="mr-2 h-4 w-4" /> {t("offers.edit_offer")}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => generateBillPDF(offer, settings, 'download')}>
-                            <Download className="mr-2 h-4 w-4" /> {t("bills.download_pdf")}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => generateBillPDF(offer, settings, 'print')}>
-                            <Printer className="mr-2 h-4 w-4" /> {t("bills.print_bill")}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleConvertToChalan(offer)}>
-                            <ArrowRight className="mr-2 h-4 w-4" /> {t("offers.convert_to_chalan")}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            className="text-destructive focus:text-destructive"
-                            onClick={() => handleDeleteOffer(offer._id)}
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" /> {t("bills.delete")}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
           )}
           {totalPages > 1 && (
@@ -902,281 +889,300 @@ function ClientOffersContent() {
           )}
         </CardContent>
       </Card>
-    </div>
 
       {/* Create Dialog */}
-      <Dialog open={isCreateOpen} onOpenChange={(open) => { setIsCreateOpen(open); if(!open) resetForm(); }}>
+      <Dialog open={isCreateOpen} onOpenChange={(open) => { setIsCreateOpen(open); if (!open) resetForm(); }}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editingOffer ? t("offers.edit_offer") : t("offers.create_new")}</DialogTitle>
+            <DialogTitle>{editingOffer ? 'Edit' : 'Create New'} Quotation / Offer</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Client Info */}
-            <div className="space-y-4 bg-gray-50/50 p-4 rounded-2xl border border-gray-100/80">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2 relative" ref={nameRef}>
-                  <Label htmlFor="cName">{t("bills.client_name")} <span className="text-destructive">*</span></Label>
-                  <div className="relative">
-                    <Input
-                      id="cName"
-                      placeholder="e.g. Rahim & Bros"
-                      value={clientName}
-                      onChange={(e) => handleNameChange(e.target.value)}
-                      onFocus={() => { if (clientName.trim() && nameSuggestions.length > 0) setShowNameDropdown(true); }}
-                      autoComplete="off"
-                      required
-                    />
-                    {showNameDropdown && nameSuggestions.length > 0 && (
-                      <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-52 overflow-y-auto">
-                        {nameSuggestions.map((c, i) => (
-                          <div
-                            key={i}
-                            className="flex flex-col px-3 py-2 cursor-pointer hover:bg-muted transition-colors text-left"
-                            onMouseDown={(e) => { e.preventDefault(); handleCustomerSelect(c); }}
-                          >
-                            <span className="font-medium text-sm text-foreground">{c.clientName}</span>
-                            <span className="text-xs text-muted-foreground">{c.clientPhone}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div className="space-y-2 relative" ref={phoneRef}>
-                  <Label htmlFor="cPhone">{t("bills.client_phone")} <span className="text-destructive">*</span></Label>
-                  <div className="flex gap-2 items-center">
-                    <div className="relative flex-1">
-                      <Input
-                        id="cPhone"
-                        placeholder="e.g. 017XXXXXXXX"
-                        value={clientPhone}
-                        onChange={(e) => handlePhoneChange(e.target.value)}
-                        onFocus={() => { if (clientPhone.trim() && phoneSuggestions.length > 0) setShowPhoneDropdown(true); }}
-                        autoComplete="off"
-                        required
-                      />
-                      {showPhoneDropdown && phoneSuggestions.length > 0 && (
-                        <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-52 overflow-y-auto">
-                          {phoneSuggestions.map((c, i) => (
-                            <div
-                              key={i}
-                              className="flex flex-col px-3 py-2 cursor-pointer hover:bg-muted transition-colors text-left"
-                              onMouseDown={(e) => { e.preventDefault(); handleCustomerSelect(c); }}
-                            >
-                              <span className="font-medium text-sm text-foreground">{c.clientPhone}</span>
-                              <span className="text-xs text-muted-foreground">{c.clientName}</span>
-                            </div>
-                          ))}
+            {/* Client Info with Auto Suggestion (2 rows x 2 cols) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-muted/20 p-4 rounded-xl border">
+              {/* Client Name */}
+              <div className="space-y-1.5 relative">
+                <Label htmlFor="cName" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                  <User className="h-3.5 w-3.5" /> Client Name *
+                </Label>
+                <Input
+                  id="cName"
+                  placeholder="e.g. Rahim & Bros"
+                  value={clientName}
+                  onChange={(e) => handleNameChange(e.target.value)}
+                  onBlur={() => setTimeout(() => setShowSuggestionsFor(null), 250)}
+                  className="h-10 text-sm bg-background"
+                  required
+                  autoComplete="off"
+                />
+                {showSuggestionsFor === 'name' && activeSuggestions.length > 0 && (
+                  <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-popover text-popover-foreground border rounded-md shadow-xl max-h-56 overflow-y-auto divide-y">
+                    {activeSuggestions.map((s, idx) => (
+                      <div
+                        key={idx}
+                        onClick={() => handleSelectSuggestion(s)}
+                        className="p-2.5 text-xs hover:bg-accent hover:text-accent-foreground cursor-pointer transition-colors"
+                      >
+                        <div className="font-bold">{s.name}</div>
+                        <div className="text-muted-foreground">
+                          {s.phone ? `Phone: ${s.phone}` : ''} {s.email ? `| Email: ${s.email}` : ''}
                         </div>
-                      )}
-                    </div>
-                    <Button
-                      type="button"
-                      className={`h-8 px-3 text-xs font-bold rounded-lg shrink-0 transition-all ${
-                        showMoreFields 
-                          ? 'bg-destructive hover:bg-destructive/90 text-destructive-foreground' 
-                          : 'bg-primary hover:bg-primary/90 text-primary-foreground'
-                      }`}
-                      onClick={() => setShowMoreFields(!showMoreFields)}
-                    >
-                      {showMoreFields ? '- Close' : '+ Add More'}
-                    </Button>
+                      </div>
+                    ))}
                   </div>
-                  {phoneError && <p className="text-xs text-destructive">{phoneError}</p>}
+                )}
+              </div>
+
+              {/* Client Phone */}
+              <div className="space-y-1.5 relative">
+                <Label htmlFor="cPhone" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                  <Phone className="h-3.5 w-3.5" /> Client Phone *
+                </Label>
+                <Input
+                  id="cPhone"
+                  placeholder="e.g. 017XXXXXXXX"
+                  value={clientPhone}
+                  onChange={(e) => handlePhoneChange(e.target.value)}
+                  onBlur={(e) => {
+                    validatePhone(e.target.value);
+                    setTimeout(() => setShowSuggestionsFor(null), 250);
+                  }}
+                  className={`h-10 text-sm bg-background ${phoneError ? 'border-destructive focus-visible:ring-destructive' : ''}`}
+                  required
+                  autoComplete="off"
+                />
+                {phoneError && <p className="text-[11px] text-destructive mt-0.5">{phoneError}</p>}
+                {showSuggestionsFor === 'phone' && activeSuggestions.length > 0 && (
+                  <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-popover text-popover-foreground border rounded-md shadow-xl max-h-56 overflow-y-auto divide-y">
+                    {activeSuggestions.map((s, idx) => (
+                      <div
+                        key={idx}
+                        onClick={() => handleSelectSuggestion(s)}
+                        className="p-2.5 text-xs hover:bg-accent hover:text-accent-foreground cursor-pointer transition-colors"
+                      >
+                        <div className="font-bold">{s.phone}</div>
+                        <div className="text-muted-foreground">
+                          {s.name} {s.email ? `| ${s.email}` : ''}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Client Email (Optional) */}
+              <div className="space-y-1.5 relative">
+                <Label htmlFor="cEmail" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                  <Mail className="h-3.5 w-3.5" /> Email (Optional)
+                </Label>
+                <Input
+                  id="cEmail"
+                  type="email"
+                  placeholder="e.g. client@example.com"
+                  value={clientEmail}
+                  onChange={(e) => handleEmailChange(e.target.value)}
+                  onBlur={() => setTimeout(() => setShowSuggestionsFor(null), 250)}
+                  className="h-10 text-sm bg-background"
+                  autoComplete="off"
+                />
+                {showSuggestionsFor === 'email' && activeSuggestions.length > 0 && (
+                  <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-popover text-popover-foreground border rounded-md shadow-xl max-h-56 overflow-y-auto divide-y">
+                    {activeSuggestions.map((s, idx) => (
+                      <div
+                        key={idx}
+                        onClick={() => handleSelectSuggestion(s)}
+                        className="p-2.5 text-xs hover:bg-accent hover:text-accent-foreground cursor-pointer transition-colors"
+                      >
+                        <div className="font-bold">{s.email}</div>
+                        <div className="text-muted-foreground">
+                          {s.name} {s.phone ? `| ${s.phone}` : ''}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Client Address */}
+              <div className="space-y-1.5">
+                <Label htmlFor="cAddr" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                  <MapPin className="h-3.5 w-3.5" /> Client Address *
+                </Label>
+                <Input
+                  id="cAddr"
+                  placeholder="e.g. Banani, Dhaka"
+                  value={clientAddress}
+                  onChange={(e) => setClientAddress(e.target.value)}
+                  className="h-10 text-sm bg-background"
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Product Picker & Smart Search */}
+            <div className="space-y-3 pt-2 border-t">
+              <div className="flex items-center justify-between">
+                <Label className="text-base font-bold text-foreground">Items List</Label>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setProductPickerOpen(true)}
+                    className="font-bold text-xs h-8"
+                  >
+                    <Plus className="mr-1 h-3.5 w-3.5" /> Select Products
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={handleAddItemRow} className="font-bold text-xs h-8">
+                    <Plus className="h-3 w-3 mr-1" /> Add Custom Item
+                  </Button>
                 </div>
               </div>
 
-              {showMoreFields && (
-                <div className="space-y-4 pt-4 border-t border-dashed border-gray-200">
-                  {/* Row 1: Email and Address */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Customer Email */}
-                    <div className="space-y-2">
-                      <Label htmlFor="cEmail">Email</Label>
-                      <Input
-                        id="cEmail"
-                        type="email"
-                        placeholder="e.g. client@example.com"
-                        value={clientEmail}
-                        onChange={(e) => setClientEmail(e.target.value)}
-                      />
-                    </div>
-
-                    {/* Customer Street Address */}
-                    <div className="space-y-2">
-                      <Label htmlFor="cAddr">{t("bills.client_address")}</Label>
-                      <Input
-                        id="cAddr"
-                        placeholder="e.g. Banani, Dhaka"
-                        value={clientAddress}
-                        onChange={(e) => setClientAddress(e.target.value)}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Row 2: Location Fields */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    {/* Division */}
-                    <div className="space-y-2">
-                      <Label className="text-sm font-semibold">{t("settings.division")}</Label>
-                      <Select
-                        value={clientDivision}
-                        onValueChange={(val) => {
-                          setClientDivision(val || '');
-                          setClientDistrict('');
-                          setClientThana('');
-                        }}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder={t("settings.select_division") as string} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {divisions.map((div) => (
-                            <SelectItem key={div} value={div}>
-                              {div}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {/* District */}
-                    <div className="space-y-2">
-                      <Label className="text-sm font-semibold">{t("settings.district")}</Label>
-                      <Select
-                        disabled={!clientDivision}
-                        value={clientDistrict}
-                        onValueChange={(val) => {
-                          setClientDistrict(val || '');
-                          setClientThana('');
-                        }}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder={t("settings.select_district") as string} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {(bdDivisions[clientDivision] || []).map((dist) => (
-                            <SelectItem key={dist} value={dist}>
-                              {dist}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {/* Thana */}
-                    <div className="space-y-2">
-                      <Label className="text-sm font-semibold">{t("settings.thana")}</Label>
-                      <Select
-                        disabled={!clientDistrict}
-                        value={clientThana}
-                        onValueChange={(val) => setClientThana(val || '')}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder={t("settings.select_thana") as string} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {(bdLocations[clientDistrict] || []).map((th) => (
-                            <SelectItem key={th} value={th}>
-                              {th}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {/* Area */}
-                    <div className="space-y-2">
-                      <Label className="text-sm font-semibold">Area</Label>
-                      <Select
-                        value={clientArea}
-                        onValueChange={(val) => setClientArea(val || '')}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select Area" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {areas
-                            .filter((a) => {
-                              if (clientDivision && a.division !== clientDivision) return false;
-                              if (clientDistrict && a.district && a.district !== clientDistrict) return false;
-                              if (clientThana && a.thana && a.thana !== clientThana) return false;
-                              return true;
-                            })
-                            .map((area) => (
-                              <SelectItem key={area._id} value={area.name}>
-                                {area.name}
-                              </SelectItem>
-                            ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
+              {/* Smart Search & Add Product (Manual Order Style) */}
+              <div className="relative">
+                <div className="relative">
+                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search product by name or SKU to add..."
+                    value={inlineProductSearch}
+                    onChange={(e) => {
+                      setInlineProductSearch(e.target.value);
+                      setShowInlineSearchDropdown(true);
+                    }}
+                    onFocus={() => setShowInlineSearchDropdown(true)}
+                    className="pl-9 h-9 text-xs bg-background"
+                  />
+                  {inlineProductSearch && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setInlineProductSearch('');
+                        setShowInlineSearchDropdown(false);
+                      }}
+                      className="absolute right-2.5 top-2 text-muted-foreground hover:text-foreground text-sm font-bold"
+                    >
+                      ×
+                    </button>
+                  )}
                 </div>
-              )}
-            </div>
 
-            {/* Product Picker */}
-            <div className="flex items-center justify-between">
-              <Label className="text-lg font-semibold">{t("chalans.items_list")}</Label>
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setProductPickerOpen(true)}
-                >
-                  <Plus className="mr-1 h-3.5 w-3.5" /> {t("bills.select_products")}
-                </Button>
-                <Button type="button" variant="outline" size="sm" onClick={handleAddItemRow} className="font-bold">
-                  <Plus className="h-3 w-3 mr-1" /> {t("bills.add_custom_item")}
-                </Button>
+                {showInlineSearchDropdown && inlineProductSearch.trim() && (
+                  <div className="absolute z-50 left-0 right-0 mt-1 bg-popover text-popover-foreground border rounded-lg shadow-xl max-h-60 overflow-y-auto divide-y">
+                    {products.filter(p =>
+                      p.name?.toLowerCase().includes(inlineProductSearch.toLowerCase()) ||
+                      p.sku?.toLowerCase().includes(inlineProductSearch.toLowerCase())
+                    ).length === 0 ? (
+                      <div className="p-3 text-center text-xs text-muted-foreground">
+                        No products found matching &quot;{inlineProductSearch}&quot;
+                      </div>
+                    ) : (
+                      products.filter(p =>
+                        p.name?.toLowerCase().includes(inlineProductSearch.toLowerCase()) ||
+                        p.sku?.toLowerCase().includes(inlineProductSearch.toLowerCase())
+                      ).map((prod) => (
+                        <div
+                          key={prod._id}
+                          className="p-2.5 hover:bg-accent/60 transition-colors"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <p className="font-semibold text-xs text-foreground truncate">{prod.name}</p>
+                              <p className="text-[11px] text-muted-foreground">
+                                {prod.sku ? `SKU: ${prod.sku}` : ''} {prod.stock !== undefined ? `| Stock: ${prod.stock}` : ''}
+                              </p>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <span className="text-xs font-bold text-primary block">৳{prod.salePrice || prod.price || 0}</span>
+                              {(!prod.variants || prod.variants.length === 0) && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  onClick={() => handleAddProductDirect(prod)}
+                                  className="h-6 text-[10px] px-2 mt-1 bg-primary text-primary-foreground font-bold"
+                                >
+                                  <Plus className="h-3 w-3 mr-0.5" /> Add
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+
+                          {prod.variants && prod.variants.length > 0 && (
+                            <div className="mt-2 pt-1.5 border-t border-border/40 flex flex-wrap gap-1 items-center">
+                              <span className="text-[10px] text-muted-foreground mr-1">Variants:</span>
+                              {prod.variants.map((v: any) => {
+                                const vLabel = [v.color, v.size].filter(Boolean).join(' / ') || 'Option';
+                                const vPrice = v.salePrice || v.price || prod.salePrice || prod.price || 0;
+                                return (
+                                  <Button
+                                    key={v._id}
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleAddProductDirect(prod, v)}
+                                    className="h-6 text-[10px] px-2 hover:bg-primary hover:text-primary-foreground"
+                                  >
+                                    <Plus className="h-2.5 w-2.5 mr-0.5" />
+                                    {vLabel} (৳{vPrice})
+                                  </Button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
             {/* Manual item entries */}
             <div className="space-y-3">
               {billItems.map((item, index) => (
-                <div key={index} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 border p-2 sm:p-0 sm:border-none rounded-md">
-                  <div className="flex-1">
+                <div key={index} className="flex items-center gap-3">
+                  <div className="flex-1 space-y-1">
                     <Input
-                      placeholder={t("bills.item_description") as string}
+                      placeholder="Title"
                       value={item.name}
                       onChange={(e) => handleItemChange(index, 'name', e.target.value)}
                       required
                     />
+                    <Input
+                      placeholder="Description (Optional)"
+                      value={item.description || ''}
+                      onChange={(e) => handleItemChange(index, 'description', e.target.value)}
+                      className="text-xs h-8 text-muted-foreground"
+                    />
                   </div>
-                  <div className="flex items-center gap-2 w-full sm:w-auto">
-                    <div className="flex-1 sm:w-24">
-                      <Input
-                        type="number"
-                        placeholder={t("bills.qty") as string}
-                        min="1"
-                        value={item.quantity}
-                        onChange={(e) => handleItemChange(index, 'quantity', e.target.value)}
-                        required
-                      />
-                    </div>
-                    <div className="flex-1 sm:w-28">
-                      <Input
-                        type="number"
-                        placeholder={t("offers.price") as string}
-                        min="0"
-                        value={item.price}
-                        onChange={(e) => handleItemChange(index, 'price', e.target.value)}
-                        required
-                      />
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleRemoveItemRow(index)}
-                      className="text-destructive hover:bg-destructive/10 shrink-0"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                  <div className="w-24">
+                    <Input
+                      type="number"
+                      placeholder="Qty"
+                      min="1"
+                      value={item.quantity}
+                      onChange={(e) => handleItemChange(index, 'quantity', e.target.value)}
+                      required
+                    />
                   </div>
+                  <div className="w-28">
+                    <Input
+                      type="number"
+                      placeholder="Price"
+                      min="0"
+                      value={item.price}
+                      onChange={(e) => handleItemChange(index, 'price', e.target.value)}
+                      required
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => handleRemoveItemRow(index)}
+                    className="text-destructive hover:bg-destructive/10"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 </div>
               ))}
             </div>
@@ -1188,7 +1194,7 @@ function ClientOffersContent() {
               <div className="space-y-4">
                 <div className="flex items-center gap-4">
                   <div className="flex-1 space-y-2">
-                    <Label htmlFor="discType">{t("offers.discount_type")}</Label>
+                    <Label htmlFor="discType">Discount Type</Label>
                     <Select
                       value={discountType}
                       onValueChange={(val: any) => { setDiscountType(val); setDiscountValue(0); }}
@@ -1197,71 +1203,108 @@ function ClientOffersContent() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="fixed">{t("offers.fixed_amount")}</SelectItem>
-                        <SelectItem value="percentage">{t("offers.percentage")}</SelectItem>
+                        <SelectItem value="fixed">Fixed Amount (৳)</SelectItem>
+                        <SelectItem value="percentage">Percentage (%)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="flex-1 space-y-2">
-                    <Label htmlFor="discVal">{t("bills.discount_value")}</Label>
+                    <Label htmlFor="discVal">Discount Value</Label>
                     <Input
                       id="discVal"
                       type="number"
                       min="0"
-                      value={discountValue}
+                      placeholder="0"
+                      value={discountValue || ''}
                       onChange={(e) => setDiscountValue(Math.max(0, parseFloat(e.target.value) || 0))}
                     />
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="delCharge">{t("bills.delivery_charge")}</Label>
-                  <Input
-                    id="delCharge"
-                    type="number"
-                    min="0"
-                    value={deliveryCharge}
-                    onChange={(e) => setDeliveryCharge(Math.max(0, parseFloat(e.target.value) || 0))}
-                  />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="delCharge">Delivery Charge (৳)</Label>
+                    <Input
+                      id="delCharge"
+                      type="number"
+                      min="0"
+                      placeholder="0"
+                      value={deliveryCharge || ''}
+                      onChange={(e) => setDeliveryCharge(Math.max(0, parseFloat(e.target.value) || 0))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="serviceFeeOffer">Service Fee (৳) <span className="text-muted-foreground font-normal text-xs">— Optional</span></Label>
+                    <Input
+                      id="serviceFeeOffer"
+                      type="number"
+                      min="0"
+                      placeholder="0"
+                      value={serviceFee || ''}
+                      onChange={(e) => setServiceFee(Math.max(0, parseFloat(e.target.value) || 0))}
+                    />
+                  </div>
                 </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="expectedDeliveryDate">Expected Delivery Date <span className="text-muted-foreground font-normal text-xs">— Optional</span></Label>
+                    <Input
+                      id="expectedDeliveryDate"
+                      type="date"
+                      value={expectedDeliveryDate}
+                      onChange={(e) => setExpectedDeliveryDate(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex items-center space-x-2 pt-8">
+                    <Checkbox
+                      id="vatTaxIncluded"
+                      checked={vatTaxIncluded}
+                      onCheckedChange={(checked) => setVatTaxIncluded(checked === true)}
+                    />
+                    <Label htmlFor="vatTaxIncluded" className="text-sm font-medium leading-none cursor-pointer">
+                      VAT & Tax Included
+                    </Label>
+                  </div>
+                </div>
+
                 <div className="space-y-2">
-                  <Label htmlFor="serviceFeeOffer">{t("bills.service_fee")} <span className="text-muted-foreground font-normal text-xs">— {t("bills.optional")}</span></Label>
-                  <Input
-                    id="serviceFeeOffer"
-                    type="number"
-                    min="0"
-                    placeholder="0"
-                    value={serviceFee || ''}
-                    onChange={(e) => setServiceFee(Math.max(0, parseFloat(e.target.value) || 0))}
+                  <Label htmlFor="termsAndConditions">Terms & Conditions <span className="text-muted-foreground font-normal text-xs">— Optional</span></Label>
+                  <textarea
+                    id="termsAndConditions"
+                    placeholder="Enter terms and conditions..."
+                    value={termsAndConditions}
+                    onChange={(e) => setTermsAndConditions(e.target.value)}
+                    className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                   />
                 </div>
               </div>
 
               <div className="bg-muted p-4 rounded-lg space-y-2.5 text-sm">
                 <div className="flex justify-between">
-                  <span>{t("bills.subtotal")}:</span>
+                  <span>Subtotal:</span>
                   <span className="font-medium">৳{subtotal}</span>
                 </div>
                 {discount > 0 && (
                   <div className="flex justify-between text-success">
-                    <span>{t("bills.discount")}:</span>
+                    <span>Discount:</span>
                     <span>- ৳{discount}</span>
                   </div>
                 )}
                 {deliveryCharge > 0 && (
                   <div className="flex justify-between">
-                    <span>{t("bills.delivery_charge")}:</span>
+                    <span>Delivery Charge:</span>
                     <span>৳{deliveryCharge}</span>
                   </div>
                 )}
                 {serviceFee > 0 && (
                   <div className="flex justify-between">
-                    <span>{t("bills.service_fee")}:</span>
+                    <span>Service Fee:</span>
                     <span>৳{serviceFee}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-lg font-bold border-t pt-2">
-                  <span>{t("offers.total_offer")}:</span>
+                  <span>Total Offer Value:</span>
                   <span>৳{total}</span>
                 </div>
               </div>
@@ -1269,97 +1312,171 @@ function ClientOffersContent() {
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setIsCreateOpen(false)}>
-                {t("bills.cancel")}
+                Cancel
               </Button>
               <Button type="submit" disabled={formLoading} className="bg-primary text-primary-foreground">
                 {formLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {editingOffer ? t("offers.update_offer") : t("offers.generate_offer")}
+                {editingOffer ? 'Update Offer' : 'Generate Offer'}
               </Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
-      {/* Product Selection Dialog */}
+      {/* Product Selection Dialog - Card System (Fits inside modal) */}
       <Dialog open={productPickerOpen} onOpenChange={setProductPickerOpen}>
-        <DialogContent className="max-w-3xl w-[95vw] sm:w-full max-h-[90vh] overflow-y-auto p-4 sm:p-6">
-          <DialogHeader>
-            <DialogTitle>{t("chalans.select_products_title")}</DialogTitle>
+        <DialogContent className="max-w-3xl w-[95vw] max-h-[85vh] flex flex-col p-0 overflow-hidden">
+          <DialogHeader className="p-4 pb-2 border-b">
+            <DialogTitle className="text-base font-bold flex items-center justify-between">
+              <span>Select Products</span>
+              <span className="text-xs font-normal text-muted-foreground">
+                {products.length} products available
+              </span>
+            </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+
+          <div className="p-4 space-y-3 flex-1 overflow-hidden flex flex-col">
             <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder={t("chalans.search_products") as string}
-                className="pl-8"
+                placeholder="Search products by title or SKU..."
+                className="pl-9 h-9 text-xs"
                 value={productSearchTerm}
                 onChange={(e) => setProductSearchTerm(e.target.value)}
               />
             </div>
-            <div className="border rounded-md max-h-[45vh] sm:max-h-[55vh] overflow-y-auto overflow-x-auto w-full">
-              <Table className="min-w-[600px] sm:min-w-0">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-12">Select</TableHead>
-                    <TableHead>{t("chalans.product")}</TableHead>
-                    <TableHead>{t("chalans.options_variants")}</TableHead>
-                    <TableHead className="text-right">{t("offers.price")}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {products
-                    .filter(p => p.name.toLowerCase().includes(productSearchTerm.toLowerCase()))
-                    .map((prod) => {
-                      const hasVariants = prod.variants && prod.variants.length > 0;
-                      return (
-                        <TableRow key={prod._id}>
-                          <TableCell>
-                            {!hasVariants && (
-                              <Checkbox
-                                checked={selectedProductVariants[prod._id] === null}
-                                onCheckedChange={() => toggleProductVariant(prod._id, null)}
-                              />
-                            )}
-                          </TableCell>
-                          <TableCell className="font-medium">{prod.name}</TableCell>
-                          <TableCell>
-                            {hasVariants ? (
-                              <div className="flex flex-wrap gap-2 py-1">
-                                {prod.variants.map((v: any) => {
-                                  const label = [v.color, v.size].filter(Boolean).join(' / ');
-                                  const isSelected = selectedProductVariants[prod._id] === v._id;
-                                  return (
-                                    <Button
-                                      key={v._id}
-                                      type="button"
-                                      variant={isSelected ? 'default' : 'outline'}
-                                      size="sm"
-                                      onClick={() => toggleProductVariant(prod._id, v._id)}
-                                      className="text-xs py-0.5 px-2 h-7"
-                                    >
-                                      {label} (৳{v.salePrice || v.price})
-                                    </Button>
-                                  );
-                                })}
-                              </div>
+
+            {/* Product Cards List - Fits 100% inside modal without horizontal scroll */}
+            <div className="flex-1 overflow-y-auto pr-1 space-y-2.5">
+              {products
+                .filter(p =>
+                  p.name.toLowerCase().includes(productSearchTerm.toLowerCase()) ||
+                  p.sku?.toLowerCase().includes(productSearchTerm.toLowerCase())
+                )
+                .length === 0 ? (
+                <div className="py-12 text-center text-muted-foreground text-xs border rounded-lg bg-muted/10">
+                  <Package className="h-8 w-8 mx-auto mb-2 text-muted-foreground/60 stroke-1" />
+                  No products found matching &quot;{productSearchTerm}&quot;
+                </div>
+              ) : (
+                products
+                  .filter(p =>
+                    p.name.toLowerCase().includes(productSearchTerm.toLowerCase()) ||
+                    p.sku?.toLowerCase().includes(productSearchTerm.toLowerCase())
+                  )
+                  .map((prod) => {
+                    const hasVariants = prod.variants && prod.variants.length > 0;
+                    const isBaseSelected = selectedProductVariants[prod._id] === null;
+                    const selectedVariantId = selectedProductVariants[prod._id];
+                    const isCardActive = isBaseSelected || (hasVariants && selectedVariantId);
+
+                    return (
+                      <div
+                        key={prod._id}
+                        className={`p-3 rounded-lg border transition-all text-xs ${
+                          isCardActive
+                            ? 'border-primary/60 bg-primary/5 shadow-xs'
+                            : 'border-border bg-card hover:border-primary/30 hover:bg-muted/30'
+                        }`}
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="space-y-0.5 flex-1 min-w-0">
+                            <h4 className="font-semibold text-foreground text-sm leading-tight break-words">
+                              {prod.name}
+                            </h4>
+                            <div className="flex items-center gap-2 text-muted-foreground text-xs">
+                              {prod.sku && <span>SKU: {prod.sku}</span>}
+                              <span>Base Rate:</span>
+                              <span className="font-bold text-foreground">৳{Math.round(prod.salePrice || prod.price || 0).toLocaleString()}</span>
+                            </div>
+                          </div>
+
+                          {!hasVariants && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={isBaseSelected ? 'default' : 'outline'}
+                              onClick={() => toggleProductVariant(prod._id, null)}
+                              className={`h-8 text-xs font-semibold shrink-0 sm:self-center ${
+                                isBaseSelected ? 'bg-primary text-primary-foreground' : ''
+                              }`}
+                            >
+                              {isBaseSelected ? (
+                                <>
+                                  <Check className="h-3.5 w-3.5 mr-1" /> Selected
+                                </>
                               ) : (
-                                <span className="text-xs text-muted-foreground">{t("chalans.standard_item")}</span>
+                                <>
+                                  <Plus className="h-3.5 w-3.5 mr-1" /> Select (৳{Math.round(prod.salePrice || prod.price || 0)})
+                                </>
                               )}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {!hasVariants && `৳${prod.salePrice || prod.price}`}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                </TableBody>
-              </Table>
+                            </Button>
+                          )}
+                        </div>
+
+                        {hasVariants && (
+                          <div className="mt-2.5 pt-2 border-t border-border/50">
+                            <span className="text-[11px] font-medium text-muted-foreground block mb-1.5">
+                              Available Variants:
+                            </span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {prod.variants.map((v: any) => {
+                                const variantSelected = selectedVariantId === v._id;
+                                const label = [v.color, v.size].filter(Boolean).join(' / ') || 'Option';
+                                const price = Math.round(v.salePrice || v.price || prod.salePrice || prod.price || 0);
+
+                                return (
+                                  <Button
+                                    key={v._id}
+                                    type="button"
+                                    variant={variantSelected ? 'default' : 'outline'}
+                                    size="sm"
+                                    onClick={() => toggleProductVariant(prod._id, v._id)}
+                                    className={`h-7 text-xs px-2.5 font-medium transition-all ${
+                                      variantSelected
+                                        ? 'bg-primary text-primary-foreground shadow-xs'
+                                        : 'bg-background hover:bg-muted text-foreground'
+                                    }`}
+                                  >
+                                    {variantSelected && <Check className="h-3 w-3 mr-1" />}
+                                    <span>{label}</span>
+                                    <span className="ml-1.5 font-bold opacity-90">৳{price.toLocaleString()}</span>
+                                  </Button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+              )}
             </div>
-            <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-4 border-t mt-2">
-              <span className="text-sm text-muted-foreground font-medium">{selectedCount} {t("chalans.items_selected")}</span>
-              <div className="flex gap-2 w-full sm:w-auto justify-end">
-                <Button type="button" variant="outline" className="flex-1 sm:flex-none" onClick={() => setProductPickerOpen(false)}>{t("bills.cancel")}</Button>
-                <Button type="button" className="flex-1 sm:flex-none bg-primary text-primary-foreground" onClick={handleAddSelectedProducts}>{t("chalans.add_selected")}</Button>
+
+            {/* Bottom Footer Actions */}
+            <div className="flex items-center justify-between border-t pt-3 mt-1">
+              <span className="text-xs font-medium text-muted-foreground">
+                <span className="font-bold text-foreground">{selectedCount}</span> item{selectedCount === 1 ? '' : 's'} selected
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setProductPickerOpen(false)}
+                  className="h-8 text-xs"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleAddSelectedProducts}
+                  disabled={selectedCount === 0}
+                  className="h-8 text-xs font-bold bg-primary text-primary-foreground"
+                >
+                  Add Selected ({selectedCount})
+                </Button>
               </div>
             </div>
           </div>
@@ -1368,43 +1485,69 @@ function ClientOffersContent() {
 
       {/* Offer Detail View Dialog */}
       <Dialog open={!!selectedOffer} onOpenChange={(open) => { if (!open) setSelectedOffer(null); }}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{t("offers.offer_details")} — {selectedOffer?.invoiceNo}</DialogTitle>
+            <DialogTitle>Quotation Details — {selectedOffer?.invoiceNo}</DialogTitle>
           </DialogHeader>
           {selectedOffer && (
             <div className="space-y-6">
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <h4 className="font-semibold text-muted-foreground mb-1 uppercase tracking-wider text-xs">{t("offers.quotation_to")}</h4>
-                  <p className="font-medium text-base">{selectedOffer.clientName}</p>
-                  <p className="flex items-center gap-1.5 mt-1 text-muted-foreground"><Phone className="h-3.5 w-3.5" /> {selectedOffer.clientPhone}</p>
-                  <p className="flex items-center gap-1.5 mt-1 text-muted-foreground"><MapPin className="h-3.5 w-3.5" /> {selectedOffer.clientAddress}</p>
+                  <h4 className="font-semibold text-muted-foreground mb-1 uppercase tracking-wider text-xs">Quotation To</h4>
+                  <p className="font-medium text-base break-words">{selectedOffer.clientName}</p>
+                  <p className="flex items-center gap-1.5 mt-1 text-muted-foreground"><Phone className="h-3.5 w-3.5 shrink-0" /> {selectedOffer.clientPhone}</p>
+                  {selectedOffer.clientEmail && (
+                    <p className="flex items-center gap-1.5 mt-1 text-muted-foreground break-all"><Mail className="h-3.5 w-3.5 shrink-0" /> {selectedOffer.clientEmail}</p>
+                  )}
+                  <p className="flex items-center gap-1.5 mt-1 text-muted-foreground break-words"><MapPin className="h-3.5 w-3.5 shrink-0" /> {selectedOffer.clientAddress}</p>
                 </div>
                 <div>
-                  <h4 className="font-semibold text-muted-foreground mb-1 uppercase tracking-wider text-xs">{t("chalans.document_info")}</h4>
-                  <p className="flex items-center gap-1.5 font-medium"><Hash className="h-3.5 w-3.5 text-primary" /> {selectedOffer.invoiceNo}</p>
-                  <p className="flex items-center gap-1.5 mt-1 text-muted-foreground"><CalendarDays className="h-3.5 w-3.5" /> {format(new Date(selectedOffer.date), 'dd MMM yyyy')}</p>
+                  <h4 className="font-semibold text-muted-foreground mb-1 uppercase tracking-wider text-xs">Document Info</h4>
+                  <p className="flex items-center gap-1.5 font-medium"><Hash className="h-3.5 w-3.5 text-primary shrink-0" /> {selectedOffer.invoiceNo}</p>
+                  <p className="flex items-center gap-1.5 mt-1 text-muted-foreground"><CalendarDays className="h-3.5 w-3.5 shrink-0" /> {format(new Date(selectedOffer.date), 'dd MMM yyyy')}</p>
+                  {selectedOffer.expectedDeliveryDate && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      <strong>Exp. Delivery:</strong> {format(new Date(selectedOffer.expectedDeliveryDate), 'dd MMM yyyy')}
+                    </p>
+                  )}
+                  <p className="text-xs text-muted-foreground mt-1">
+                    <strong>VAT & Tax:</strong> {selectedOffer.vatTaxIncluded !== false ? 'Included' : 'Excluded'}
+                  </p>
                 </div>
               </div>
 
-              <div className="border rounded-md overflow-hidden">
-                <Table>
+              {selectedOffer.termsAndConditions && (
+                <div className="text-xs bg-muted/50 p-2.5 rounded border">
+                  <span className="font-semibold text-muted-foreground block mb-1">Terms & Conditions:</span>
+                  <p className="whitespace-pre-wrap break-words">{selectedOffer.termsAndConditions}</p>
+                </div>
+              )}
+
+              <div className="border rounded-md overflow-x-auto">
+                <Table className="w-full">
                   <TableHeader>
                     <TableRow className="bg-muted hover:bg-muted">
-                      <TableHead>{t("chalans.description")}</TableHead>
-                      <TableHead className="text-center w-16">{t("bills.qty")}</TableHead>
-                      <TableHead className="text-right w-24">Rate</TableHead>
-                      <TableHead className="text-right w-28">{t("bills.amount")}</TableHead>
+                      <TableHead className="min-w-[200px]">Title/Description</TableHead>
+                      <TableHead className="text-center w-16 whitespace-nowrap">Qty</TableHead>
+                      <TableHead className="text-right w-24 whitespace-nowrap">Rate</TableHead>
+                      <TableHead className="text-right w-28 whitespace-nowrap">Amount</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {selectedOffer.items.map((item: any, i: number) => (
                       <TableRow key={i}>
-                        <TableCell className="font-medium">{item.name}</TableCell>
-                        <TableCell className="text-center">{item.quantity}</TableCell>
-                        <TableCell className="text-right">৳{Math.round(item.price)}</TableCell>
-                        <TableCell className="text-right font-medium">৳{Math.round(item.price * item.quantity)}</TableCell>
+                        <TableCell className="max-w-md whitespace-normal break-words">
+                          <div className="font-medium leading-snug">{item.name}</div>
+                          {item.description && (
+                            <div 
+                              className="text-xs text-muted-foreground mt-1 break-words leading-relaxed [&_p]:my-0.5 [&_ul]:pl-4 [&_ul]:list-disc [&_ol]:pl-4 [&_ol]:list-decimal"
+                              dangerouslySetInnerHTML={{ __html: generateDescriptionHtml(item.description) }}
+                            />
+                          )}
+                        </TableCell>
+                        <TableCell className="text-center whitespace-nowrap">{item.quantity}</TableCell>
+                        <TableCell className="text-right whitespace-nowrap">৳{Math.round(item.price)}</TableCell>
+                        <TableCell className="text-right font-medium whitespace-nowrap">৳{Math.round(item.price * item.quantity)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -1414,29 +1557,29 @@ function ClientOffersContent() {
               <div className="flex justify-end">
                 <div className="w-64 space-y-2 text-sm border-t pt-3">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">{t("bills.subtotal")}:</span>
+                    <span className="text-muted-foreground">Subtotal:</span>
                     <span className="font-medium">৳{Math.round(selectedOffer.subtotal)}</span>
                   </div>
                   {selectedOffer.discount > 0 && (
                     <div className="flex justify-between text-success">
-                      <span>{t("bills.discount")} ({selectedOffer.discountType === 'percentage' ? `${selectedOffer.discountValue}%` : 'Fixed'}):</span>
+                      <span>Discount ({selectedOffer.discountType === 'percentage' ? `${selectedOffer.discountValue}%` : 'Fixed'}):</span>
                       <span>- ৳{Math.round(selectedOffer.discount)}</span>
                     </div>
                   )}
                   {selectedOffer.deliveryCharge > 0 && (
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">{t("bills.delivery_charge")}:</span>
+                      <span className="text-muted-foreground">Delivery Charge:</span>
                       <span>৳{Math.round(selectedOffer.deliveryCharge)}</span>
                     </div>
                   )}
                   {selectedOffer.serviceFee > 0 && (
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">{t("bills.service_fee")}:</span>
+                      <span className="text-muted-foreground">Service Fee:</span>
                       <span>৳{Math.round(selectedOffer.serviceFee)}</span>
                     </div>
                   )}
                   <div className="flex justify-between text-base font-bold border-t pt-2">
-                    <span>{t("offers.total_offer")}:</span>
+                    <span>Total Offer:</span>
                     <span className="text-primary">৳{Math.round(selectedOffer.total)}</span>
                   </div>
                 </div>
@@ -1447,7 +1590,18 @@ function ClientOffersContent() {
                   variant="outline"
                   onClick={() => generateBillPDF(selectedOffer, settings, 'print')}
                 >
-                  <Printer className="mr-2 h-4 w-4" /> {t("offers.print_offer")}
+                  <Printer className="mr-2 h-4 w-4" /> Print Quotation
+                </Button>
+                <Button
+                  variant="outline"
+                  className="bg-primary/10 text-primary border-primary/20 hover:bg-primary/20"
+                  onClick={() => {
+                    const off = selectedOffer;
+                    setSelectedOffer(null);
+                    handleConvertToBill(off);
+                  }}
+                >
+                  <FileText className="mr-2 h-4 w-4" /> Convert to Client Bill
                 </Button>
                 <Button
                   className="bg-primary text-primary-foreground"
@@ -1457,11 +1611,215 @@ function ClientOffersContent() {
                     handleConvertToChalan(off);
                   }}
                 >
-                  <ArrowRight className="mr-2 h-4 w-4" /> {t("offers.convert_to_chalan")}
+                  <ArrowRight className="mr-2 h-4 w-4" /> Convert to Challan
                 </Button>
               </DialogFooter>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Convert to Client Bill Dialog ── */}
+      <Dialog open={isConvertBillOpen} onOpenChange={(open) => { setIsConvertBillOpen(open); if (!open) resetConvertBillForm(); }}>
+        <DialogContent className="max-w-5xl max-h-[92vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Generate Client Bill{convertingFromOffer ? ` — from ${convertingFromOffer.invoiceNo}` : ''}</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleConvertBillSubmit} className="space-y-6">
+            {/* Client Info */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-muted/20 p-4 rounded-xl border">
+              <div className="space-y-1.5">
+                <Label htmlFor="cb-clientName" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                  <User className="h-3.5 w-3.5" /> Client Name *
+                </Label>
+                <input
+                  id="cb-clientName"
+                  value={cbClientName}
+                  onChange={(e) => setCbClientName(e.target.value)}
+                  placeholder="e.g. Rahim Khan"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  required
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="cb-clientPhone" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                  <Phone className="h-3.5 w-3.5" /> Client Phone *
+                </Label>
+                <input
+                  id="cb-clientPhone"
+                  value={cbClientPhone}
+                  onChange={(e) => { setCbClientPhone(e.target.value); if (cbPhoneError) validateCbPhone(e.target.value); }}
+                  onBlur={(e) => validateCbPhone(e.target.value)}
+                  placeholder="e.g. 01712345678"
+                  className={`h-10 w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${cbPhoneError ? 'border-destructive' : 'border-input'}`}
+                  required
+                />
+                {cbPhoneError && <p className="text-[11px] text-destructive mt-0.5">{cbPhoneError}</p>}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="cb-clientEmail" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                  <Mail className="h-3.5 w-3.5" /> Email (Optional)
+                </Label>
+                <input
+                  id="cb-clientEmail"
+                  type="email"
+                  value={cbClientEmail}
+                  onChange={(e) => setCbClientEmail(e.target.value)}
+                  placeholder="e.g. client@example.com"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="cb-clientAddress" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                  <MapPin className="h-3.5 w-3.5" /> Client Address *
+                </Label>
+                <input
+                  id="cb-clientAddress"
+                  value={cbClientAddress}
+                  onChange={(e) => setCbClientAddress(e.target.value)}
+                  placeholder="e.g. Nawabpur, Dhaka"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Bill Items */}
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <h4 className="font-bold text-sm">Bill Items</h4>
+                <Button type="button" variant="outline" size="sm" onClick={() => setCbItems(prev => [...prev, { name: '', description: '', quantity: 1, price: 0 }])} className="font-bold">
+                  <Plus className="h-3 w-3 mr-1" /> Add Item
+                </Button>
+              </div>
+              <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1">
+                {cbItems.map((item, index) => (
+                  <div key={index} className="flex gap-2 items-center">
+                    <div className="flex-1 space-y-1">
+                      <input
+                        placeholder="Title"
+                        value={item.name}
+                        onChange={(e) => { const u = [...cbItems]; u[index].name = e.target.value; setCbItems(u); }}
+                        className="h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        required
+                      />
+                      <input
+                        placeholder="Description (Optional)"
+                        value={item.description || ''}
+                        onChange={(e) => { const u = [...cbItems]; u[index].description = e.target.value; setCbItems(u); }}
+                        className="h-8 w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      />
+                    </div>
+                    <input
+                      type="number" placeholder="Qty"
+                      value={item.quantity}
+                      onChange={(e) => { const u = [...cbItems]; u[index].quantity = Math.max(1, parseInt(e.target.value) || 1); setCbItems(u); }}
+                      className="w-20 h-9 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      min="1"
+                    />
+                    <input
+                      type="number" placeholder="Rate"
+                      value={item.price || ''}
+                      onChange={(e) => { const u = [...cbItems]; u[index].price = Math.max(0, parseFloat(e.target.value) || 0); setCbItems(u); }}
+                      className="w-28 h-9 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      min="0"
+                    />
+                    <Button type="button" variant="ghost" size="icon" onClick={() => { if (cbItems.length === 1) { setCbItems([{ name: '', description: '', quantity: 1, price: 0 }]); } else { setCbItems(cbItems.filter((_, i) => i !== index)); } }} className="text-destructive hover:bg-destructive/10 shrink-0 h-9 w-9">
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Totals & Adjustments */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t">
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="cb-deliveryCharge">Delivery Charge (৳)</Label>
+                    <input id="cb-deliveryCharge" type="number" value={cbDeliveryCharge || ''} onChange={(e) => setCbDeliveryCharge(Math.max(0, parseFloat(e.target.value) || 0))} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="cb-serviceFee">Service Fee (৳) <span className="text-muted-foreground font-normal text-xs">— Optional</span></Label>
+                    <input id="cb-serviceFee" type="number" value={cbServiceFee || ''} placeholder="0" onChange={(e) => setCbServiceFee(Math.max(0, parseFloat(e.target.value) || 0))} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="cb-prevDue">Previous Due (৳)</Label>
+                  <input id="cb-prevDue" type="number" value={cbPrevDue || ''} onChange={(e) => setCbPrevDue(Math.max(0, parseFloat(e.target.value) || 0))} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+                </div>
+                <div className="grid grid-cols-3 gap-2 items-end">
+                  <div className="space-y-2 col-span-1">
+                    <Label>Discount Type</Label>
+                    <Select value={cbDiscountType} onValueChange={(val: any) => { setCbDiscountType(val); setCbDiscountValue(0); }}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="fixed">Fixed (৳)</SelectItem>
+                        <SelectItem value="percentage">Percent (%)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2 col-span-2">
+                    <Label>Discount Value</Label>
+                    <input type="number" value={cbDiscountValue || ''} onChange={(e) => setCbDiscountValue(Math.max(0, parseFloat(e.target.value) || 0))} placeholder={cbDiscountType === 'percentage' ? '%' : '৳'} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="cb-cashIn">Cash-in (Paid) (৳)</Label>
+                    <input id="cb-cashIn" type="number" value={cbCashIn || ''} onChange={(e) => setCbCashIn(Math.max(0, parseFloat(e.target.value) || 0))} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Status</Label>
+                    <div className="pt-2">
+                      <Badge variant={cbCalculatedStatus === 'Paid' ? 'default' : 'destructive'} className={cbCalculatedStatus === 'Paid' ? 'bg-green-600 text-white border-none' : ''}>{cbCalculatedStatus}</Badge>
+                    </div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+                  {cbCalculatedStatus === 'Due' ? (
+                    <div className="space-y-2">
+                      <Label htmlFor="cb-expectedDate">Expected Date of Receivable *</Label>
+                      <input id="cb-expectedDate" type="date" value={cbExpectedDate} onChange={(e) => setCbExpectedDate(e.target.value)} required className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+                    </div>
+                  ) : <div />}
+                  <div className={`flex items-center space-x-2 ${cbCalculatedStatus === 'Due' ? 'pt-6' : 'pt-2'}`}>
+                    <Checkbox
+                      id="cb-vatTaxIncluded"
+                      checked={cbVatTaxIncluded}
+                      onCheckedChange={(checked) => setCbVatTaxIncluded(checked === true)}
+                    />
+                    <Label htmlFor="cb-vatTaxIncluded" className="text-sm font-medium leading-none cursor-pointer">
+                      VAT & Tax Included
+                    </Label>
+                  </div>
+                </div>
+              </div>
+
+              {/* Summary */}
+              <div className="bg-muted/40 p-4 rounded-lg space-y-3 border h-fit text-sm">
+                <h4 className="font-bold border-b pb-2 mb-2 text-base">Bill Summary</h4>
+                <div className="flex justify-between"><span>Subtotal:</span><span className="font-semibold">৳{cbSubtotal.toLocaleString()}</span></div>
+                {cbDeliveryCharge > 0 && <div className="flex justify-between"><span>Delivery Charge:</span><span>+ ৳{cbDeliveryCharge.toLocaleString()}</span></div>}
+                {cbServiceFee > 0 && <div className="flex justify-between"><span>Service Fee:</span><span>+ ৳{cbServiceFee.toLocaleString()}</span></div>}
+                {cbDiscount > 0 && <div className="flex justify-between text-green-600 font-medium"><span>Discount {cbDiscountType === 'percentage' && `(${cbDiscountValue}%)`}:</span><span>- ৳{cbDiscount.toLocaleString()}</span></div>}
+                <div className="flex justify-between border-t pt-2 font-bold text-base"><span>Total Bill:</span><span>৳{cbTotal.toLocaleString()}</span></div>
+                {cbPrevDue > 0 && <div className="flex justify-between text-muted-foreground"><span>Previous Due:</span><span>+ ৳{cbPrevDue.toLocaleString()}</span></div>}
+                <div className="flex justify-between border-t pt-2 font-bold text-lg text-primary"><span>Grand Total:</span><span>৳{cbGTotal.toLocaleString()}</span></div>
+                <div className="flex justify-between text-green-700 border-t pt-2"><span>Cash-in:</span><span>৳{cbCashIn.toLocaleString()}</span></div>
+                <div className="flex justify-between border-t pt-2 font-bold text-base text-destructive"><span>Remaining Due:</span><span>৳{cbCurrentDue.toLocaleString()}</span></div>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setIsConvertBillOpen(false)}>Cancel</Button>
+              <Button type="submit" disabled={convertBillLoading} className="font-bold">
+                {convertBillLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CreditCard className="mr-2 h-4 w-4" />}
+                Generate Bill
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>
@@ -1470,7 +1828,7 @@ function ClientOffersContent() {
 
 export default function ClientOffersPage() {
   return (
-    <Suspense fallback={<AdminTableSkeleton rowCount={6} columnCount={5} titleWidth="w-48" />}>
+    <Suspense fallback={<div className="flex h-32 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>}>
       <ClientOffersContent />
     </Suspense>
   );

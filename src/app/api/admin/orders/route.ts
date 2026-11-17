@@ -46,16 +46,6 @@ export async function POST(req: NextRequest) {
     }
     session.startTransaction();
 
-    // Fetch showroom if user is showroom_manager
-    let showroomId = undefined;
-    if (userRole === 'showroom_manager') {
-      const Showroom = (await import('@/models/Showroom')).default;
-      const showroom = await Showroom.findOne({ manager: sessionUser.user.id }).session(session);
-      if (showroom) {
-        showroomId = showroom._id;
-      }
-    }
-
     // 1. Check or Create User
     let user = await User.findOne({
       $or: [
@@ -210,6 +200,7 @@ export async function POST(req: NextRequest) {
           shippingAddress: {
             fullName: shippingAddress.fullName,
             phone: shippingAddress.phone,
+            email: shippingAddress.email,
             street: shippingAddress.street || 'Manual Order',
             city: shippingAddress.city || 'Unknown',
             state: shippingAddress.state || 'Unknown',
@@ -221,8 +212,7 @@ export async function POST(req: NextRequest) {
           paymentStatus: paymentStatus || 'Pending',
           status: status || 'Order Placed',
           shortId: crypto.randomBytes(4).toString('hex').toUpperCase(),
-          internalNote: internalNote || undefined,
-          showroom: showroomId || undefined
+          internalNote: internalNote || undefined
         }
       ],
       { session }
@@ -231,41 +221,18 @@ export async function POST(req: NextRequest) {
     await session.commitTransaction();
     session.endSession();
 
-    // Post-commit: Log payment to ledger if order was created with Paid status
-    if (newOrder.paymentStatus === 'Paid') {
-      try {
-        const { logOrderPaymentToLedger } = await import('@/lib/ledgerHelper');
-        await logOrderPaymentToLedger(newOrder);
-      } catch (ledgerErr) {
-        console.error('[Ledger] Error logging payment on manual order creation:', ledgerErr);
+    // Clean up matching Mother Shop abandoned cart
+    try {
+      const cleanPhone = (shippingAddress.phone || '').replace(/\s+/g, '').trim();
+      if (cleanPhone) {
+        const AbandonedCart = (await import('@/models/AbandonedCart')).default;
+        await AbandonedCart.deleteMany({
+          phone: cleanPhone,
+          $or: [{ resellerId: null }, { resellerId: { $exists: false } }]
+        });
       }
-    }
-
-    // Post-commit: Log AR if credit order and status is confirmed-equivalent
-    const isValidForAR = ['Confirmed', 'Paid', 'Ready for Delivery', 'Released for Delivery', 'Delivered'].includes(newOrder.status || '');
-    if (isValidForAR && (newOrder.paymentMethod === 'Credit' || newOrder.isCreditOrder) && newOrder.paymentStatus !== 'Paid') {
-      try {
-        const { logLedgerTransaction } = await import('@/lib/ledgerHelper');
-        const LedgerTransaction = (await import('@/models/LedgerTransaction')).default;
-        const amount = (newOrder.totalAmount || 0) - (newOrder.walletAmountUsed || 0);
-        const shortId = newOrder._id.toString().slice(-8).toUpperCase();
-        const arReference = `AR-ORDER-${shortId}`;
-        const arExists = await LedgerTransaction.findOne({ reference: arReference });
-        if (!arExists) {
-          await logLedgerTransaction(
-            'AR',
-            'debit',
-            amount,
-            `Credit Order Confirmed #${shortId}`,
-            arReference,
-            new Date(),
-            undefined,
-            newOrder.showroom ? newOrder.showroom.toString() : undefined
-          );
-        }
-      } catch (arErr) {
-        console.error('[Ledger] Error logging AR on manual order creation:', arErr);
-      }
+    } catch (e) {
+      console.error('Failed to delete matching abandoned cart:', e);
     }
 
     return NextResponse.json({

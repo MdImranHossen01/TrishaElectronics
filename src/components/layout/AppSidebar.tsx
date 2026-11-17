@@ -2,27 +2,30 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
+import { useSession, signOut } from "next-auth/react"
+import { handleSignOut } from "@/lib/logout"
 import {
   ChevronRight,
   LayoutDashboard,
   ShoppingBag,
-
   FileText,
   Users,
   Image as ImageIcon,
+  Monitor,
   Settings,
   Store,
   Mail,
   CreditCard,
-  RotateCcw,
+  BarChart3,
   Truck,
   Landmark,
-  X,
-  Briefcase,
+  Rocket,
+  LogOut,
 } from "lucide-react"
-import { Button } from "@/components/ui/button"
 import { Logo } from "@/components/ui/logo"
+import { useSettings } from "@/components/SettingsProvider"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 
 import {
   Collapsible,
@@ -32,8 +35,9 @@ import {
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
-
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -48,368 +52,310 @@ import {
 const data = {
   navMain: [
     {
-      title: "Dashboard",
-      tKey: "sidebar.dashboard",
+      title: "Overview",
       url: "/admin/dashboard",
       icon: LayoutDashboard,
       isActive: true,
       items: [
         {
-          title: "Overview",
-          tKey: "sidebar.overview",
+          title: "Dashboard",
           url: "/admin/dashboard",
         },
         {
-          title: "Report",
-          tKey: "sidebar.report",
-          url: "/admin/dashboard/report",
-        },
-        {
-          title: "Insight",
-          tKey: "sidebar.insight",
-          url: "/admin/dashboard/insight",
+          title: "Notifications",
+          url: "/admin/notifications",
         }
       ],
     },
     {
       title: "Product Management",
-      tKey: "sidebar.product_management",
       url: "#",
       icon: ShoppingBag,
       items: [
         {
           title: "All Products",
-          tKey: "sidebar.all_products",
           url: "/admin/products",
         },
         {
           title: "Add Product",
-          tKey: "sidebar.add_product",
           url: "/admin/products/new",
         },
         {
           title: "Upcoming Expire",
-          tKey: "sidebar.upcoming_expire",
           url: "/admin/upcoming-expiry",
         },
         {
           title: "Low Stock",
-          tKey: "sidebar.low_stock",
           url: "/admin/low-stock",
         },
         {
           title: "Categories",
-          tKey: "sidebar.categories",
           url: "/admin/categories",
         },
         {
           title: "Brands",
-          tKey: "sidebar.brands",
           url: "/admin/brands",
         },
       ],
     },
     {
-      title: "Product Return",
-      tKey: "sidebar.product_return",
-      url: "#",
-      icon: RotateCcw,
-      items: [
-        {
-          title: "New Return",
-          tKey: "sidebar.new_return",
-          url: "/admin/returns/new",
-        },
-        {
-          title: "Return List",
-          tKey: "sidebar.return_list",
-          url: "/admin/returns",
-        },
-      ],
-    },
-    {
       title: "Sales & Orders",
-      tKey: "sidebar.sales_orders",
       url: "#",
       icon: FileText,
       items: [
         {
           title: "All Orders",
-          tKey: "sidebar.all_orders",
           url: "/admin/orders",
         },
         {
           title: "Abandoned Carts",
-          tKey: "sidebar.abandoned_carts",
           url: "/admin/abandoned-carts",
         },
         {
           title: "Offers / Quotations",
-          tKey: "sidebar.offers_quotations",
           url: "/admin/offers",
         },
         {
           title: "Delivery Challans",
-          tKey: "sidebar.delivery_challans",
           url: "/admin/chalans",
         },
         {
           title: "Client Bills",
-          tKey: "sidebar.client_bills",
           url: "/admin/bills",
-        },
-        {
-          title: "Create Invoice",
-          tKey: "sidebar.create_invoice",
-          url: "/admin/bills/create",
         },
       ],
     },
     {
       title: "Suppliers & Purchases",
-      tKey: "sidebar.suppliers",
       url: "#",
       icon: Truck,
       items: [
         {
           title: "Suppliers / Vendors",
-          tKey: "sidebar.suppliers_vendors",
           url: "/admin/suppliers",
         },
         {
           title: "Supplier Bills",
-          tKey: "sidebar.supplier_bills",
           url: "/admin/supplier-bills",
         },
       ],
     },
     {
-      title: "Loan",
-      tKey: "sidebar.loan",
-      url: "#",
-      icon: Landmark,
-      items: [
-        {
-          title: "Add Loan Provider",
-          tKey: "sidebar.add_loan_provider",
-          url: "/admin/loans/providers/new",
-        },
-        {
-          title: "All Loan Providers",
-          tKey: "sidebar.all_loan_providers",
-          url: "/admin/loans/providers",
-        },
-        {
-          title: "All Loans",
-          tKey: "sidebar.all_loans",
-          url: "/admin/loans",
-        },
-        {
-          title: "Upcoming Payable",
-          tKey: "sidebar.upcoming_payable",
-          url: "/admin/loans/upcoming",
-        },
-      ],
-    },
-    {
       title: "Ledger & Accounting",
-      tKey: "sidebar.ledger_accounting",
       url: "#",
       icon: CreditCard,
       items: [
         {
           title: "All Accounts",
-          tKey: "sidebar.all_accounts",
           url: "/admin/accounts",
         },
         {
-          title: "Add Account",
-          tKey: "sidebar.add_account",
-          url: "/admin/accounts/new",
-        },
-        {
           title: "Expenses & Incomes",
-          tKey: "sidebar.expenses_incomes",
           url: "/admin/expenses-incomes",
         },
         {
           title: "Add New Entry",
-          tKey: "sidebar.add_expense_income",
           url: "/admin/expenses-incomes?action=new",
         },
         {
           title: "Category",
-          tKey: "sidebar.add_category",
           url: "/admin/expenses-incomes/categories",
         },
-
         {
           title: "Accounts Ledger",
-          tKey: "sidebar.accounts_ledger",
-          url: "/admin/ledger"
-        },
-        {
-          title: "Account Receivable",
-          tKey: "sidebar.account_receivable",
-          url: "/admin/ledger/receivable"
+          url: "/admin/ledger",
         },
         {
           title: "Account Payable",
-          tKey: "sidebar.account_payable",
-          url: "/admin/ledger/payable"
+          url: "/admin/ledger/payable",
+        },
+        {
+          title: "Account Receivable",
+          url: "/admin/ledger/receivable",
         },
       ],
     },
     {
-      title: "Showrooms",
-      tKey: "sidebar.showrooms",
+      title: "Loan",
       url: "#",
-      icon: Store,
+      icon: Landmark,
       items: [
         {
-          title: "Showrooms",
-          tKey: "sidebar.showrooms",
-          url: "/admin/showrooms",
+          title: "Add Loan Provider",
+          url: "/admin/loans/providers/new",
         },
         {
-          title: "Add Showroom",
-          tKey: "sidebar.add_showroom",
-          url: "/admin/showrooms?action=add",
-        }
+          title: "All Loan Providers",
+          url: "/admin/loans/providers",
+        },
+        {
+          title: "All Loans",
+          url: "/admin/loans",
+        },
+        {
+          title: "Upcoming Payable",
+          url: "/admin/loans/upcoming",
+        },
       ],
     },
     {
-      title: "Customer Management",
-      tKey: "sidebar.customer_management",
+      title: "Reports & Analytics",
+      url: "#",
+      icon: BarChart3,
+      items: [
+        {
+          title: "Daily Report",
+          url: "/admin/reports/daily",
+        },
+        {
+          title: "Monthly Report",
+          url: "/admin/reports/monthly",
+        },
+        {
+          title: "Order Profit Report",
+          url: "/admin/reports/order-profit",
+        },
+        {
+          title: "Item Profit Report",
+          url: "/admin/reports/item-profit",
+        },
+        {
+          title: "Top & Low Sales",
+          url: "/admin/reports/product-sales",
+        },
+        {
+          title: "Reseller Sales",
+          url: "/admin/reports/reseller-sales",
+        },
+        {
+          title: "Reseller Commission",
+          url: "/admin/reports/reseller-commission",
+        },
+        {
+          title: "Brand Wise Sales",
+          url: "/admin/reports/brand-sales",
+        },
+        {
+          title: "Purchase Report",
+          url: "/admin/reports/purchase",
+        },
+        {
+          title: "Expense Report",
+          url: "/admin/reports/expense",
+        },
+      ],
+    },
+    {
+      title: "User Management",
       url: "#",
       icon: Users,
       items: [
         {
           title: "All Users",
-          tKey: "sidebar.all_users",
-          url: "/admin/users"
+          url: "/admin/users",
         },
         {
-          title: "System Users",
-          tKey: "sidebar.system_users",
-          url: "/admin/system-users"
+          title: "Customers",
+          url: "/admin/users?role=user",
         },
         {
-          title: "Wholesalers",
-          tKey: "sidebar.wholesalers",
-          url: "/admin/wholesalers",
+          title: "Resellers",
+          url: "/admin/users?role=reseller",
         },
         {
-          title: "Areas",
-          tKey: "sidebar.areas",
-          url: "/admin/areas",
+          title: "Admins",
+          url: "/admin/users?role=admin",
+        },
+        {
+          title: "Managers",
+          url: "/admin/users?role=manager",
+        },
+        {
+          title: "Moderators",
+          url: "/admin/users?role=moderator",
         },
       ],
     },
     {
-      title: "Employee Management",
-      tKey: "sidebar.employee_management",
+      title: "Reseller Management",
       url: "#",
-      icon: Briefcase,
+      icon: Store,
       items: [
         {
-          title: "Employees",
-          tKey: "sidebar.employees",
-          url: "/admin/employees",
+          title: "Resellers",
+          url: "/admin/resellers",
         },
         {
-          title: "Task Management",
-          tKey: "sidebar.task_management",
-          url: "/admin/task-management",
+          title: "Pending Approval",
+          url: "/admin/resellers?status=pending",
         },
         {
-          title: "Showroom Managers",
-          tKey: "sidebar.showroom_managers",
-          url: "/admin/showroom-managers",
+          title: "Reseller Payouts",
+          url: "/admin/payouts",
         },
       ],
     },
     {
       title: "CMS Manager",
-      tKey: "sidebar.cms_manager",
       url: "#",
       icon: ImageIcon,
       items: [
         {
           title: "Banners",
-          tKey: "sidebar.banners",
           url: "/admin/cms/banners",
         },
+      ],
+    },
+    {
+      title: "Landing Pages",
+      url: "#",
+      icon: Monitor,
+      items: [
         {
-          title: "Landing Pages",
-          tKey: "sidebar.landing_pages",
+          title: "All Landing Pages",
           url: "/admin/landing-pages",
-        },
-        {
-          title: "Testimonials",
-          tKey: "sidebar.testimonials",
-          url: "/admin/cms/testimonials",
-        },
-        {
-          title: "FAQs",
-          tKey: "sidebar.faqs",
-          url: "/admin/cms/faqs",
         },
       ],
     },
     {
       title: "Blogs",
-      tKey: "sidebar.blogs",
       url: "#",
       icon: FileText,
       items: [
         {
           title: "Manage Blog",
-          tKey: "sidebar.manage_blog",
           url: "/admin/blogs",
         },
         {
           title: "Add New Blog",
-          tKey: "sidebar.add_new_blog",
           url: "/admin/blogs/new",
         },
       ],
     },
     {
       title: "System Settings",
-      tKey: "sidebar.system_settings",
       url: "#",
       icon: Settings,
       items: [
         {
           title: "Coupons",
-          tKey: "sidebar.coupons",
           url: "/admin/coupons",
         },
         {
           title: "General Settings",
-          tKey: "sidebar.general_settings",
           url: "/admin/settings",
         },
         {
-          title: "Profile",
-          tKey: "sidebar.profile",
-          url: "/admin/settings/profile",
-        },
-        {
           title: "Marketing Settings",
-          tKey: "sidebar.marketing_settings",
           url: "/admin/marketing",
         },
         {
           title: "Subscribers",
-          tKey: "sidebar.subscribers",
           url: "/admin/subscribers",
           icon: Mail,
         },
         {
           title: "Infrastructure & Marketing",
-          tKey: "sidebar.infrastructure_marketing",
           url: "/admin/system-design",
           superOnly: true
         },
@@ -418,28 +364,188 @@ const data = {
   ],
 }
 
+function isUrlActive(
+  itemUrl: string,
+  pathname: string,
+  searchParams: ReturnType<typeof useSearchParams> | null,
+  allSiblingUrls: string[]
+) {
+  if (!itemUrl || itemUrl === "#" || itemUrl === "/admin") {
+    return pathname === itemUrl;
+  }
 
-import { useSession } from "next-auth/react"
-import { useLanguage } from "@/contexts/LanguageContext"
+  // Parse path and query params from itemUrl
+  const [itemPath, itemQuery] = itemUrl.split("?");
 
-function NavMain({ items, pathname, role }: { items: typeof data.navMain; pathname: string; role?: string }) {
+  if (itemQuery) {
+    // If the menu item specifies query parameters (e.g. /admin/users?role=admin)
+    if (pathname !== itemPath) return false;
+    if (!searchParams) return false;
+
+    const itemSearchParams = new URLSearchParams(itemQuery);
+    for (const [key, val] of itemSearchParams.entries()) {
+      if (searchParams.get(key) !== val) {
+        return false;
+      }
+    }
+    return true;
+  } else {
+    // Menu item has NO query parameters (e.g. /admin/users)
+    const pathMatches =
+      pathname === itemPath ||
+      (pathname.startsWith(itemPath + "/") &&
+        !allSiblingUrls.some(
+          (other) =>
+            other !== itemUrl &&
+            other.length > itemUrl.length &&
+            (pathname === other || pathname.startsWith(other + "/"))
+        ));
+
+    if (!pathMatches) return false;
+
+    // If pathname matches, check if any other sibling specifically matches current searchParams
+    if (searchParams && searchParams.toString().length > 0) {
+      const moreSpecificSiblingMatches = allSiblingUrls.some((siblingUrl) => {
+        if (!siblingUrl.includes("?")) return false;
+        const [sibPath, sibQuery] = siblingUrl.split("?");
+        if (sibPath !== pathname) return false;
+        const sibSearchParams = new URLSearchParams(sibQuery);
+        for (const [key, val] of sibSearchParams.entries()) {
+          if (searchParams.get(key) !== val) return false;
+        }
+        return true;
+      });
+
+      if (moreSpecificSiblingMatches) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+}
+
+function NavMainCollapsibleItem({
+  item,
+  pathname,
+  searchParams,
+  handleLinkClick,
+}: {
+  item: any;
+  pathname: string;
+  searchParams: ReturnType<typeof useSearchParams> | null;
+  handleLinkClick: () => void;
+}) {
+  const siblingUrls = item.items.map((subItem: any) => subItem.url);
+  const isParentActive =
+    item.items.some((subItem: any) =>
+      isUrlActive(subItem.url, pathname, searchParams, siblingUrls)
+    ) || isUrlActive(item.url, pathname, searchParams, []);
+
+  const [isOpen, setIsOpen] = React.useState(isParentActive);
+
+  React.useEffect(() => {
+    if (isParentActive) {
+      setIsOpen(true);
+    }
+  }, [isParentActive]);
+
+  return (
+    <Collapsible
+      open={isOpen}
+      onOpenChange={setIsOpen}
+      className="group/collapsible"
+    >
+      <SidebarMenuItem>
+        <CollapsibleTrigger
+          render={
+            <SidebarMenuButton
+              tooltip={item.title}
+              isActive={isParentActive}
+              className={`h-10 rounded-xl px-3 transition-all duration-200 ${
+                isParentActive
+                  ? "!bg-primary !text-white font-bold shadow-md shadow-primary/30 data-active:!bg-primary data-active:!text-white data-[active=true]:!bg-primary data-[active=true]:!text-white"
+                  : "text-slate-300 hover:text-white hover:bg-slate-800/60"
+              }`}
+            />
+          }
+        >
+          {item.icon && <item.icon className={`h-5 w-5 shrink-0 ${isParentActive ? "!text-white" : "text-slate-300"}`} />}
+          <span className={`text-sm font-medium tracking-tight ml-1.5 ${isParentActive ? "!text-white font-bold" : "text-slate-200"}`}>
+            {item.title}
+          </span>
+          <ChevronRight className={`ml-auto h-4 w-4 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90 group-data-open/collapsible:rotate-90 group-[[data-state=open]]/collapsible:rotate-90 ${isParentActive ? "!text-white opacity-90" : "text-slate-400 opacity-70"}`} />
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <SidebarMenuSub className="ml-4 pl-2 border-l border-slate-800/80 my-1 space-y-1">
+            {item.items.map((subItem: any) => {
+              const isSubActive = isUrlActive(subItem.url, pathname, searchParams, siblingUrls);
+
+              return (
+                <SidebarMenuSubItem key={subItem.title}>
+                  <SidebarMenuSubButton
+                    render={<Link href={subItem.url} onClick={handleLinkClick} />}
+                    isActive={isSubActive}
+                    className={`h-8 rounded-lg px-3 text-xs transition-all duration-150 ${
+                      isSubActive
+                        ? "!bg-primary !text-white font-bold shadow-sm data-active:!bg-primary data-active:!text-white"
+                        : "text-slate-400 hover:text-white hover:bg-slate-800/60"
+                    }`}
+                  >
+                    <span className={isSubActive ? "!text-white font-bold" : ""}>{subItem.title}</span>
+                  </SidebarMenuSubButton>
+                </SidebarMenuSubItem>
+              );
+            })}
+          </SidebarMenuSub>
+        </CollapsibleContent>
+      </SidebarMenuItem>
+    </Collapsible>
+  );
+}
+
+function NavMain({
+  items,
+  pathname,
+  searchParams,
+  role
+}: {
+  items: typeof data.navMain;
+  pathname: string;
+  searchParams: ReturnType<typeof useSearchParams> | null;
+  role?: string;
+}) {
   const { setOpenMobile, isMobile } = useSidebar()
-  const { t } = useLanguage()
 
-  // Filter items based on role
+  const isLimitedStaff = role === 'manager' || role === 'moderator';
+  const allowedPrefixes = [
+    "/admin/dashboard",
+    "/admin/products",
+    "/admin/categories",
+    "/admin/brands",
+    "/admin/upcoming-expiry",
+    "/admin/low-stock",
+    "/admin/orders",
+    "/admin/offers",
+    "/admin/coupons",
+    "/admin/chalans",
+    "/admin/bills",
+    "/admin/abandoned-carts",
+    "/admin/cms",
+    "/admin/landing-pages",
+    "/admin/catalog",
+    "/admin/blogs",
+    "/admin/subscribers",
+    "/admin/fraud-checker",
+    "/admin/marketing"
+  ];
+
   const filteredItems = items.map(item => ({
     ...item,
     items: item.items.filter((subItem: any) => {
-      if (subItem.superOnly && role !== 'super_admin') return false;
-      if (role === 'showroom_manager') {
-        const allowedUrls = [
-          '/admin/dashboard',
-          '/admin/showrooms',
-          '/admin/products',
-          '/admin/orders',
-          '/admin/expenses-incomes'
-        ];
-        return allowedUrls.includes(subItem.url);
+      if (subItem.superOnly && role !== 'super_admin' && role !== 'admin') return false;
+      if (isLimitedStaff) {
+        return allowedPrefixes.some(prefix => subItem.url === prefix || subItem.url.startsWith(prefix + "/") || subItem.url.startsWith(prefix + "?"));
       }
       return true;
     })
@@ -451,103 +557,99 @@ function NavMain({ items, pathname, role }: { items: typeof data.navMain; pathna
     }
   }
 
-  const handleItemClick = (e: React.MouseEvent<HTMLAnchorElement>, url: string) => {
-    if (url === '/admin/expenses-incomes?action=new') {
-      e.preventDefault();
-      window.dispatchEvent(new Event('open-transaction-dialog'));
-      if (isMobile) {
-        setOpenMobile(false);
-      }
-    } else {
-      handleLinkClick();
-    }
-  }
-
   return (
-    <SidebarGroup>
-      <SidebarMenu>
-        {filteredItems.map((item) => {
-          const isParentActive =
-            item.items.some(
-              (subItem) =>
-                pathname === subItem.url ||
-                (subItem.url !== "#" &&
-                  subItem.url !== "/admin" &&
-                  pathname.startsWith(subItem.url + "/"))
-            ) || pathname === item.url
-
-          return (
-            <Collapsible
-              key={item.title}
-              defaultOpen={isParentActive}
-              className="group/collapsible"
-            >
-              <SidebarMenuItem>
-                <CollapsibleTrigger render={<SidebarMenuButton tooltip={t(item.tKey as string) || item.title} isActive={isParentActive} />}>
-                  {item.icon && <item.icon />}
-                  <span>{t(item.tKey as string) || item.title}</span>
-                  <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90 group-data-open/collapsible:rotate-90 group-[[data-state=open]]/collapsible:rotate-90" />
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <SidebarMenuSub>
-                    {item.items.map((subItem) => (
-                      <SidebarMenuSubItem key={subItem.title}>
-                        <SidebarMenuSubButton
-                          render={<Link href={subItem.url} onClick={(e) => handleItemClick(e, subItem.url)} />}
-                          isActive={
-                            pathname === subItem.url ||
-                            (subItem.url !== "#" &&
-                              subItem.url !== "/admin" &&
-                              pathname.startsWith(subItem.url + "/") &&
-                              !item.items.some(
-                                (otherItem) =>
-                                  otherItem !== subItem &&
-                                  otherItem.url.length > subItem.url.length &&
-                                  (pathname === otherItem.url || pathname.startsWith(otherItem.url + "/"))
-                              ))
-                          }
-                        >
-                          <span>{subItem.tKey ? t(subItem.tKey as string) : subItem.title}</span>
-                        </SidebarMenuSubButton>
-                      </SidebarMenuSubItem>
-                    ))}
-                  </SidebarMenuSub>
-                </CollapsibleContent>
-              </SidebarMenuItem>
-            </Collapsible>
-          )
-        })}
+    <SidebarGroup className="py-2">
+      <SidebarMenu className="gap-1">
+        {filteredItems.map((item) => (
+          <NavMainCollapsibleItem
+            key={item.title}
+            item={item}
+            pathname={pathname}
+            searchParams={searchParams}
+            handleLinkClick={handleLinkClick}
+          />
+        ))}
       </SidebarMenu>
     </SidebarGroup>
   )
 }
 
+function NavMainWithSearchParams({
+  items,
+  pathname,
+  role
+}: {
+  items: typeof data.navMain;
+  pathname: string;
+  role?: string;
+}) {
+  const searchParams = useSearchParams();
+  return <NavMain items={items} pathname={pathname} searchParams={searchParams} role={role} />;
+}
+
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
   const { data: session } = useSession()
+  const { brandName } = useSettings()
   const role = (session?.user as any)?.role
+  const user = session?.user
 
-  const { toggleSidebar } = useSidebar()
+  const rawBrand = (brandName || process.env.NEXT_PUBLIC_STORE_NAME || "TRISHNA ELECTRONICS").trim()
+  const upperBrand = rawBrand.toUpperCase()
+
+  const brandDisplay = upperBrand.endsWith("BAZ") ? (
+    <>
+      <span className="text-white group-hover:text-white">{upperBrand.slice(0, -3)}</span>
+      <span className="text-primary group-hover:text-primary">BAZ</span>
+    </>
+  ) : (
+    <span className="text-white group-hover:text-white">{upperBrand}</span>
+  )
 
   return (
-    <Sidebar {...props}>
-      <SidebarHeader className="border-b h-14 lg:h-[60px] px-4 flex items-center relative">
-        <Logo textClassName="text-sm md:text-base font-black tracking-wide whitespace-nowrap" />
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={toggleSidebar}
-          className="hidden md:flex absolute top-0 right-0 h-6 w-6 rounded-none rounded-bl-md"
-          aria-label="Close sidebar"
+    <Sidebar {...props} className="border-r border-slate-800/80 bg-[#0a152e] text-slate-100">
+      <SidebarHeader className="border-b border-slate-800/80 h-14 px-3 flex flex-row items-center justify-center bg-[#0a152e]">
+        <Logo
+          href="/"
+          className="flex items-center justify-center gap-2.5 w-full mx-auto"
+          imageClassName="!size-8 shrink-0 rounded-md"
+          textClassName="!text-lg md:!text-xl font-black tracking-tight font-logo truncate max-w-[190px] group-data-[collapsible=icon]:hidden"
         >
-          <X className="h-3.5 w-3.5" />
-        </Button>
+          {brandDisplay}
+        </Logo>
       </SidebarHeader>
-      <SidebarContent className="gap-0">
-        <NavMain items={data.navMain} pathname={pathname} role={role} />
+
+      <SidebarContent className="gap-0 bg-[#0a152e] scrollbar-thin scrollbar-thumb-slate-800">
+        <React.Suspense fallback={<NavMain items={data.navMain} pathname={pathname} searchParams={null} role={role} />}>
+          <NavMainWithSearchParams items={data.navMain} pathname={pathname} role={role} />
+        </React.Suspense>
       </SidebarContent>
+
+      <SidebarFooter className="border-t border-slate-800/80 p-3 bg-[#081024]">
+        {/* User Profile Mini Footer */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <Avatar className="h-8 w-8 border border-slate-700">
+              <AvatarImage src={user?.image || ""} alt={user?.name || "Admin"} />
+              <AvatarFallback className="bg-primary text-white font-bold text-xs">
+                {user?.name ? user.name.slice(0, 2).toUpperCase() : "AD"}
+              </AvatarFallback>
+            </Avatar>
+            <div className="min-w-0">
+              <p className="text-xs font-bold text-slate-100 truncate">{user?.name || "Admin User"}</p>
+              <p className="text-[10px] text-slate-400 capitalize">{role || "Administrator"}</p>
+            </div>
+          </div>
+          <button
+            onClick={() => handleSignOut('/login')}
+            className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800/60 rounded-lg transition-colors"
+            title="Log Out"
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
+        </div>
+      </SidebarFooter>
       <SidebarRail />
     </Sidebar>
   )
 }
-

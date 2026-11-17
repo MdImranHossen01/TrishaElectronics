@@ -2,12 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import connectToDatabase from '@/lib/db';
 import Bill from '@/models/Bill';
-import { normalizePhoneNumber } from '@/lib/utils';
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await auth();
-    if (!session || !(['admin', 'super_admin', 'manager'].includes((session?.user as any)?.role))) {
+    if (!session || !(['admin', 'super_admin', 'manager', 'moderator'].includes((session?.user as any)?.role))) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
@@ -49,12 +48,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const {
       clientName,
       clientPhone,
-      clientAddress,
       clientEmail,
-      clientDivision,
-      clientDistrict,
-      clientThana,
-      clientArea,
+      clientAddress,
       items,
       subtotal,
       deliveryCharge,
@@ -62,29 +57,24 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       discountType,
       discountValue,
       discount,
-      couponCode,
-      couponDiscount,
-      walletAmountUsed,
       total,
       prevDue,
       gTotal,
       cashIn,
-      changeReturn,
       currentBillDue,
       status,
       expectedReceivableDate,
+      expectedDeliveryDate,
+      termsAndConditions,
+      vatTaxIncluded,
       documentType,
       convertedFrom,
     } = body;
 
     if (clientName !== undefined) bill.clientName = clientName;
-    if (clientPhone !== undefined) bill.clientPhone = normalizePhoneNumber(clientPhone);
-    if (clientAddress !== undefined) bill.clientAddress = clientAddress;
+    if (clientPhone !== undefined) bill.clientPhone = clientPhone;
     if (clientEmail !== undefined) bill.clientEmail = clientEmail;
-    if (clientDivision !== undefined) bill.clientDivision = clientDivision;
-    if (clientDistrict !== undefined) bill.clientDistrict = clientDistrict;
-    if (clientThana !== undefined) bill.clientThana = clientThana;
-    if (clientArea !== undefined) bill.clientArea = clientArea;
+    if (clientAddress !== undefined) bill.clientAddress = clientAddress;
     if (items !== undefined) bill.items = items;
     if (subtotal !== undefined) bill.subtotal = subtotal;
     if (deliveryCharge !== undefined) bill.deliveryCharge = deliveryCharge;
@@ -92,18 +82,19 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     if (discountType !== undefined) bill.discountType = discountType;
     if (discountValue !== undefined) bill.discountValue = discountValue;
     if (discount !== undefined) bill.discount = discount;
-    if (couponCode !== undefined) bill.couponCode = couponCode ? couponCode.toUpperCase() : undefined;
-    if (couponDiscount !== undefined) bill.couponDiscount = couponDiscount;
-    if (walletAmountUsed !== undefined) bill.walletAmountUsed = walletAmountUsed;
     if (total !== undefined) bill.total = total;
     if (prevDue !== undefined) bill.prevDue = prevDue;
     if (gTotal !== undefined) bill.gTotal = gTotal;
     if (cashIn !== undefined) bill.cashIn = cashIn;
-    if (changeReturn !== undefined) bill.changeReturn = changeReturn;
     if (currentBillDue !== undefined) bill.currentBillDue = currentBillDue;
     if (status !== undefined) bill.status = status;
     if (documentType !== undefined) bill.documentType = documentType;
     if (convertedFrom !== undefined) bill.convertedFrom = convertedFrom;
+    if (vatTaxIncluded !== undefined) bill.vatTaxIncluded = Boolean(vatTaxIncluded);
+    if (termsAndConditions !== undefined) bill.termsAndConditions = termsAndConditions;
+    if (expectedDeliveryDate !== undefined) {
+      bill.expectedDeliveryDate = expectedDeliveryDate ? new Date(expectedDeliveryDate) : undefined;
+    }
     
     if (status === 'Paid') {
       bill.currentBillDue = 0;
@@ -115,22 +106,15 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
     await bill.save();
 
-    // Upsert customer info to User database
-    try {
-      const { upsertCustomer } = await import('@/lib/customerHelper');
-      await upsertCustomer(bill.clientName, bill.clientPhone, bill.clientAddress);
-    } catch (custErr) {
-      console.error('Error upserting customer during update:', custErr);
-    }
-
     // Log payment updates to ledger
     const paymentReceived = (bill.cashIn || 0) - prevCashInValue;
     if (paymentReceived > 0 && bill.documentType === 'bill') {
       try {
         const { logLedgerTransaction } = await import('@/lib/ledgerHelper');
-        // Debit Cash by the payment amount
+        const targetAccountCode = (body.accountCode as any) || (body.paymentMethod === 'bank' ? 'BANK' : 'CASH');
+        // Debit payment account (Cash or Bank) by the payment amount
         await logLedgerTransaction(
-          'CASH',
+          targetAccountCode,
           'debit',
           paymentReceived,
           `Payment Received for Bill ${bill.invoiceNo}`,
@@ -144,6 +128,22 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           `Payment credit for Bill ${bill.invoiceNo}`,
           bill.invoiceNo
         );
+
+        // Log income into Expense collection for /admin/expenses-incomes and financial reports
+        try {
+          const Expense = (await import('@/models/Expense')).default;
+          await Expense.create({
+            title: `Bill Payment Received #${bill.invoiceNo}`,
+            amount: paymentReceived,
+            category: 'Sales Revenue',
+            type: 'income',
+            date: new Date(),
+            reference: bill.invoiceNo,
+            description: `Payment received for Bill ${bill.invoiceNo} from ${bill.clientName}`
+          });
+        } catch (expErr) {
+          console.error('Error logging bill payment to Expense collection:', expErr);
+        }
       } catch (err) {
         console.error('Error logging to ledger:', err);
       }
@@ -166,10 +166,48 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     const { id } = await params;
     await connectToDatabase();
 
-    const bill = await Bill.findByIdAndDelete(id);
+    const bill = await Bill.findById(id);
     if (!bill) {
       return NextResponse.json({ message: 'Bill not found' }, { status: 404 });
     }
+
+    // Delete associated ledger transactions for this bill
+    try {
+      const LedgerTransaction = (await import('@/models/LedgerTransaction')).default;
+      const { recalculateLedgerBalance } = await import('@/lib/ledgerHelper');
+
+      if (bill.invoiceNo) {
+        await LedgerTransaction.deleteMany({
+          $or: [
+            { reference: bill.invoiceNo },
+            { description: { $regex: bill.invoiceNo, $options: 'i' } }
+          ]
+        });
+        await recalculateLedgerBalance('AR');
+        await recalculateLedgerBalance('CASH');
+        await recalculateLedgerBalance('BANK');
+      }
+    } catch (err) {
+      console.error('Error removing ledger transactions for bill:', err);
+    }
+
+    // Delete associated Expense/Income entries for this bill
+    try {
+      const Expense = (await import('@/models/Expense')).default;
+      await Expense.deleteMany({
+        $or: [
+          { bill: bill._id },
+          { invoiceNo: bill.invoiceNo },
+          { reference: bill.invoiceNo },
+          { title: { $regex: bill.invoiceNo, $options: 'i' } },
+          { description: { $regex: bill.invoiceNo, $options: 'i' } }
+        ]
+      });
+    } catch (err) {
+      console.error('Error removing expense entries for bill:', err);
+    }
+
+    await Bill.findByIdAndDelete(id);
 
     return NextResponse.json({ message: 'Bill deleted successfully' });
   } catch (error: any) {

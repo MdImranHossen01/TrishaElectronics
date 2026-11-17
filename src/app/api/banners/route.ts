@@ -4,11 +4,16 @@ import connectToDatabase from '@/lib/db';
 import Banner from '@/models/Banner';
 import { auth } from '@/auth';
 
-// GET all active banners
+// GET all active global banners (admin only, not reseller banners)
 export async function GET() {
   try {
     await connectToDatabase();
-    const banners = await Banner.find({ isActive: true }).sort({ order: 1 });
+    // Only return admin/global banners (resellerId: null).
+    // Reseller banners are served via /api/reseller/cms/banners for their own storefronts.
+    const banners = await Banner.find({
+      isActive: true,
+      $or: [{ resellerId: null }, { resellerId: { $exists: false } }]
+    }).sort({ order: 1 });
     return NextResponse.json(banners);
   } catch (error) {
     console.error('Error fetching banners:', error);

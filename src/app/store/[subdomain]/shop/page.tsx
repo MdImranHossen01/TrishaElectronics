@@ -1,0 +1,270 @@
+import { headers } from 'next/headers';
+import { notFound } from 'next/navigation';
+import { Suspense } from 'react';
+import dbConnect from '@/lib/db';
+import Reseller from '@/models/Reseller';
+import ResellerProduct from '@/models/ResellerProduct';
+import { getCachedCategories, getCachedBrands } from '@/lib/data-fetching';
+import { ShopHeaderSkeleton, ProductCardSkeleton } from '@/components/storefront/Skeletons';
+import { ShopListingSelector } from '@/components/templates/ServerRegistry';
+import { NavbarSelector } from '@/components/templates/Registry';
+import { FooterSelector } from '@/components/templates/ServerRegistry';
+import { SettingsProvider } from '@/components/SettingsProvider';
+import { ResellerPixels } from '@/components/reseller/ResellerPixels';
+import type { Metadata } from 'next';
+import { resolveRequestHost } from '@/lib/seo';
+
+export const dynamic = 'force-dynamic';
+
+interface Props {
+  params: Promise<{ subdomain: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}
+
+async function getReseller(subdomain: string) {
+  await dbConnect();
+  return Reseller.findOne({ subdomain, status: 'active' }).lean();
+}
+
+export async function generateMetadata({ params }: { params: Promise<{ subdomain: string }> }): Promise<Metadata> {
+  const { subdomain } = await params;
+  const reseller = await getReseller(subdomain);
+  if (!reseller) return { title: 'Store Not Found' };
+
+  const headersList = await headers();
+  const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'trishnaelectronics.com';
+  const defaultSubdomainHost = `${(reseller as any).subdomain || subdomain}.${rootDomain}`;
+  const incomingHost = resolveRequestHost(headersList, defaultSubdomainHost);
+  const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
+  const canonicalUrl = `${protocol}://${incomingHost}/shop`;
+
+  return {
+    title: 'Shop All Products',
+    description: reseller.description || `Explore and buy products at ${reseller.storeName}`,
+    alternates: {
+      canonical: canonicalUrl,
+    },
+    openGraph: {
+      title: `Shop All Products | ${reseller.storeName}`,
+      description: `Explore products at ${reseller.storeName}`,
+      url: canonicalUrl,
+    },
+  };
+}
+
+export default async function ResellerShopPage({ params, searchParams }: Props) {
+  const { subdomain } = await params;
+  const reseller = await getReseller(subdomain);
+  if (!reseller) notFound();
+
+  await dbConnect();
+
+  // Load reseller's assigned products with parent product populated
+  const [resellerProducts, categories, brands] = await Promise.all([
+    ResellerProduct.find({
+      resellerId: reseller._id,
+      isPublished: true,
+      isAvailableOnMother: true,
+      stock: { $gt: 0 },
+    })
+      .populate({
+        path: 'productId',
+        populate: [
+          { path: 'categories' },
+          { path: 'brand' }
+        ]
+      })
+      .sort({ createdAt: -1, _id: -1 })
+      .lean(),
+    getCachedCategories(),
+    getCachedBrands(),
+  ]);
+
+  // Format reseller products so they match the standard storefront Product shape
+  const allFormatted = (resellerProducts || [])
+    .filter((rp: any) => {
+      const parent = rp.productId;
+      if (!parent) return false;
+      if (parent.isPublished === false) return false;
+      if (parent.uploadedBy && parent.isApprovedByAdmin !== true) return false;
+      return true;
+    })
+    .map((rp: any) => {
+    const parent = rp.productId || {};
+    const finalPrice = typeof rp.retailPrice === 'number' && !isNaN(rp.retailPrice)
+      ? rp.retailPrice
+      : (typeof parent.price === 'number' ? parent.price : 0);
+
+    // isOwnProduct: uploaded directly by this reseller
+    const isOwnProduct = Boolean(parent.uploadedBy &&
+      parent.uploadedBy.toString() === reseller._id.toString());
+
+    let regularPrice = finalPrice;
+    let salePrice: number | undefined = undefined;
+
+    if (isOwnProduct) {
+      if (typeof parent.price === 'number' && typeof parent.salePrice === 'number' && parent.price > parent.salePrice) {
+        regularPrice = parent.price;
+        salePrice = parent.salePrice;
+      }
+    } else if (!parent.uploadedBy) {
+      if (typeof parent.price === 'number' && parent.price > finalPrice && typeof parent.salePrice === 'number') {
+        regularPrice = parent.price;
+        salePrice = finalPrice;
+      }
+    }
+
+    // Merge parent variants with reseller's custom variant pricing
+    const parentVariants = Array.isArray(parent.variants) ? parent.variants : [];
+    const rpVariants = Array.isArray(rp.variants) ? rp.variants : [];
+
+    const mergedVariants = parentVariants.map((v: any, idx: number) => {
+      const match = rpVariants.find((rv: any) =>
+        String(rv.color || '').trim().toLowerCase() === String(v.color || '').trim().toLowerCase() &&
+        String(rv.size || '').trim().toLowerCase() === String(v.size || '').trim().toLowerCase()
+      );
+      const varRetailPrice = match?.retailPrice || (idx === 0 ? finalPrice : (v.price || finalPrice));
+      let varRegularPrice = varRetailPrice;
+      let varSalePrice: number | undefined = undefined;
+
+      if (isOwnProduct) {
+        if (typeof v.price === 'number' && typeof v.salePrice === 'number' && v.price > v.salePrice) {
+          varRegularPrice = v.price;
+          varSalePrice = v.salePrice;
+        }
+      } else if (!parent.uploadedBy) {
+        if (typeof v.price === 'number' && v.price > varRetailPrice && typeof v.salePrice === 'number') {
+          varRegularPrice = v.price;
+          varSalePrice = varRetailPrice;
+        }
+      }
+
+      return {
+        ...v,
+        price: varRegularPrice,
+        salePrice: varSalePrice,
+        retailPrice: varRetailPrice,
+      };
+    });
+
+    return {
+      _id: rp._id.toString(),
+      productId: parent._id ? parent._id.toString() : rp.productId?.toString(),
+      name: rp.name || parent.name || 'Product',
+      slug: rp.slug || parent.slug,
+      price: regularPrice,
+      salePrice: salePrice,
+      retailPrice: rp.retailPrice,
+      uploadedBy: parent.uploadedBy,
+      isOwnProduct,
+      images: rp.images?.length > 0 ? rp.images : parent.images || [],
+      description: parent.description,
+      categories: parent.categories || [],
+      brand: parent.brand || null,
+      stock: rp.stock ?? parent.stock ?? 0,
+      isPublished: rp.isPublished,
+      isNewArrival: Boolean(parent.isNewArrival),
+      isFeatured: Boolean(parent.isFeatured),
+      isFlashSale: Boolean(parent.isFlashSale),
+      rating: parent.rating || 5,
+      numReviews: parent.numReviews || 0,
+      variants: mergedVariants,
+      createdAt: rp.createdAt || parent.createdAt,
+    };
+  });
+
+  // Deduplicate by slug: if a reseller has their own version of a product,
+  // prefer it over the mother catalog entry with the same slug
+  const slugMap = new Map<string, typeof allFormatted[number]>();
+  for (const p of allFormatted) {
+    const key = p.slug || p._id;
+    const existing = slugMap.get(key);
+    if (!existing) {
+      slugMap.set(key, p);
+    } else {
+      // Keep whichever is the reseller's own product
+      if (p.isOwnProduct && !existing.isOwnProduct) {
+        slugMap.set(key, p);
+      }
+    }
+  }
+  const formattedProducts = Array.from(slugMap.values());
+
+  const storeName = reseller.storeName;
+  const logo = reseller.logoUrl;
+  const settingsData = {
+    isReseller: true,
+    brandName: storeName,
+    logoUrl: logo,
+    contact: {
+      email: reseller.contact?.email,
+      phone: reseller.contact?.phone,
+      address: reseller.contact?.address,
+    },
+    socialLinks: {
+      facebook: reseller.socialLinks?.facebook,
+      whatsapp: reseller.socialLinks?.whatsapp,
+    }
+  };
+
+  const navStyle = reseller.themeOverrides?.navbar || 'v1';
+  const footerStyle = reseller.themeOverrides?.footer || 'v1';
+  const cardStyle = reseller.themeOverrides?.productCard || 'v1';
+  const shopStyle = 'v1';
+
+  return (
+    <SettingsProvider settings={settingsData}>
+      <div className="min-h-screen bg-background font-sans">
+        <ResellerPixels 
+          subdomain={subdomain} 
+          metaPixelId={reseller.seoConfig?.metaPixelId} 
+          tiktokPixelId={reseller.seoConfig?.tiktokPixelId} 
+        />
+        <NavbarSelector style={navStyle} />
+        <main className="min-h-[70vh]">
+          <Suspense fallback={<ShopFallback />}>
+            <ShopListingSelector
+              style={shopStyle}
+              productCardStyle={cardStyle}
+              products={formattedProducts}
+              categories={categories}
+              brands={brands}
+              searchParams={searchParams}
+            />
+          </Suspense>
+        </main>
+        <FooterSelector style={footerStyle} />
+      </div>
+    </SettingsProvider>
+  );
+}
+
+function ShopFallback() {
+  return (
+    <div className="container py-10">
+      <ShopHeaderSkeleton />
+      <div className="flex flex-col gap-8 md:flex-row">
+        <aside className="hidden w-64 shrink-0 md:block">
+          <div className="space-y-8">
+            <div className="space-y-4">
+              <div className="h-4 w-24 bg-muted animate-pulse rounded" />
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <div className="h-4 w-4 bg-muted animate-pulse rounded" />
+                  <div className="h-4 w-32 bg-muted animate-pulse rounded" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </aside>
+        <div className="flex-1">
+          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
+            {[...Array(8)].map((_, i) => (
+              <ProductCardSkeleton key={i} />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

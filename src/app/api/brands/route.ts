@@ -1,60 +1,64 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { revalidateTag, revalidatePath } from 'next/cache';
 import connectToDatabase from '@/lib/db';
 import Brand from '@/models/Brand';
 import { auth } from '@/auth';
 
 // GET all brands
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     await connectToDatabase();
-    const brands = await Brand.find({}).sort({ createdAt: -1 });
+    const searchParams = req.nextUrl.searchParams;
+    const all = searchParams.get('all') === 'true';
+
+    const filter: any = {};
+    if (!all) {
+      filter.isActive = true;
+    }
+
+    const brands = await Brand.find(filter).sort({ name: 1 }).lean();
     return NextResponse.json(brands);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching brands:', error);
     return NextResponse.json({ message: 'Internal Server Error' }, { status: 500 });
   }
 }
 
-// POST create a new brand (Admin only)
+// POST create a brand (Admin only)
 export async function POST(req: NextRequest) {
   try {
     const session = await auth();
+    const role = (session?.user as any)?.role;
 
-    // Check if user is authenticated and is an admin
-    if (!session || !session.user || !(['admin', 'super_admin', 'manager'].includes((session.user as any)?.role))) {
+    if (!session || !session.user || !['admin', 'super_admin', 'manager', 'moderator'].includes(role)) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
-    const { name, slug, image, isActive } = await req.json();
+    const body = await req.json();
+    const { name, image, isActive } = body;
 
-    if (!name) {
-      return NextResponse.json({ message: 'Name is required' }, { status: 400 });
+    if (!name || name.trim().length < 2) {
+      return NextResponse.json({ message: 'Brand name is required (min 2 characters)' }, { status: 400 });
     }
 
     await connectToDatabase();
 
-    // Check if slug already exists
-    if (slug) {
-      const existingBrand = await Brand.findOne({ slug });
-      if (existingBrand) {
-        return NextResponse.json({ message: 'Brand with this slug already exists' }, { status: 400 });
-      }
+    const slug = body.slug?.trim() || name.toLowerCase().trim().replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-');
+
+    const existing = await Brand.findOne({ slug });
+    if (existing) {
+      return NextResponse.json({ message: 'A brand with this slug/name already exists' }, { status: 400 });
     }
 
-    const newBrand = await Brand.create({
-      name,
+    const brand = await Brand.create({
+      name: name.trim(),
       slug,
-      image,
+      image: image || '',
       isActive: isActive !== undefined ? isActive : true,
     });
 
-    revalidateTag('brands', 'max');
-    revalidatePath('/');
-
-    return NextResponse.json(newBrand, { status: 201 });
-  } catch (error) {
+    return NextResponse.json(brand, { status: 201 });
+  } catch (error: any) {
     console.error('Error creating brand:', error);
-    return NextResponse.json({ message: 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ message: error.message || 'Internal Server Error' }, { status: 500 });
   }
 }

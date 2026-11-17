@@ -62,9 +62,11 @@ export const fbEvent = (
   const eventId = providedEventId || generateEventId();
 
   const finalEventName = eventName;
-
-  // 1. Browser Pixel Tracking
-  if (typeof window !== "undefined" && typeof window.fbq === "function") {
+  
+  // 1. Browser Pixel Tracking (with retry if fbevents.js inline init hasn't executed yet on initial 0ms load)
+  if (typeof window !== "undefined") {
+    const fireBrowserPixel = (attempts = 25) => {
+      if (typeof window.fbq === "function") {
     const standardEvents = [
       "AddPaymentInfo", "CompleteRegistration",
       "Contact", "CustomizeProduct", "Donate", "FindLocation",
@@ -73,25 +75,24 @@ export const fbEvent = (
       "Purchase", "AddToCart", "InitiateCheckout", "AddToWishlist"
     ];
 
-    // If user data is provided, use Advanced Matching safely
+    // Official Meta Advanced Matching via fbq('init', pixelId, userData)
     if (userData && (userData.em || userData.ph)) {
-      try {
-        const advancedMatchingData = {
+      const activePixelId =
+        (window as any).__fbPixelId ||
+        Object.keys((window as any)._fbq?.instance?.pixelsByID || {})[0];
+      if (activePixelId) {
+        const cleanPh = userData.ph ? userData.ph.replace(/\D/g, '') : '';
+        const normalizedPh = cleanPh && !cleanPh.startsWith('88') ? `88${cleanPh}` : cleanPh;
+        window.fbq("init", activePixelId, {
           ...(userData.em && { em: userData.em.trim().toLowerCase() }),
-          ...(userData.ph && { ph: userData.ph.replace(/\D/g, '') }),
+          ...(normalizedPh && { ph: normalizedPh }),
           ...(userData.fn && { fn: userData.fn.trim().toLowerCase() }),
           ...(userData.ln && { ln: userData.ln.trim().toLowerCase() }),
           ...(userData.ct && { ct: userData.ct.trim().toLowerCase() }),
           ...(userData.st && { st: userData.st.trim().toLowerCase() }),
           ...(userData.zp && { zp: userData.zp.trim().toLowerCase() }),
           ...(userData.country && { country: userData.country.trim().toLowerCase() }),
-        };
-        const pixelId = process.env.NEXT_PUBLIC_FACEBOOK_PIXEL_ID;
-        if (pixelId && typeof (window as any).fbq === 'function') {
-          (window as any).fbq('setUserProperties', pixelId, advancedMatchingData);
-        }
-      } catch (err) {
-        console.warn('[Meta Pixel] Failed to set user properties:', err);
+        });
       }
     }
 
@@ -101,6 +102,11 @@ export const fbEvent = (
     } else {
       window.fbq("track", finalEventName, customData, { eventID: eventId });
     }
+      } else if (attempts > 0) {
+        setTimeout(() => fireBrowserPixel(attempts - 1), 100);
+      }
+    };
+    fireBrowserPixel();
   }
 
   // 2. Server-side (CAPI) Tracking

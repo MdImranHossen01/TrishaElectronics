@@ -1,10 +1,11 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
 import mongoose from 'mongoose';
 import connectToDatabase from '@/lib/db';
 import Order from '@/models/Order';
 import { auth } from '@/auth';
 
-const ALLOWED_ORDER_STATUSES = ['Order Placed', 'Confirmed', 'Paid', 'Ready for Delivery', 'Released for Delivery', 'Cancelled', 'Delivered'];
+const ALLOWED_ORDER_STATUSES = ['Order Placed', 'Confirmed', 'Paid', 'Hold', 'Ready for Delivery', 'Released for Delivery', 'Cancelled', 'Delivered'];
 const ALLOWED_PAYMENT_STATUSES = ['Pending', 'Paid', 'Failed'];
 const MAX_BULK_IDS = 100;
 
@@ -26,7 +27,7 @@ function validateIds(ids: any) {
 export async function PATCH(req: NextRequest) {
   try {
     const session = await auth();
-    if (!session || !(['admin', 'super_admin', 'manager'].includes((session?.user as any)?.role))) {
+    if (!session || !(['admin', 'super_admin', 'manager', 'moderator'].includes((session?.user as any)?.role))) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
@@ -38,11 +39,11 @@ export async function PATCH(req: NextRequest) {
     }
 
     const updateData: any = {};
-    
+
     if (status) {
       if (!ALLOWED_ORDER_STATUSES.includes(status)) {
-        return NextResponse.json({ 
-          message: `Invalid status. Allowed values: ${ALLOWED_ORDER_STATUSES.join(', ')}` 
+        return NextResponse.json({
+          message: `Invalid status. Allowed values: ${ALLOWED_ORDER_STATUSES.join(', ')}`
         }, { status: 400 });
       }
       updateData.status = status;
@@ -50,8 +51,8 @@ export async function PATCH(req: NextRequest) {
 
     if (paymentStatus) {
       if (!ALLOWED_PAYMENT_STATUSES.includes(paymentStatus)) {
-        return NextResponse.json({ 
-          message: `Invalid payment status. Allowed values: ${ALLOWED_PAYMENT_STATUSES.join(', ')}` 
+        return NextResponse.json({
+          message: `Invalid payment status. Allowed values: ${ALLOWED_PAYMENT_STATUSES.join(', ')}`
         }, { status: 400 });
       }
       updateData.paymentStatus = paymentStatus;
@@ -74,27 +75,31 @@ export async function PATCH(req: NextRequest) {
       }
 
       const Product = (await import('@/models/Product')).default;
-      const becomesValid = ['Confirmed', 'Paid', 'Ready for Delivery', 'Released for Delivery', 'Delivered'].includes(status || '');
+      const ResellerOrder = (await import('@/models/ResellerOrder')).default;
+      const becomesValid = (['Confirmed', 'Paid', 'Delivered'].includes(status || '') || paymentStatus === 'Paid') && status !== 'Cancelled';
+
+      const resellerOrderUpdate: any = {};
+      if (status) {
+        resellerOrderUpdate.status = status;
+        if (status === 'Cancelled') {
+          resellerOrderUpdate.commissionStatus = 'cancelled';
+        } else if (status === 'Delivered' || status === 'Paid') {
+          resellerOrderUpdate.commissionStatus = 'cleared';
+        }
+      }
+      if (paymentStatus) {
+        resellerOrderUpdate.paymentStatus = paymentStatus;
+      }
+
+      const allAffectedProductIds = new Set<string>();
 
       for (const id of ids) {
         const updateObj: any = {};
         if (status) updateObj.status = status;
         if (paymentStatus) updateObj.paymentStatus = paymentStatus;
 
-        const existingOrder = await Order.findById(id).session(dbSession);
-        if (!existingOrder) continue;
-
-        if (status === 'Cancelled' && existingOrder.status !== 'Cancelled') {
-          const { restockOrderItems } = await import('@/lib/orderStockHelper');
-          await restockOrderItems(existingOrder, dbSession);
-          updateObj.isSalesCounted = false;
-        } else if (existingOrder.status === 'Cancelled' && status && status !== 'Cancelled') {
-          const { deductOrderItems } = await import('@/lib/orderStockHelper');
-          await deductOrderItems(existingOrder, dbSession);
-        }
-
         let order;
-        if (becomesValid && status !== 'Cancelled') {
+        if (becomesValid) {
           // Atomic check-then-set for isSalesCounted to prevent race conditions
           order = await Order.findOneAndUpdate(
             { _id: id, isSalesCounted: { $ne: true } },
@@ -130,9 +135,44 @@ export async function PATCH(req: NextRequest) {
           );
           if (regularOrder) modifiedCount++;
         }
+
+        // Auto-restore stock if status is set to Cancelled in bulk
+        if (status === 'Cancelled') {
+          const { restoreStockForOrder } = await import('@/lib/stockHelper');
+          const stockRes = await restoreStockForOrder({
+            orderId: id,
+            session: dbSession,
+            skipResellerSync: true,
+          });
+          if (stockRes.affectedProductIds) {
+            for (const pid of stockRes.affectedProductIds) allAffectedProductIds.add(pid);
+          }
+        }
+
+        // Sync linked ResellerOrder and clear/cancel commissions & wallet balance
+        const { syncResellerCommissionForMotherOrder } = await import('@/lib/resellerCommissionSync');
+        await syncResellerCommissionForMotherOrder({
+          motherOrderId: id,
+          newStatus: status,
+          newPaymentStatus: paymentStatus,
+          session: dbSession,
+        });
       }
 
       await dbSession.commitTransaction();
+
+      if (allAffectedProductIds.size > 0) {
+        try {
+          const { syncProductToResellers } = await import('@/lib/syncEngine');
+          for (const pId of allAffectedProductIds) {
+            await syncProductToResellers(pId).catch((syncErr) =>
+              console.error(`[Reseller Sync Bulk] Error syncing product ${pId}:`, syncErr)
+            );
+          }
+        } catch (syncBatchErr) {
+          console.error('[Reseller Sync Bulk Error]', syncBatchErr);
+        }
+      }
 
       if (ordersToLog.length > 0) {
         try {
@@ -145,41 +185,9 @@ export async function PATCH(req: NextRequest) {
         }
       }
 
-      if (becomesValid) {
-        try {
-          // Fetch the fully updated orders to log AR
-          const updatedOrdersForAR = await Order.find({ _id: { $in: ids }, $or: [{ paymentMethod: 'Credit' }, { isCreditOrder: true }], paymentStatus: { $ne: 'Paid' } }).session(dbSession);
-          const { logLedgerTransaction } = await import('@/lib/ledgerHelper');
-          const LedgerTransaction = (await import('@/models/LedgerTransaction')).default;
-          
-          for (const order of updatedOrdersForAR) {
-            const amount = (order.totalAmount || 0) - (order.couponDiscountAmount || 0) - (order.walletAmountUsed || 0);
-            const shortId = order._id.toString().slice(-8).toUpperCase();
-            const arReference = `AR-ORDER-${shortId}`;
-            
-            const arExists = await LedgerTransaction.findOne({ reference: arReference }).session(dbSession);
-            if (!arExists) {
-              await logLedgerTransaction(
-                'AR',
-                'debit',
-                amount,
-                `Credit Order Confirmed #${shortId}`,
-                arReference,
-                new Date(),
-                undefined,
-                order.showroom ? order.showroom.toString() : undefined,
-                dbSession
-              );
-            }
-          }
-        } catch (err) {
-          console.error('[Ledger] Error logging AR in bulk update:', err);
-        }
-      }
-
-      return NextResponse.json({ 
+      return NextResponse.json({
         message: `${modifiedCount} orders updated successfully`,
-        count: modifiedCount 
+        count: modifiedCount
       });
     } catch (error) {
       await dbSession.abortTransaction();
@@ -194,32 +202,90 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  try {
+    const session = await auth();
+    if (!session || !(['admin', 'super_admin', 'manager', 'moderator'].includes((session?.user as any)?.role))) {
+      return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { ids } = await req.json();
+
+    const idError = validateIds(ids);
+    if (idError) {
+      return NextResponse.json({ message: idError }, { status: 400 });
+    }
+
+    await connectToDatabase();
+
+    const ordersToDelete = await Order.find({ _id: { $in: ids } }).lean();
+
+    const result = await Order.updateMany(
+      { _id: { $in: ids } },
+      { $set: { deletedAt: new Date() } }
+    );
+
+    // Also soft-delete associated ResellerOrders
     try {
-      const session = await auth();
-      if (!session || !(['admin', 'super_admin', 'manager'].includes((session?.user as any)?.role))) {
-        return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
-      }
-  
-      const { ids } = await req.json();
-  
-      const idError = validateIds(ids);
-      if (idError) {
-        return NextResponse.json({ message: idError }, { status: 400 });
-      }
-  
-      await connectToDatabase();
-  
-      const result = await Order.updateMany(
-        { _id: { $in: ids } },
+      const ResellerOrder = (await import('@/models/ResellerOrder')).default;
+      const shortIds = ordersToDelete.map((o: any) => o.shortId).filter(Boolean);
+      await ResellerOrder.updateMany(
+        {
+          $or: [
+            { motherOrderId: { $in: ids } },
+            { shortId: { $in: shortIds } }
+          ]
+        },
         { $set: { deletedAt: new Date() } }
       );
-  
-      return NextResponse.json({ 
-        message: `${result.modifiedCount} orders soft-deleted successfully`,
-        count: result.modifiedCount 
-      });
-    } catch (error) {
-      console.error('Bulk Delete Error:', error);
-      return NextResponse.json({ message: 'Internal Server Error' }, { status: 500 });
+    } catch (roErr) {
+      console.error('[Bulk Delete] Error soft-deleting reseller orders:', roErr);
     }
+
+    // Inventory Protection Rule:
+    // Only restock products for orders that were NEVER Paid and NEVER Delivered!
+    const unpaidUnDelivered = ordersToDelete.filter((o: any) => o.paymentStatus !== 'Paid' && o.status !== 'Delivered');
+    if (unpaidUnDelivered.length > 0) {
+      try {
+        const { restoreStockForOrder } = await import('@/lib/stockHelper');
+        for (const unOrder of unpaidUnDelivered) {
+          if (!unOrder.isStockRestored) {
+            await restoreStockForOrder({ orderId: unOrder._id });
+          }
+        }
+      } catch (stockErr) {
+        console.error('[Bulk Delete] Error restoring stock for unpaid orders:', stockErr);
+      }
+    }
+
+    // Accounting Protection Rule:
+    // Only clean ledger & expenses for orders that were NEVER Paid and NEVER Delivered!
+    if (unpaidUnDelivered.length > 0) {
+      try {
+        const { default: LedgerTransaction } = await import('@/models/LedgerTransaction');
+        const { default: Expense } = await import('@/models/Expense');
+        const { recalculateLedgerBalance } = await import('@/lib/ledgerHelper');
+        const cleanShortIds = unpaidUnDelivered.map((o: any) => o.shortId || o._id.toString().slice(-8).toUpperCase());
+        const cleanRefs: string[] = [];
+        for (const s of cleanShortIds) {
+          cleanRefs.push(`ORDER-${s}`, `ORD-${s}`, `SHIPPING-${s}`);
+        }
+        await LedgerTransaction.deleteMany({ reference: { $in: cleanRefs } });
+        await Expense.deleteMany({ reference: { $in: cleanRefs } });
+        await recalculateLedgerBalance('CASH');
+        await recalculateLedgerBalance('BANK');
+        await recalculateLedgerBalance('AR');
+        await recalculateLedgerBalance('AP');
+      } catch (ledgerErr) {
+        console.error('[Ledger] Error cleaning bulk order ledger transactions:', ledgerErr);
+      }
+    }
+
+    return NextResponse.json({
+      message: `${result.modifiedCount} orders soft-deleted successfully`,
+      count: result.modifiedCount
+    });
+  } catch (error) {
+    console.error('Bulk Delete Error:', error);
+    return NextResponse.json({ message: 'Internal Server Error' }, { status: 500 });
   }
+}

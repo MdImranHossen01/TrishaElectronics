@@ -2,7 +2,7 @@ import { Suspense } from 'react';
 import ShopClient from './ShopClient';
 import { ShopHeaderSkeleton, ProductCardSkeleton } from '@/components/storefront/Skeletons';
 
-export default function ShopV1({ products, categories, searchParams, style, productCardStyle }: { products: any[], categories: any[], searchParams: any, style?: string, productCardStyle?: string }) {
+export default function ShopV1({ products, categories, brands, searchParams, style, productCardStyle }: { products: any[], categories: any[], brands?: any[], searchParams: any, style?: string, productCardStyle?: string }) {
   return (
     <Suspense fallback={
       // ... (keeping existing fallback code)
@@ -23,7 +23,7 @@ export default function ShopV1({ products, categories, searchParams, style, prod
             </div>
           </aside>
           <div className="flex-1">
-            <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
               {[...Array(8)].map((_, i) => (
                 <ProductCardSkeleton key={i} />
               ))}
@@ -34,11 +34,13 @@ export default function ShopV1({ products, categories, searchParams, style, prod
     }>
       <ShopClient 
         initialProducts={products} 
-        initialCategories={categories} 
+        initialCategories={categories}
+        initialBrands={brands || []}
         searchParams={searchParams}
         cardStyle={productCardStyle}
       />
     </Suspense>
   );
 }
+
 

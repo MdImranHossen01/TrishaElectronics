@@ -80,7 +80,7 @@ export function NewsletterV2({ layout }: { layout?: string }) {
                             </h2>
                         </div>
                         <p className={`text-lg ${layout === 'v3' ? 'lg:text-sm' : 'md:text-xl'} font-medium text-white/90`}>
-                            Subscribe for the latest updates, new arrivals, and stories from our community
+                            Be part of our community and receive handpicked products, exciting offers, and the latest updates directly in your inbox.
                         </p>
                         <p className="hidden md:block text-[10px] font-bold uppercase tracking-widest text-white/40">
                             UNSUBSCRIBE ANYTIME • NO SPAM • PRIVACY PROTECTED

@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, useRef, Suspense } from 'react';
+import { useState, useEffect, Suspense } from 'react';
+import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Pagination } from '@/components/ui/pagination';
-import { getWhatsAppLink } from '@/lib/utils';
 import {
   Table,
   TableBody,
@@ -14,9 +14,11 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import OrderDetailsDialog from '@/components/admin/OrderDetailsDialog';
+import ManualOrderDialog from '@/components/admin/ManualOrderDialog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { DisbursementBreakdown } from '@/components/common/DisbursementBreakdown';
 import {
   Loader2,
   Eye,
@@ -26,35 +28,16 @@ import {
   Trash2,
   XCircle,
   Download,
+  Plus,
   MoreHorizontal,
+  ChevronDown,
   Printer,
   FileText,
   Filter as FilterIcon,
-  SlidersHorizontal,
   Copy,
   Search,
-  Share2,
-  Plus,
-  ChevronDown
+  RefreshCw,
 } from 'lucide-react';
-import { AdminTableSkeleton } from '@/components/admin/AdminSkeletons';
-import { useLanguage } from '@/contexts/LanguageContext';
-
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 const WhatsAppIcon = (props: React.SVGProps<SVGSVGElement>) => (
   <svg
@@ -64,7 +47,7 @@ const WhatsAppIcon = (props: React.SVGProps<SVGSVGElement>) => (
     height="1em"
     {...props}
   >
-    <path d="M12.012 2c-5.506 0-9.989 4.478-9.99 9.984a9.96 9.96 0 001.37 5.054L2 22l5.132-1.347a9.937 9.937 0 004.877 1.28h.005c5.505 0 9.989-4.478 9.99-9.985A9.992 9.992 0 0012.012 2zm5.836 14.199c-.32.899-1.576 1.706-2.185 1.761-.559.05-1.286.074-2.074-.176a9.839 9.839 0 01-4.705-3.023 9.388 9.388 0 01-1.926-3.412 5.097 5.097 0 01-.137-2.138c.112-.601.442-1.01.691-1.272.249-.262.502-.328.67-.328.167 0 .335.006.475.014.148.009.347-.058.544.417.202.489.691 1.684.75 1.805.059.12.098.262.019.41-.079.158-.12.262-.24.399-.118.136-.251.306-.358.411-.118.114-.242.238-.104.475.138.238.614 1.01.32.957.382.341.703.56.963.666.26.106.41.088.56-.079.15-.167.643-.75.814-.999.171-.249.34-.208.573-.122.233.086 1.48.697 1.737.825.257.128.428.192.488.295.06.103.06.596-.26 1.495z" />
+    <path d="M12.012 2c-5.506 0-9.989 4.478-9.99 9.984a9.96 9.96 0 001.37 5.054L2 22l5.132-1.347a9.937 9.937 0 004.877 1.28h.005c5.505 0 9.989-4.478 9.99-9.985A9.992 9.992 0 0012.012 2zm5.836 14.199c-.32.899-1.576 1.706-2.185 1.761-.559.05-1.286.074-2.074-.176a9.839 9.839 0 01-4.705-3.023 9.388 9.388 0 01-1.926-3.412 5.097 5.097 0 01-.137-2.138c.112-.601.442-1.01.691-1.272.249-.262.502-.328.67-.328.167 0 .335.006.475.014.148.009.347-.058.544.417.202.489.691 1.684.75 1.805.059.12.098.262.019.41-.079.158-.12.262-.24.399-.118.136-.251.306-.358.411-.118.114-.242.238-.104.475.138.238.614 1.01.32.957.382.341.703.56.963.666.26.106.41.088.56-.079.15-.167.643-.75.814-.999.171-.249.34-.208.573-.122.233.086 1.48.697 1.737.825.257.128.428.192.488.295.06.103.06.596-.26 1.495z"/>
   </svg>
 );
 import {
@@ -75,26 +58,28 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   DropdownMenuGroup,
-} from "@/components/ui/dropdown-menu";
+} from"@/components/ui/dropdown-menu";
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import Swal from 'sweetalert2';
 import { generateInvoicePDF } from '@/lib/invoice-generator';
 import { printStickerInvoice } from '@/lib/sticker-generator';
-import ManualOrderDialog from '@/components/admin/ManualOrderDialog';
 
 
 const fraudCache: { [phone: string]: { success_ratio: number; total_parcel: number } | null } = {};
 const fraudPendingRequests: { [phone: string]: Promise<any> | null } = {};
 
 function FraudCheckBadge({ phone }: { phone?: string }) {
+  const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
-  const [fetchVersion, setFetchVersion] = useState(0);
-
-  const cachedData = phone ? fraudCache[phone] : undefined;
 
   useEffect(() => {
-    if (!phone || cachedData !== undefined) return;
+    if (!phone) return;
+
+    if (fraudCache[phone] !== undefined) {
+      setData(fraudCache[phone]);
+      return;
+    }
 
     const fetchFraud = async () => {
       setLoading(true);
@@ -107,13 +92,16 @@ function FraudCheckBadge({ phone }: { phone?: string }) {
           });
           fraudPendingRequests[phone] = promise;
         }
-
+        
         const json = await promise;
         if (json?.status === 'success' && json?.data?.summary) {
           const summary = json.data.summary;
+          const total = Number(summary.total_parcel) || 0;
+          const delivered = Number(summary.success_parcel) || 0;
+          const calculatedRatio = total > 0 ? Math.round((delivered / total) * 1000) / 10 : (summary.success_ratio || 0);
           fraudCache[phone] = {
-            success_ratio: summary.success_ratio,
-            total_parcel: summary.total_parcel
+            success_ratio: calculatedRatio,
+            total_parcel: total
           };
         } else {
           fraudCache[phone] = null;
@@ -121,26 +109,26 @@ function FraudCheckBadge({ phone }: { phone?: string }) {
       } catch (e) {
         fraudCache[phone] = null;
       } finally {
+        setData(fraudCache[phone]);
         setLoading(false);
-        setFetchVersion(v => v + 1);
         delete fraudPendingRequests[phone];
       }
     };
 
     fetchFraud();
-  }, [phone, cachedData]);
+  }, [phone]);
 
   if (loading) {
     return <span className="text-[10px] text-muted-foreground ml-1.5 animate-pulse">Checking...</span>;
   }
 
-  if (!cachedData) return null;
+  if (!data) return null;
 
-  const ratio = cachedData.success_ratio;
-  const colorClass = ratio >= 80 ? 'text-green-600 font-extrabold' : ratio >= 60 ? 'text-yellow-600 font-extrabold' : 'text-red-600 font-extrabold';
+  const ratio = data.success_ratio;
+  const colorClass = ratio >= 70 ? 'text-green-600 font-extrabold' : ratio >= 50 ? 'text-yellow-600 font-extrabold' : 'text-red-600 font-extrabold';
 
   return (
-    <span className={`text-[10px] px-1 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 ${colorClass}`} title={`${cachedData.total_parcel} total parcels`}>
+    <span className={`text-xs px-1.5 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 font-bold inline-block ${colorClass}`} title={`${data.total_parcel} total parcels`}>
       {ratio}% Success
     </span>
   );
@@ -149,7 +137,6 @@ function FraudCheckBadge({ phone }: { phone?: string }) {
 function OrdersContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { t } = useLanguage();
   const [currentPage, setCurrentPage] = useState(Math.max(1, parseInt(searchParams.get('page') || '1')));
 
   const [orders, setOrders] = useState<any[]>([]);
@@ -160,69 +147,45 @@ function OrdersContent() {
     placed: 0,
     confirmed: 0,
     paid: 0,
+    hold: 0,
     ready: 0,
     released: 0,
     delivered: 0,
-    cancelled: 0,
-    credit: 0,
-    due: 0
+    cancelled: 0
   });
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || '');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(searchParams.get('search') || '');
-  const prevSearchRef = useRef(searchParams.get('search') || '');
+  const [resellers, setResellers] = useState<any[]>([]);
+  const [resellerFilter, setResellerFilter] = useState(searchParams.get('resellerId') || 'all');
+  const [commissionFilter, setCommissionFilter] = useState(searchParams.get('commissionStatus') || 'All');
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || 'All');
-  const [dateFilter, setDateFilter] = useState(() => {
-    const fromParam = searchParams.get('from');
-    const toParam = searchParams.get('to');
-    if (fromParam || toParam) {
-      return { from: fromParam || '', to: toParam || '' };
-    }
-    const now = new Date();
-    const start = new Date(now.getFullYear(), now.getMonth(), 1);
-    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    return {
-      from: format(start, 'yyyy-MM-dd'),
-      to: format(end, 'yyyy-MM-dd')
-    };
-  });
-  const [filterByDate, setFilterByDate] = useState(() => {
-    if (searchParams.get('from') || searchParams.get('to')) {
-      return true;
-    }
-    if (searchParams.get('filterByDate') === 'true') {
-      return true;
-    }
-    if (searchParams.get('filterByDate') === 'false') {
-      return false;
-    }
-    // If no filter or query parameters are present at all (initial fresh navigation), default to true
-    return Array.from(searchParams.keys()).length === 0;
+  const [dateFilter, setDateFilter] = useState({
+    from: searchParams.get('from') || '',
+    to: searchParams.get('to') || '',
   });
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
-
+  const [isManualOrderOpen, setIsManualOrderOpen] = useState(false);
+ 
   // Selection state
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
   const [settings, setSettings] = useState<any>(null);
-
-  // Manual Order states
-  const [isManualOrderOpen, setIsManualOrderOpen] = useState(false);
-  const [showMobileFilters, setShowMobileFilters] = useState(false);
-
+  const isSteadfastConfigured = Boolean(settings?.courierConfig?.steadfast?.apiKey && settings?.courierConfig?.steadfast?.secretKey);
+  const isPathaoConfigured = Boolean(settings?.courierConfig?.pathao?.clientId && settings?.courierConfig?.pathao?.clientSecret);
+  const isRedxConfigured = Boolean(settings?.courierConfig?.redx?.apiKey);
+  const [isSyncingCouriers, setIsSyncingCouriers] = useState(false);
+ 
   // Debounce search term
   useEffect(() => {
     const handler = setTimeout(() => {
-      if (searchTerm !== prevSearchRef.current) {
-        setDebouncedSearchTerm(searchTerm);
-        setCurrentPage(1);
-        prevSearchRef.current = searchTerm;
-      }
+      setDebouncedSearchTerm(searchTerm);
+      setCurrentPage(1);
     }, 500);
     return () => clearTimeout(handler);
   }, [searchTerm]);
-
+ 
   // Sync state to URL search parameters when filters change
   useEffect(() => {
     const params = new URLSearchParams();
@@ -235,33 +198,25 @@ function OrdersContent() {
     if (debouncedSearchTerm) {
       params.set('search', debouncedSearchTerm);
     }
-    if (filterByDate) {
-      if (dateFilter.from) {
-        params.set('from', dateFilter.from);
-      }
-      if (dateFilter.to) {
-        params.set('to', dateFilter.to);
-      }
-    } else {
-      params.set('filterByDate', 'false');
+    if (dateFilter.from) {
+      params.set('from', dateFilter.from);
+    }
+    if (dateFilter.to) {
+      params.set('to', dateFilter.to);
+    }
+    if (resellerFilter !== 'all') {
+      params.set('resellerId', resellerFilter);
+    }
+    if (commissionFilter !== 'All') {
+      params.set('commissionStatus', commissionFilter);
     }
 
     const currentQuery = searchParams.toString();
     const newQuery = params.toString();
     if (currentQuery !== newQuery) {
-      router.replace(`/admin/orders?${newQuery}`);
+      router.push(`/admin/orders?${newQuery}`);
     }
-  }, [currentPage, statusFilter, debouncedSearchTerm, filterByDate, dateFilter.from, dateFilter.to]);
-
-  const handleCopyLink = async (orderId: string) => {
-    try {
-      const shareableLink = `${window.location.origin}/orders/${orderId}`;
-      await navigator.clipboard.writeText(shareableLink);
-      toast.success('Shareable order link copied to clipboard!');
-    } catch (err) {
-      toast.error('Failed to copy link.');
-    }
-  };
+  }, [currentPage, statusFilter, debouncedSearchTerm, dateFilter.from, dateFilter.to, resellerFilter, commissionFilter]);
 
   const handleDownloadInvoice = async (order: any) => {
     try {
@@ -301,9 +256,13 @@ function OrdersContent() {
         limit: '20',
         search: debouncedSearchTerm,
         status: statusFilter,
-        from: filterByDate ? dateFilter.from : '',
-        to: filterByDate ? dateFilter.to : ''
+        from: dateFilter.from,
+        to: dateFilter.to,
+        resellerId: resellerFilter
       });
+      if (commissionFilter !== 'All') {
+        queryParams.set('commissionStatus', commissionFilter);
+      }
       const res = await fetch(`/api/orders?${queryParams.toString()}`);
       if (!res.ok) {
         throw new Error(`Failed to load orders: ${res.status} ${res.statusText}`);
@@ -329,38 +288,48 @@ function OrdersContent() {
   };
 
   useEffect(() => {
-    // Use a small timeout to avoid calling setState (setLoading) synchronously 
-    // within the effect body, which triggers React's cascading render warning
-    const timer = setTimeout(() => {
-      fetchOrders(currentPage);
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [currentPage, debouncedSearchTerm, statusFilter, filterByDate, dateFilter.from, dateFilter.to]);
+    fetchOrders(currentPage);
+  }, [currentPage, debouncedSearchTerm, statusFilter, dateFilter.from, dateFilter.to, resellerFilter, commissionFilter]);
 
-  // Synchronize state when search parameters change (to support browser back/forward navigation)
-  // IMPORTANT: Only depend on searchParams — do NOT add state values here or it causes circular updates
+  // Fetch resellers for filter
   useEffect(() => {
-    const timer = setTimeout(() => {
-      const pageFromParams = Math.max(1, parseInt(searchParams.get('page') || '1'));
+    fetch('/api/admin/resellers')
+      .then(res => res.json())
+      .then(data => {
+        if (data.resellers) {
+          setResellers(data.resellers);
+        }
+      })
+      .catch(console.error);
+  }, []);
+
+  useEffect(() => {
+    const pageFromParams = Math.max(1, parseInt(searchParams.get('page') || '1'));
+    if (pageFromParams !== currentPage) {
       setCurrentPage(pageFromParams);
-
-      const statusFromParams = searchParams.get('status') || 'All';
+    }
+    const statusFromParams = searchParams.get('status') || 'All';
+    if (statusFromParams !== statusFilter) {
       setStatusFilter(statusFromParams);
-
-      const searchFromParams = searchParams.get('search') || '';
+    }
+    const commFromParams = searchParams.get('commissionStatus') || 'All';
+    if (commFromParams !== commissionFilter) {
+      setCommissionFilter(commFromParams);
+    }
+    const searchFromParams = searchParams.get('search') || '';
+    if (searchFromParams !== searchTerm) {
       setSearchTerm(searchFromParams);
-      setDebouncedSearchTerm(searchFromParams);
-      prevSearchRef.current = searchFromParams;
-
-      const fromFromParams = searchParams.get('from') || '';
-      const toFromParams = searchParams.get('to') || '';
-      if (fromFromParams || toFromParams) {
-        setDateFilter({ from: fromFromParams, to: toFromParams });
-        setFilterByDate(true);
-      }
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [searchParams]); // ONLY searchParams — intentional
+    }
+    const fromFromParams = searchParams.get('from') || '';
+    const toFromParams = searchParams.get('to') || '';
+    if (fromFromParams !== dateFilter.from || toFromParams !== dateFilter.to) {
+      setDateFilter({ from: fromFromParams, to: toFromParams });
+    }
+    const resellerFromParams = searchParams.get('resellerId') || 'all';
+    if (resellerFromParams !== resellerFilter) {
+      setResellerFilter(resellerFromParams);
+    }
+  }, [searchParams]);
 
   const filteredOrders = orders;
 
@@ -407,7 +376,7 @@ function OrdersContent() {
 
     const result = await Swal.fire({
       title: 'Bulk Update?',
-      text: `Are you sure you want to update ${selectedIds.length} orders to "${status}"?`,
+      text: `Are you sure you want to update ${selectedIds.length} orders to"${status}"?`,
       icon: 'question',
       showCancelButton: true,
       confirmButtonColor: '#00D1B2',
@@ -498,6 +467,8 @@ function OrdersContent() {
       'Total Amount',
       'Purchase Cost',
       'Profit',
+      'Reseller Commission',
+      'Commission Status',
       'Payment Status',
       'Order Status'
     ];
@@ -515,7 +486,7 @@ function OrdersContent() {
       const profit = o.totalAmount - totalPurchaseCost - (o.deliveryCharge || 0);
 
       return [
-        o._id.toUpperCase(),
+        o.shortId || o._id.toUpperCase(),
         format(new Date(o.createdAt), 'yyyy-MM-dd HH:mm'),
         shipping.fullName || o.user?.name || 'Guest',
         o.user?.email || 'Guest',
@@ -528,6 +499,8 @@ function OrdersContent() {
         o.totalAmount,
         totalPurchaseCost,
         Math.round(profit),
+        o.resellerId ? Math.round(o.resellerCommission || 0) : 'N/A',
+        o.resellerId ? (o.commissionStatus === 'cleared' ? 'Paid' : o.commissionStatus === 'cancelled' ? 'Cancelled' : 'Pending') : 'N/A',
         o.paymentStatus,
         o.status
       ];
@@ -554,7 +527,7 @@ function OrdersContent() {
   const deleteOrder = async (id: string) => {
     const result = await Swal.fire({
       title: 'Are you sure?',
-      text: "This order will be permanently deleted from the database!",
+      text:"This order will be permanently deleted from the database!",
       icon: 'warning',
       showCancelButton: true,
       confirmButtonColor: '#00D1B2',
@@ -617,10 +590,146 @@ function OrdersContent() {
     }
   };
 
+  const handleSendToPathao = async (ids: string[]) => {
+    if (ids.length === 0) return;
+
+    const result = await Swal.fire({
+      title: 'Send to Pathao?',
+      text: `Are you sure you want to send ${ids.length} order(s) to Pathao Courier?`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonColor: '#e11d48',
+      confirmButtonText: 'Yes, send to Pathao!'
+    });
+
+    if (!result.isConfirmed) return;
+
+    setBulkActionLoading(true);
+    try {
+      const res = await fetch('/api/admin/courier/pathao', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderIds: ids }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        const hasFailures = data.results && data.results.some((r: any) => !r.success);
+        if (hasFailures) {
+          const firstFail = data.results.find((r: any) => !r.success);
+          toast.error(`${data.message || 'Partial booking'}. Reason: ${firstFail?.message || 'Unknown error'}`);
+        } else {
+          toast.success(data.message || 'Orders sent to Pathao successfully');
+        }
+        if (ids.length > 1) setSelectedIds([]);
+        fetchOrders();
+      } else {
+        toast.error(data.message || 'Pathao submission failed');
+      }
+    } catch (error) {
+      toast.error('Error sending to Pathao');
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
+  const handleSendToRedx = async (ids: string[]) => {
+    if (ids.length === 0) return;
+
+    const result = await Swal.fire({
+      title: 'Send to RedX?',
+      text: `Are you sure you want to send ${ids.length} order(s) to RedX Courier?`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonColor: '#dc2626',
+      confirmButtonText: 'Yes, send to RedX!'
+    });
+
+    if (!result.isConfirmed) return;
+
+    setBulkActionLoading(true);
+    try {
+      const res = await fetch('/api/admin/courier/redx', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderIds: ids }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        const hasFailures = data.results && data.results.some((r: any) => !r.success);
+        if (hasFailures) {
+          const firstFail = data.results.find((r: any) => !r.success);
+          toast.error(`${data.message || 'Partial booking'}. Reason: ${firstFail?.message || 'Unknown error'}`);
+        } else {
+          toast.success(data.message || 'Orders sent to RedX successfully');
+        }
+        if (ids.length > 1) setSelectedIds([]);
+        fetchOrders();
+      } else {
+        toast.error(data.message || 'RedX submission failed');
+      }
+    } catch (error) {
+      toast.error('Error sending to RedX');
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
+  const handleSyncCouriers = async () => {
+    setIsSyncingCouriers(true);
+    toast.info('Checking Steadfast, Pathao & RedX for courier delivery updates...');
+    try {
+      const res = await fetch('/api/cron/sync-courier-status', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        if (data.deliveredCount > 0) {
+          toast.success(`Synced! ${data.deliveredCount} orders updated to Delivered.`);
+        } else {
+          toast.success(data.message || 'Courier sync complete. All orders up to date.');
+        }
+        fetchOrders();
+      } else {
+        toast.error(data.message || 'Courier sync failed');
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'Error syncing courier statuses');
+    } finally {
+      setIsSyncingCouriers(false);
+    }
+  };
+
+  const handleHoldOrder = async (orderId: string) => {
+    const result = await Swal.fire({
+      title: 'Hold Order',
+      text: 'Please provide an internal note explaining the reason for holding this order:',
+      input: 'textarea',
+      inputPlaceholder: 'Enter reason (e.g. Customer requested delayed delivery, awaiting stock)...',
+      inputAttributes: {
+        'aria-label': 'Hold reason',
+        'rows': '3'
+      },
+      showCancelButton: true,
+      confirmButtonColor: '#d97706',
+      cancelButtonColor: '#6b7280',
+      confirmButtonText: 'Hold Order',
+      inputValidator: (value) => {
+        if (!value || !value.trim()) {
+          return 'An internal note / reason is required to hold this order!';
+        }
+        return null;
+      }
+    });
+
+    if (result.isConfirmed && result.value) {
+      await updateStatus(orderId, 'Hold', { internalNote: result.value.trim() });
+    }
+  };
+
   const handleCancelOrder = async (orderId: string) => {
     const result = await Swal.fire({
       title: 'Cancel Order?',
-      text: "Are you sure you want to cancel this order?",
+      text:"Are you sure you want to cancel this order?",
       icon: 'question',
       showCancelButton: true,
       confirmButtonColor: '#d33',
@@ -642,9 +751,10 @@ function OrdersContent() {
     switch (status) {
       case 'Order Placed': return <Badge variant="outline" className="bg-yellow-100 text-yellow-800 border-none">Placed</Badge>;
       case 'Confirmed': return <Badge variant="secondary" className="bg-blue-100 text-blue-800 border-none">Confirmed</Badge>;
-      case 'Paid': return <Badge variant="secondary" className="bg-green-100 text-green-800 border-none text-[10px]">Paid</Badge>;
-      case 'Ready for Delivery': return <Badge variant="secondary" className="bg-purple-100 text-purple-800 border-none text-[10px]">Ready</Badge>;
-      case 'Released for Delivery': return <Badge variant="secondary" className="bg-orange-100 text-orange-800 border-none text-[10px]">Released</Badge>;
+      case 'Paid': return <Badge variant="secondary" className="bg-green-100 text-green-800 border-none text-xs px-2.5 py-0.5 font-bold">Paid</Badge>;
+      case 'Hold': return <Badge variant="secondary" className="bg-amber-100 text-amber-800 border-none text-xs px-2.5 py-0.5 font-bold">Hold</Badge>;
+      case 'Ready for Delivery': return <Badge variant="secondary" className="bg-purple-100 text-purple-800 border-none text-xs px-2.5 py-0.5 font-bold">Ready</Badge>;
+      case 'Released for Delivery': return <Badge variant="secondary" className="bg-orange-100 text-orange-800 border-none text-xs px-2.5 py-0.5 font-bold">Released</Badge>;
       case 'Delivered': return <Badge variant="default" className="bg-green-600 text-white border-none">Delivered</Badge>;
       case 'Cancelled': return <Badge variant="destructive">Cancelled</Badge>;
       default: return <Badge variant="secondary">{status}</Badge>;
@@ -652,175 +762,163 @@ function OrdersContent() {
   };
 
   if (loading) {
-    return <AdminTableSkeleton rowCount={7} columnCount={6} titleWidth="w-56" showStats={true} />;
+    return (
+      <div className="flex h-[300px] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
   }
 
   return (
-    <div className="flex-1 space-y-4 px-[1px] pt-[1px] pb-4 md:p-8 w-full max-w-full overflow-x-hidden">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-        <div className="flex items-center justify-between w-full sm:w-auto">
-          <div className="flex-1 min-w-0">
-            <h2 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight">{t("orders.title")}</h2>
-            <p className="text-muted-foreground text-xs md:text-sm hidden sm:block">{t("orders.subtitle")}</p>
-          </div>
-          {/* Mobile-only Export Button */}
-          <Button 
-            onClick={exportToCSV} 
-            variant="outline"
-            className="md:hidden font-bold text-xs h-9 px-3 shrink-0"
-          >
-            <Download className="mr-1 h-3.5 w-3.5" /> {t("orders.export")}
-          </Button>
+    <div className="flex-1 space-y-4">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex-shrink-0">
+          <h2 className="text-2xl md:text-3xl font-bold tracking-tight whitespace-nowrap">Order Management</h2>
+          <p className="text-muted-foreground text-xs md:text-sm hidden sm:block">Review, fulfillment and track shop orders.</p>
         </div>
-        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-          {/* Mobile Filter Toggle Button */}
+        <div className="flex items-center gap-2">
           <Button
+            type="button"
             variant="outline"
-            size="sm"
-            onClick={() => setShowMobileFilters(!showMobileFilters)}
-            className={`h-9 px-3 md:hidden flex-1 ${showMobileFilters ? 'bg-primary/10 text-primary border-primary/20' : ''}`}
+            disabled={isSyncingCouriers}
+            onClick={handleSyncCouriers}
+            className="font-semibold shrink-0 border-primary/30 hover:bg-primary/10 text-primary"
+            title="Check Steadfast & Pathao for delivery status updates"
           >
-            <SlidersHorizontal className="mr-1.5 h-4 w-4" />
-            {t("orders.filters")}
-            {(statusFilter !== 'All' || dateFilter.from || dateFilter.to || searchTerm) && (
-              <span className="ml-1.5 flex h-2 w-2 rounded-full bg-primary animate-pulse" />
-            )}
+            <RefreshCw className={`mr-2 h-4 w-4 ${isSyncingCouriers ? 'animate-spin' : ''}`} />
+            {isSyncingCouriers ? 'Syncing...' : 'Sync Couriers'}
           </Button>
-
           <Button
             onClick={() => setIsManualOrderOpen(true)}
-            className="bg-primary text-primary-foreground hover:bg-primary/90 font-bold text-xs sm:text-sm h-9 sm:h-10 px-3 sm:px-4 shrink-0 flex-[2] md:flex-none"
+            className="bg-primary text-primary-foreground hover:bg-primary/90 font-bold shrink-0"
           >
-            <Plus className="mr-1 sm:mr-2 h-3.5 w-3.5 sm:h-4 sm:w-4" /> {t("orders.manual_order")}
+            <Plus className="mr-2 h-4 w-4" /> Manual Order
           </Button>
-          
-          {/* Desktop-only Export Button */}
-          <Button
-            onClick={exportToCSV}
-            variant="outline"
-            className="hidden md:flex font-bold text-xs sm:text-sm h-9 sm:h-10 px-3 sm:px-4 shrink-0"
-          >
-            <Download className="mr-1 sm:mr-2 h-3.5 w-3.5 sm:h-4 sm:w-4" /> {t("orders.export")}
+          <Button onClick={exportToCSV} variant="outline" className="font-bold shrink-0">
+          <Download className="mr-2 h-4 w-4" /> Export
           </Button>
         </div>
       </div>
 
-      {/* Desktop Search & Date Filter Bar */}
-      <div className="hidden md:flex items-center gap-2 w-full">
+      {/* Search and Date Range Row (1 Row) */}
+      <div className="flex flex-wrap md:flex-nowrap items-center gap-2 w-full">
         <div className="relative w-full md:w-80 shrink-0">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder={t("orders.search_placeholder") as string}
+            placeholder="Search name, phone, email or ID..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-8 w-full h-10"
           />
         </div>
 
-        {/* Date Filter Checkbox & Date Inputs */}
-        <div className="flex items-center gap-1.5 text-xs">
-          <label className="flex items-center gap-1 cursor-pointer font-bold text-foreground shrink-0 select-none">
-            <input
-              type="checkbox"
-              checked={filterByDate}
-              onChange={(e) => setFilterByDate(e.target.checked)}
-              className="rounded border-border text-primary focus:ring-primary h-3.5 w-3.5 accent-primary"
-            />
-            {t("orders.filter_by_date")}
-          </label>
-
-          <div className={`flex items-center gap-1 bg-muted/50 p-1 rounded-md border w-auto h-10 transition-opacity duration-200 ${!filterByDate ? 'opacity-40 pointer-events-none' : ''}`}>
-            <Input
-              type="date"
-              className="h-8 w-36 border-none bg-transparent focus-visible:ring-0 text-xs font-medium"
-              value={dateFilter.from}
-              onChange={(e) => {
-                setDateFilter(prev => ({ ...prev, from: e.target.value }));
-                setCurrentPage(1);
-              }}
-              disabled={!filterByDate}
-            />
-            <span className="text-muted-foreground text-xs">{t("orders.to")}</span>
-            <Input
-              type="date"
-              className="h-8 w-36 border-none bg-transparent focus-visible:ring-0 text-xs font-medium"
-              value={dateFilter.to}
-              onChange={(e) => {
-                setDateFilter(prev => ({ ...prev, to: e.target.value }));
-                setCurrentPage(1);
-              }}
-              disabled={!filterByDate}
-            />
-          </div>
-        </div>
-
-        {((filterByDate && (dateFilter.from || dateFilter.to)) || statusFilter !== 'All' || searchTerm) && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              const now = new Date();
-              const start = new Date(now.getFullYear(), now.getMonth(), 1);
-              const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-              setDateFilter({
-                from: format(start, 'yyyy-MM-dd'),
-                to: format(end, 'yyyy-MM-dd')
-              });
-              setFilterByDate(false);
-              setStatusFilter('All');
-              setSearchTerm('');
-              setDebouncedSearchTerm('');
-              prevSearchRef.current = '';
-              setCurrentPage(1);
-            }}
-            className="text-xs text-muted-foreground hover:text-primary shrink-0"
-          >
-            {t("orders.clear_all")}
-          </Button>
-        )}
-      </div>
-
-      {/* Collapsible Mobile Filter Controls */}
-      <div className={`grid transition-all duration-300 ease-in-out md:hidden w-full ${showMobileFilters
-        ? 'grid-rows-[1fr] opacity-100 visible'
-        : 'grid-rows-[0fr] opacity-0 invisible h-0 overflow-hidden'
-        }`}>
-        <div className="overflow-hidden flex flex-col gap-2.5 p-3 rounded-xl border bg-muted/30">
-          <div className="relative w-full">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder={t("orders.search_placeholder") as string}
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-8 w-full h-9 text-xs"
-            />
-          </div>
-
+        <div className="w-full md:w-48 shrink-0">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="h-9 w-full justify-between text-xs">
-                <span className="flex items-center">
-                  <FilterIcon className="mr-2 h-3.5 w-3.5" />
-                  {statusFilter === 'All' ? t("orders.all_statuses") : (t(`orders.status_${statusFilter.toLowerCase().replace(/ /g, '_')}`) || statusFilter)}
+              <Button variant="outline" className="h-10 w-full justify-between px-3 font-normal">
+                <span className="truncate">
+                  {resellerFilter === 'all' 
+                    ? 'All' 
+                    : resellerFilter === 'main'
+                    ? 'Main Shop'
+                    : resellers.find(r => r._id === resellerFilter)?.storeName || 'Unknown Reseller'}
                 </span>
-                <ChevronDown className="h-3.5 w-3.5 opacity-50" />
+                <ChevronDown className="ml-2 h-4 w-4 opacity-50" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-56 max-h-72 overflow-y-auto">
+            <DropdownMenuContent align="start" className="w-[200px] max-h-[300px] overflow-y-auto">
               <DropdownMenuGroup>
-                <DropdownMenuLabel>{t("orders.filter_by_status")}</DropdownMenuLabel>
+                <DropdownMenuItem
+                  onClick={() => {
+                    setResellerFilter('all');
+                    setCurrentPage(1);
+                  }}
+                  className={resellerFilter === 'all' ?"bg-accent font-bold" :""}
+                >
+                  All
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    setResellerFilter('main');
+                    setCurrentPage(1);
+                  }}
+                  className={resellerFilter === 'main' ?"bg-accent font-bold" :""}
+                >
+                  Main Shop
+                </DropdownMenuItem>
+                {resellers.map((r) => (
+                  <DropdownMenuItem
+                    key={r._id}
+                    onClick={() => {
+                      setResellerFilter(r._id);
+                      setCurrentPage(1);
+                    }}
+                    className={resellerFilter === r._id ?"bg-accent font-bold" :""}
+                  >
+                    {r.storeName}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+
+        {/* Commission Status Filter */}
+        <div className="w-full md:w-44 shrink-0">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="h-10 w-full justify-between px-3 font-normal text-xs">
+                <span className="truncate">
+                  {commissionFilter === 'All' ? 'All Commission' : 
+                   commissionFilter === 'cleared' ? 'Commission: Paid' :
+                   commissionFilter === 'pending' ? 'Commission: Pending' : 
+                   'Commission: Cancelled'}
+                </span>
+                <ChevronDown className="ml-1.5 h-3.5 w-3.5 opacity-50 shrink-0" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-48">
+              <DropdownMenuLabel className="text-xs">Commission Status</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => { setCommissionFilter('All'); setCurrentPage(1); }} className={commissionFilter === 'All' ? 'bg-accent font-bold' : ''}>
+                All Commission
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => { setCommissionFilter('cleared'); setCurrentPage(1); }} className={commissionFilter === 'cleared' ? 'bg-accent font-bold text-emerald-700' : ''}>
+                <span className="w-2 h-2 rounded-full bg-emerald-500 mr-2 shrink-0"></span> Paid
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => { setCommissionFilter('pending'); setCurrentPage(1); }} className={commissionFilter === 'pending' ? 'bg-accent font-bold text-amber-700' : ''}>
+                <span className="w-2 h-2 rounded-full bg-amber-500 mr-2 shrink-0"></span> Pending
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => { setCommissionFilter('cancelled'); setCurrentPage(1); }} className={commissionFilter === 'cancelled' ? 'bg-accent font-bold text-red-700' : ''}>
+                <span className="w-2 h-2 rounded-full bg-red-500 mr-2 shrink-0"></span> Cancelled
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+
+        <div className="block md:hidden w-full sm:w-auto">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="h-10 w-full">
+                <FilterIcon className="mr-2 h-4 w-4" />
+                {statusFilter === 'All' ? 'All Status' : statusFilter}
+                <ChevronDown className="ml-2 h-3 w-3 opacity-50" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56">
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>Filter by Status</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 {[
                   { label: 'All', value: 'All', count: statusCounts.all },
                   { label: 'Placed', value: 'Order Placed', count: statusCounts.placed },
                   { label: 'Confirmed', value: 'Confirmed', count: statusCounts.confirmed },
                   { label: 'Paid', value: 'Paid', count: statusCounts.paid },
+                  { label: 'Hold', value: 'Hold', count: statusCounts.hold },
                   { label: 'Ready', value: 'Ready for Delivery', count: statusCounts.ready },
                   { label: 'Released', value: 'Released for Delivery', count: statusCounts.released },
                   { label: 'Delivered', value: 'Delivered', count: statusCounts.delivered },
-                  { label: 'Cancelled', value: 'Cancelled', count: statusCounts.cancelled },
-                  { label: 'Credit', value: 'Credit', count: statusCounts.credit },
-                  { label: 'Due', value: 'Due', count: statusCounts.due }
+                  { label: 'Cancelled', value: 'Cancelled', count: statusCounts.cancelled }
                 ].map((status) => (
                   <DropdownMenuItem
                     key={status.value}
@@ -828,10 +926,10 @@ function OrdersContent() {
                       setStatusFilter(status.value);
                       setCurrentPage(1);
                     }}
-                    className={statusFilter === status.value ? "bg-accent font-bold" : ""}
+                    className={statusFilter === status.value ?"bg-accent font-bold" :""}
                   >
                     <div className="flex items-center justify-between w-full text-xs">
-                      <span>{t(`orders.status_${status.label.toLowerCase()}`)}</span>
+                      <span>{status.label}</span>
                       <Badge variant="secondary" className="ml-2 text-[9px] px-1.5 py-0">
                         {status.count ?? 0}
                       </Badge>
@@ -841,83 +939,61 @@ function OrdersContent() {
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
-
-          {/* Mobile Date Filter */}
-          <div className="flex flex-col gap-1.5 text-xs bg-background p-2 rounded-md border">
-            <label className="flex items-center gap-1.5 cursor-pointer font-bold text-foreground select-none">
-              <input
-                type="checkbox"
-                checked={filterByDate}
-                onChange={(e) => setFilterByDate(e.target.checked)}
-                className="rounded border-border text-primary focus:ring-primary h-3.5 w-3.5 accent-primary"
-              />
-              {t("orders.filter_by_date")}
-            </label>
-            <div className={`flex items-center gap-1 transition-opacity duration-200 ${!filterByDate ? 'opacity-40 pointer-events-none' : ''}`}>
-              <Input
-                type="date"
-                className="h-7 w-full border border-input rounded bg-transparent focus-visible:ring-0 p-1 text-xs"
-                value={dateFilter.from}
-                onChange={(e) => {
-                  setDateFilter(prev => ({ ...prev, from: e.target.value }));
-                  setCurrentPage(1);
-                }}
-                disabled={!filterByDate}
-              />
-              <span className="text-muted-foreground text-[10px]">{t("orders.to")}</span>
-              <Input
-                type="date"
-                className="h-7 w-full border border-input rounded bg-transparent focus-visible:ring-0 p-1 text-xs"
-                value={dateFilter.to}
-                onChange={(e) => {
-                  setDateFilter(prev => ({ ...prev, to: e.target.value }));
-                  setCurrentPage(1);
-                }}
-                disabled={!filterByDate}
-              />
-            </div>
-          </div>
-
-          {((filterByDate && (dateFilter.from || dateFilter.to)) || statusFilter !== 'All' || searchTerm) && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                const now = new Date();
-                const start = new Date(now.getFullYear(), now.getMonth(), 1);
-                const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-                setDateFilter({
-                  from: format(start, 'yyyy-MM-dd'),
-                  to: format(end, 'yyyy-MM-dd')
-                });
-                setFilterByDate(false);
-                setStatusFilter('All');
-                setSearchTerm('');
-                setDebouncedSearchTerm('');
-                prevSearchRef.current = '';
-                setCurrentPage(1);
-              }}
-              className="text-xs text-muted-foreground hover:text-primary h-8"
-            >
-              {t("orders.clear_all_filters")}
-            </Button>
-          )}
         </div>
+
+        <div className="flex items-center gap-2 bg-muted/50 p-1 rounded-md border w-full md:w-auto h-10">
+          <Input
+            type="date"
+            className="h-8 w-full md:w-36 border-none bg-transparent focus-visible:ring-0"
+            value={dateFilter.from}
+            onChange={(e) => {
+              setDateFilter(prev => ({ ...prev, from: e.target.value }));
+              setCurrentPage(1);
+            }}
+          />
+          <span className="text-muted-foreground text-xs">to</span>
+          <Input
+            type="date"
+            className="h-8 w-full md:w-36 border-none bg-transparent focus-visible:ring-0"
+            value={dateFilter.to}
+            onChange={(e) => {
+              setDateFilter(prev => ({ ...prev, to: e.target.value }));
+              setCurrentPage(1);
+            }}
+          />
+        </div>
+
+        {(statusFilter !== 'All' || resellerFilter !== 'all' || commissionFilter !== 'All' || dateFilter.from || dateFilter.to || searchTerm) && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setStatusFilter('All');
+              setResellerFilter('all');
+              setCommissionFilter('All');
+              setDateFilter({ from: '', to: '' });
+              setSearchTerm('');
+              setCurrentPage(1);
+            }}
+            className="text-xs text-muted-foreground hover:text-primary shrink-0"
+          >
+            Clear All
+          </Button>
+        )}
       </div>
 
       {/* Status Tabs Row (Desktop only - Full Width Grid) */}
-      <div className="hidden md:grid md:grid-cols-5 lg:grid-cols-10 gap-2 pb-2 border-b">
+      <div className="hidden md:grid md:grid-cols-9 gap-2 pb-2 border-b">
         {[
           { label: 'All', value: 'All', count: statusCounts.all },
           { label: 'Placed', value: 'Order Placed', count: statusCounts.placed },
           { label: 'Confirmed', value: 'Confirmed', count: statusCounts.confirmed },
           { label: 'Paid', value: 'Paid', count: statusCounts.paid },
+          { label: 'Hold', value: 'Hold', count: statusCounts.hold },
           { label: 'Ready', value: 'Ready for Delivery', count: statusCounts.ready },
           { label: 'Released', value: 'Released for Delivery', count: statusCounts.released },
           { label: 'Delivered', value: 'Delivered', count: statusCounts.delivered },
-          { label: 'Cancelled', value: 'Cancelled', count: statusCounts.cancelled },
-          { label: 'Credit', value: 'Credit', count: statusCounts.credit },
-          { label: 'Due', value: 'Due', count: statusCounts.due }
+          { label: 'Cancelled', value: 'Cancelled', count: statusCounts.cancelled }
         ].map((status) => {
           const isActive = statusFilter === status.value;
           return (
@@ -927,17 +1003,19 @@ function OrdersContent() {
                 setStatusFilter(status.value);
                 setCurrentPage(1);
               }}
-              className={`w-full py-2 text-xs font-semibold rounded-md transition-all duration-200 text-center truncate flex items-center justify-center gap-1.5 ${isActive
-                ? 'bg-primary text-primary-foreground shadow-sm'
-                : 'bg-background hover:bg-muted text-muted-foreground border border-input'
-                }`}
+              className={`w-full py-2 text-xs font-semibold rounded-md transition-all duration-200 text-center truncate flex items-center justify-center gap-1.5 ${
+                isActive
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'bg-background hover:bg-muted text-muted-foreground border border-input'
+              }`}
               title={`${status.label} (${status.count ?? 0})`}
             >
-              <span>{t(`orders.status_${status.label.toLowerCase()}`)}</span>
-              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${isActive
-                ? 'bg-white/20 text-white'
-                : 'bg-muted text-muted-foreground border'
-                }`}>
+              <span>{status.label}</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                isActive 
+                  ? 'bg-white/20 text-white' 
+                  : 'bg-muted text-muted-foreground border'
+              }`}>
                 {status.count ?? 0}
               </span>
             </button>
@@ -948,62 +1026,80 @@ function OrdersContent() {
       <div className="rounded-md border bg-background overflow-hidden relative">
         {/* Bulk Action Toolbar */}
         {selectedIds.length > 0 && (
-          <div className="sticky top-0 z-20 w-full bg-primary text-primary-foreground px-4 py-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 animate-in slide-in-from-top duration-200">
+          <div className="sticky top-0 z-20 w-full bg-primary text-primary-foreground px-4 py-2 flex items-center justify-between animate-in slide-in-from-top duration-200">
             <div className="flex items-center gap-4 text-sm font-medium">
-              <span>{selectedIds.length} {t("orders.selected")}</span>
+              <span>{selectedIds.length} orders selected</span>
               <Button
                 variant="ghost"
                 size="sm"
                 className="text-primary-foreground hover:bg-white/10"
                 onClick={() => setSelectedIds([])}
               >
-                {t("orders.deselect")}
+                Deselect All
               </Button>
             </div>
 
-            <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto justify-end">
+            <div className="flex items-center gap-2">
               <Button
                 variant="outline"
                 size="sm"
-                className="bg-white text-primary hover:bg-white/90 text-xs py-1 h-8"
+                className="bg-white text-primary hover:bg-white/90"
                 onClick={() => handlePrint(selectedIds)}
               >
-                <Printer className="mr-1 h-3.5 w-3.5" /> <span className="hidden sm:inline">{t("orders.print_invoices")}</span><span className="sm:hidden">{t("orders.print")}</span>
+                <Printer className="mr-2 h-3 w-3" /> Print Invoices
               </Button>
 
               <Button
                 variant="outline"
                 size="sm"
-                className="bg-white text-primary hover:bg-white/90 text-xs py-1 h-8"
+                className="bg-white text-primary hover:bg-white/90"
                 onClick={() => handlePrintStickers(selectedIds)}
               >
-                <Printer className="mr-1 h-3.5 w-3.5" /> <span className="hidden sm:inline">{t("orders.print_stickers")}</span><span className="sm:hidden">{t("orders.stickers")}</span>
+                <Printer className="mr-2 h-3 w-3" /> Print Stickers
               </Button>
 
               <Button
                 variant="outline"
                 size="sm"
-                className="bg-orange-500 text-white hover:bg-orange-600 border-none text-xs py-1 h-8"
+                className="bg-orange-500 text-white hover:bg-orange-600 border-none"
                 onClick={() => handleSendToSteadfast(selectedIds)}
               >
-                <Truck className="mr-1 h-3.5 w-3.5" /> <span className="hidden sm:inline">{t("orders.send_to_steadfast")}</span><span className="sm:hidden">{t("orders.steadfast")}</span>
+                <Truck className="mr-2 h-3 w-3" /> Steadfast
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                className="bg-rose-600 text-white hover:bg-rose-700 border-none"
+                onClick={() => handleSendToPathao(selectedIds)}
+              >
+                <Truck className="mr-2 h-3 w-3" /> Pathao
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                className="bg-red-600 text-white hover:bg-red-700 border-none"
+                onClick={() => handleSendToRedx(selectedIds)}
+              >
+                <Truck className="mr-2 h-3 w-3" /> RedX
               </Button>
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="bg-white text-primary hover:bg-white/90 text-xs py-1 h-8">
-                    {t("orders.status_dropdown")} <ChevronDown className="ml-1 h-3.5 w-3.5" />
+                  <Button variant="outline" size="sm" className="bg-white text-primary hover:bg-white/90">
+                    Update Status <ChevronDown className="ml-2 h-3 w-3" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuGroup>
-                    <DropdownMenuLabel>{t("orders.change_status_to")}</DropdownMenuLabel>
+                    <DropdownMenuLabel>Change Status to:</DropdownMenuLabel>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => handleBulkUpdate('Confirmed')}>{t("orders.status_confirmed")}</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => handleBulkUpdate('Paid')}>{t("orders.status_paid")}</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => handleBulkUpdate('Ready for Delivery')}>{t("orders.status_ready")}</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => handleBulkUpdate('Released for Delivery')}>{t("orders.status_released")}</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => handleBulkUpdate('Delivered')}>{t("orders.status_delivered")}</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleBulkUpdate('Confirmed')}>Confirmed</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleBulkUpdate('Paid')}>Paid</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleBulkUpdate('Ready for Delivery')}>Ready for Delivery</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleBulkUpdate('Released for Delivery')}>Released for Delivery</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleBulkUpdate('Delivered')}>Delivered</DropdownMenuItem>
                   </DropdownMenuGroup>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -1011,7 +1107,7 @@ function OrdersContent() {
               <Button
                 variant="destructive"
                 size="sm"
-                className="bg-red-600 hover:bg-red-700 h-8 px-2"
+                className="bg-red-600 hover:bg-red-700"
                 onClick={handleBulkDelete}
               >
                 <Trash2 className="h-4 w-4" />
@@ -1020,94 +1116,91 @@ function OrdersContent() {
           </div>
         )}
 
-        {/* Desktop View */}
+        {/* Desktop Table View */}
         <div className="hidden md:block">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead className="w-12">
                   <Checkbox
-                    checked={filteredOrders.length > 0 && filteredOrders.every(o => selectedIds.includes(o._id))}
+                    checked={selectedIds.length === filteredOrders.length && filteredOrders.length > 0}
                     onCheckedChange={toggleSelectAll}
                   />
                 </TableHead>
-                <TableHead>{t("orders.order_info")}</TableHead>
-                <TableHead>{t("orders.items")}</TableHead>
-                <TableHead>{t("orders.total")}</TableHead>
-                <TableHead>{t("orders.payment")}</TableHead>
-                <TableHead>{t("orders.status_col")}</TableHead>
-                <TableHead className="text-right">{t("orders.actions")}</TableHead>
+                <TableHead className="font-bold text-sm text-foreground">Order Info</TableHead>
+                <TableHead className="font-bold text-sm text-foreground">Items</TableHead>
+                <TableHead className="font-bold text-sm text-foreground">Total</TableHead>
+                <TableHead className="font-bold text-sm text-foreground">Disbursement</TableHead>
+                <TableHead className="font-bold text-sm text-foreground">Payment</TableHead>
+                <TableHead className="font-bold text-sm text-foreground">Status</TableHead>
+                <TableHead className="text-right font-bold text-sm text-foreground">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredOrders.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                    {t("orders.no_orders_found")}
+                  <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                    No orders found.
                   </TableCell>
                 </TableRow>
               ) : (
                 filteredOrders.map((order) => (
-                  <TableRow key={order._id} className={selectedIds.includes(order._id) ? "bg-muted/50" : ""}>
+                  <TableRow key={order._id} className={selectedIds.includes(order._id) ?"bg-muted/50" :""}>
                     <TableCell>
                       <Checkbox
                         checked={selectedIds.includes(order._id)}
                         onCheckedChange={() => toggleSelect(order._id)}
                       />
                     </TableCell>
-                    <TableCell className="max-w-[200px] whitespace-normal">
-                      <div className="flex flex-col gap-1.5 text-xs">
+                    <TableCell className="max-w-[220px] whitespace-normal">
+                      <div className="flex flex-col gap-1.5 text-sm">
                         <div className="flex items-center gap-1.5">
                           <button
                             type="button"
                             className="cursor-pointer hover:opacity-80 transition-opacity"
                             onClick={() => openDetails(order._id)}
                           >
-                            <span className={`font-bold hover:underline ${order.isDuplicate ? 'text-red-500 font-extrabold' : order.isRepeat ? 'text-yellow-600 font-extrabold' : 'text-primary'}`}>
-                              #{order._id.slice(-8).toUpperCase()}
+                            <span className={`font-bold hover:underline text-sm ${order.isDuplicate ? 'text-red-500 font-extrabold' : order.isRepeat ? 'text-yellow-600 font-extrabold' : 'text-primary'}`}>
+                              #{order.shortId || order._id.slice(-8).toUpperCase()}
                             </span>
                           </button>
                           {order.isDuplicate ? (
-                            <Badge className="bg-red-500 text-white hover:bg-red-600 border-none text-[9px] px-1 py-0 h-4">{t("orders.duplicate")}</Badge>
+                            <Badge className="bg-red-500 text-white hover:bg-red-600 border-none text-[10px] px-1.5 py-0.5 h-5 font-bold">Duplicate</Badge>
                           ) : order.isRepeat ? (
-                            <Badge className="bg-yellow-500 text-black hover:bg-yellow-600 border-none text-[9px] px-1 py-0 h-4">{t("orders.repeat")}</Badge>
+                            <Badge className="bg-yellow-500 text-black hover:bg-yellow-600 border-none text-[10px] px-1.5 py-0.5 h-5 font-bold">Repeat</Badge>
                           ) : null}
                         </div>
-
-                        <div className="flex flex-col text-[11px] text-slate-700 dark:text-zinc-300 mt-1 space-y-0.5">
-                          <span className="font-semibold text-slate-900 dark:text-white break-words block">{order.shippingAddress?.fullName || order.user?.name || t("orders.guest_user")}</span>
+                        
+                        <div className="flex flex-col text-xs text-slate-700 dark:text-zinc-300 mt-1 space-y-1">
+                          <span className="font-bold text-sm text-slate-900 dark:text-white break-words block leading-snug">{order.shippingAddress?.fullName || order.user?.name || 'Guest User'}</span>
                           <div className="flex items-center gap-1.5">
-                            <span
+                            <span 
                               onClick={() => order.shippingAddress?.phone && setSearchTerm(order.shippingAddress.phone)}
-                              className="text-muted-foreground hover:text-primary cursor-pointer hover:underline font-medium"
+                              className="text-foreground hover:text-primary cursor-pointer hover:underline font-semibold text-xs"
                             >
-                              {order.shippingAddress?.phone || t("orders.no_phone")}
+                              {order.shippingAddress?.phone || 'No Phone'}
                             </span>
                             {order.shippingAddress?.phone && (
                               <>
-                                <a
-                                  href={getWhatsAppLink(order.shippingAddress.phone)}
+                                <a 
+                                  href={`https://wa.me/${order.shippingAddress.phone.replace(/[^0-9]/g, '').startsWith('88') ? order.shippingAddress.phone.replace(/[^0-9]/g, '') : '88' + (order.shippingAddress.phone.replace(/[^0-9]/g, '').startsWith('0') ? order.shippingAddress.phone.replace(/[^0-9]/g, '').slice(1) : order.shippingAddress.phone.replace(/[^0-9]/g, ''))}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="text-green-600 hover:text-green-700 transition-colors p-0.5 hover:bg-slate-50 dark:hover:bg-zinc-800 rounded"
                                   title="Chat on WhatsApp"
                                 >
-                                  <WhatsAppIcon className="h-3.5 w-3.5" />
+                                  <WhatsAppIcon className="h-4 w-4" />
                                 </a>
                                 <button
                                   type="button"
-                                  onClick={async () => {
-                                    try {
-                                      await navigator.clipboard.writeText(order.shippingAddress.phone);
-                                      toast.success('Phone number copied!');
-                                    } catch (err) {
-                                      toast.error('Failed to copy phone number.');
-                                    }
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(order.shippingAddress.phone);
+                                    toast.success('Phone number copied!');
                                   }}
                                   className="text-muted-foreground hover:text-primary transition-colors p-0.5 hover:bg-slate-50 dark:hover:bg-zinc-800 rounded animate-in fade-in duration-200"
                                   title="Copy Phone Number"
                                 >
-                                  <Copy className="h-3 w-3" />
+                                  <Copy className="h-3.5 w-3.5" />
                                 </button>
                               </>
                             )}
@@ -1117,64 +1210,133 @@ function OrdersContent() {
                               <FraudCheckBadge phone={order.shippingAddress.phone} />
                             </div>
                           )}
-                          <span className="text-muted-foreground truncate max-w-[150px]">{order.user?.email || t("orders.no_email")}</span>
-                          <span className="text-[10px] text-muted-foreground uppercase mt-0.5">
+                          <span className="text-muted-foreground text-xs truncate max-w-[170px]">{order.user?.email || 'No Email'}</span>
+                          <span className="text-xs text-muted-foreground font-medium uppercase mt-0.5">
                             {order.createdAt ? format(new Date(order.createdAt), 'MMM dd, p') : 'N/A'}
                           </span>
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell>
-                      <div className="flex flex-col gap-1.5">
-                        <div className="flex flex-wrap gap-1 max-w-[200px]">
-                          {order.items?.map((item: any, idx: number) => (
-                            <Badge key={idx} variant="outline" className="text-[9px] px-1 py-0 font-normal truncate max-w-[180px]">
-                              {item.quantity}× {item.name}
-                              {(item.color || item.size) && (
-                                <span className="text-muted-foreground ml-1">
-                                  ({[item.color, item.size].filter(Boolean).join('/')})
-                                </span>
-                              )}
-                            </Badge>
-                          ))}
+                    <TableCell className="min-w-[260px] max-w-[380px] whitespace-normal">
+                      <div className="flex flex-col gap-1.5 w-full">
+                        <div className="flex flex-col gap-1 w-full">
+                          {order.items?.map((item: any, idx: number) => {
+                            const uploader = item.uploadedBy || item.product?.uploadedBy;
+                            const uploaderName = typeof uploader === 'object' && uploader?.storeName ? uploader.storeName : null;
+                            const productObj = typeof item.product === 'object' && item.product ? item.product : null;
+                            const productSlugOrId = item.slug || productObj?.slug || productObj?._id || (typeof item.product === 'string' ? item.product : null);
+                            const itemHref = productSlugOrId
+                              ? `/product/${encodeURIComponent(String(productSlugOrId))}`
+                              : `/shop?search=${encodeURIComponent(item.name || '')}`;
+                            return (
+                              <Link
+                                key={idx}
+                                href={itemHref}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="group inline-block w-full"
+                                title={`View product: ${item.name}`}
+                              >
+                                <Badge variant="outline" className="text-xs px-2 py-1 font-medium whitespace-normal break-words inline-block text-left h-auto leading-snug w-full cursor-pointer hover:border-primary/60 hover:bg-primary/5 transition-colors">
+                                  <span className="font-semibold text-primary mr-1">{item.quantity}×</span>
+                                  <span className="group-hover:text-primary group-hover:underline transition-colors">{item.name}</span>
+                                  {(item.color || item.size) && (
+                                    <span className="text-muted-foreground ml-1 font-normal">
+                                      ({[item.color, item.size].filter(Boolean).join('/')})
+                                    </span>
+                                  )}
+                                  {uploaderName && (
+                                    <span className="ml-1.5 text-[10px] bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 px-1.5 py-0.2 rounded font-bold border border-purple-200 dark:border-purple-800">
+                                      🏷️ Source: {uploaderName}
+                                    </span>
+                                  )}
+                                </Badge>
+                              </Link>
+                            );
+                          })}
                         </div>
+                        {/* Store Info */}
+                        {(order.resellerId || order.storefrontResellerId) ? (
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                            {(() => {
+                              const resObj = (typeof order.resellerId === 'object' && order.resellerId?.storeName) 
+                                ? order.resellerId 
+                                : (typeof order.storefrontResellerId === 'object' && order.storefrontResellerId?.storeName) 
+                                  ? order.storefrontResellerId 
+                                  : null;
+                              const storeName = resObj?.storeName || (typeof order.resellerId === 'string' ? 'Reseller Store' : 'Reseller Store');
+                              const domain = resObj?.customDomain || resObj?.subdomain;
+                              return (
+                                <span className="inline-flex items-center gap-1 text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                                  <span>🏪 Seller:</span>
+                                  <span className="font-extrabold underline decoration-indigo-400">
+                                    {storeName}
+                                  </span>
+                                  {domain && (
+                                    <span className="text-[10px] text-indigo-500 font-normal font-mono">
+                                      ({domain})
+                                    </span>
+                                  )}
+                                </span>
+                              );
+                            })()}
+                          </div>
+                        ) : (
+                          <div className="mt-0.5 flex items-center">
+                            <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 px-1.5 py-0.2 rounded border border-slate-200 dark:border-zinc-700">
+                              <span>🏢 Mother Shop</span>
+                            </span>
+                          </div>
+                        )}
+                        {/* Customer Note */}
+                        {order.customerNote && (
+                          <div className="mt-1 text-xs bg-sky-50 dark:bg-sky-950/20 text-sky-800 dark:text-sky-300 p-1.5 rounded border border-sky-200/50 font-medium whitespace-normal break-words" title={`Customer Note: ${order.customerNote}`}>
+                            💬 Customer: {order.customerNote}
+                          </div>
+                        )}
+                        {/* Internal Note */}
                         {order.internalNote && (
-                          <div className="mt-1 text-[10px] bg-yellow-50 dark:bg-yellow-950/20 text-amber-800 dark:text-amber-300 px-1.5 py-0.5 rounded border border-yellow-200/50 font-medium whitespace-pre-line max-w-[200px]" title={order.internalNote}>
-                            {t("orders.note")} {order.internalNote}
+                          <div className="mt-1 text-xs bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200 p-1.5 rounded border border-amber-300 dark:border-amber-800 font-medium whitespace-normal break-words" title={`Internal Note: ${order.internalNote}`}>
+                            <span className="font-bold text-amber-700 dark:text-amber-300">🔒 Reseller / Internal Note:</span> {order.internalNote}
+                          </div>
+                        )}
+                        {/* System Note */}
+                        {order.systemNote && (
+                          <div className="mt-1 text-xs bg-muted/60 text-muted-foreground px-1.5 py-0.5 rounded border border-border font-mono whitespace-normal break-words" title={`System Info: ${order.systemNote}`}>
+                            ⚙️ {order.systemNote}
                           </div>
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="font-bold">৳{Math.round(order.totalAmount ?? 0)}</TableCell>
+                    <TableCell className="font-extrabold text-base">৳{Math.round(order.totalAmount ?? 0)}</TableCell>
+                    <TableCell>
+                      <DisbursementBreakdown
+                        disbursement={order.disbursement}
+                        fallbackCommission={order.resellerCommission}
+                        fallbackSystemFee={order.systemFee}
+                        fallbackDeliveryCharge={order.deliveryCharge}
+                        fallbackTotalAmount={order.totalAmount}
+                        commissionStatus={order.commissionStatus}
+                        perspective="admin"
+                      />
+                    </TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-1">
                         <Badge
                           variant="outline"
-                          className={order.paymentStatus === 'Paid' ? 'bg-green-100 text-green-700 border-none font-bold' : 'bg-yellow-100 text-yellow-700 border-none font-bold'}
+                          className={order.paymentStatus === 'Paid' ? 'bg-green-100 text-green-700 border-none font-bold text-xs px-2.5 py-0.5' : 'bg-yellow-100 text-yellow-700 border-none font-bold text-xs px-2.5 py-0.5'}
                         >
                           {order.paymentStatus}
                         </Badge>
-                        {(order.isCreditOrder || order.paymentMethod === 'Credit') && (
-                          <div className={`flex flex-col gap-0.5 mt-1 p-1.5 rounded border ${order.paymentStatus === 'Paid' ? 'bg-green-500/10 dark:bg-green-500/20 border-green-500/20' : 'bg-red-500/10 dark:bg-red-500/20 border-red-500/20'}`}>
-                            <span className={`font-extrabold text-[10px] uppercase tracking-wider ${order.paymentStatus === 'Paid' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                              {order.paymentStatus === 'Paid' ? t("orders.credit_paid") : t("orders.credit_due")}
-                            </span>
-                            {order.expectedPaymentDate && (
-                              <span className={`text-[9px] font-semibold ${order.paymentStatus === 'Paid' ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}`}>
-                                {t("orders.due_date")} {format(new Date(order.expectedPaymentDate), 'MMM dd, yyyy')}
-                              </span>
-                            )}
-                          </div>
-                        )}
                         {order.paymentMethod === 'Manual' && order.manualPaymentDetails && (
-                          <div className="flex flex-col text-[10px] text-muted-foreground bg-slate-50 dark:bg-zinc-900 p-1.5 rounded border border-slate-100 dark:border-zinc-800 font-mono">
-                            <span className="font-bold text-primary uppercase text-[9px]">{order.manualPaymentDetails.methodName}</span>
+                          <div className="flex flex-col text-xs text-muted-foreground bg-slate-50 dark:bg-zinc-900 p-1.5 rounded border border-slate-100 dark:border-zinc-800 font-mono">
+                            <span className="font-bold text-primary uppercase text-xs">{order.manualPaymentDetails.methodName}</span>
                             {order.manualPaymentDetails.senderNumber && (
-                              <span>{t("orders.no")} {order.manualPaymentDetails.senderNumber}</span>
+                              <span>No: {order.manualPaymentDetails.senderNumber}</span>
                             )}
                             {order.manualPaymentDetails.transactionId && (
-                              <span className="truncate max-w-[120px] font-bold text-slate-800 dark:text-zinc-200" title={order.manualPaymentDetails.transactionId}>
-                                {t("orders.trx_id")} {order.manualPaymentDetails.transactionId}
+                              <span className="truncate max-w-[130px] font-bold text-slate-800 dark:text-zinc-200" title={order.manualPaymentDetails.transactionId}>
+                                TrxID: {order.manualPaymentDetails.transactionId}
                               </span>
                             )}
                           </div>
@@ -1186,10 +1348,10 @@ function OrdersContent() {
                       <div className="flex items-center justify-end gap-1.5">
                         {order.paymentMethod === 'Manual' && order.paymentStatus === 'Pending' && order.status !== 'Cancelled' && (
                           <div className="flex items-center gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/30" 
                               title="Approve Manual Payment"
                               onClick={() => {
                                 Swal.fire({
@@ -1208,10 +1370,10 @@ function OrdersContent() {
                             >
                               <CheckCircle className="h-4 w-4" />
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-destructive hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-8 w-8 text-destructive hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30" 
                               title="Cancel Order"
                               onClick={() => handleCancelOrder(order._id)}
                             >
@@ -1232,36 +1394,40 @@ function OrdersContent() {
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuGroup>
-                              <DropdownMenuLabel>{t("orders.actions")}</DropdownMenuLabel>
-                              <DropdownMenuItem onClick={() => handleCopyLink(order._id)}>
-                                <Share2 className="mr-2 h-4 w-4 text-indigo-600" /> {t("orders.copy_link")}
-                              </DropdownMenuItem>
+                              <DropdownMenuLabel>Actions</DropdownMenuLabel>
                               <DropdownMenuItem onClick={() => handleDownloadInvoice(order)}>
-                                <FileText className="mr-2 h-4 w-4 text-primary" /> {t("orders.download_invoice")}
+                                <FileText className="mr-2 h-4 w-4 text-primary" /> Download Invoice
                               </DropdownMenuItem>
                               <DropdownMenuItem onClick={() => handlePrint([order._id])}>
-                                <Printer className="mr-2 h-4 w-4 text-primary" /> {t("orders.print_invoice")}
+                                <Printer className="mr-2 h-4 w-4 text-primary" /> Print Invoice
                               </DropdownMenuItem>
                               <DropdownMenuItem onClick={() => handlePrintStickers([order._id])}>
-                                <Printer className="mr-2 h-4 w-4 text-primary" /> {t("orders.print_sticker_invoice")}
+                                <Printer className="mr-2 h-4 w-4 text-primary" /> Print Sticker Invoice
                               </DropdownMenuItem>
                               <DropdownMenuItem onClick={() => handleSendToSteadfast([order._id])} disabled={!!order.shippingDetails?.consignmentId}>
-                                <Truck className="mr-2 h-4 w-4 text-orange-500" /> {t("orders.send_to_steadfast")}
+                                <Truck className="mr-2 h-4 w-4 text-orange-500" /> Send to Steadfast
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleSendToPathao([order._id])} disabled={!!order.shippingDetails?.consignmentId}>
+                                <Truck className="mr-2 h-4 w-4 text-rose-500" /> Send to Pathao
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleSendToRedx([order._id])} disabled={!!order.shippingDetails?.consignmentId}>
+                                <Truck className="mr-2 h-4 w-4 text-red-600" /> Send to RedX
                               </DropdownMenuItem>
                             </DropdownMenuGroup>
                             <DropdownMenuSeparator />
                             <DropdownMenuGroup>
-                              <DropdownMenuLabel>{t("orders.change_status")}</DropdownMenuLabel>
-                              <DropdownMenuItem onClick={() => updateStatus(order._id, 'Confirmed')}>{t("orders.confirm")}</DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => updateStatus(order._id, 'Paid', { paymentStatus: 'Paid' })}>{t("orders.mark_paid")}</DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => updateStatus(order._id, 'Ready for Delivery')}>{t("orders.ready_for_delivery")}</DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => updateStatus(order._id, 'Released for Delivery')}>{t("orders.release_for_delivery")}</DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => updateStatus(order._id, 'Delivered')}>{t("orders.mark_delivered")}</DropdownMenuItem>
+                              <DropdownMenuLabel>Change Status</DropdownMenuLabel>
+                              <DropdownMenuItem onClick={() => updateStatus(order._id, 'Confirmed')}>Confirm</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => updateStatus(order._id, 'Paid', { paymentStatus: 'Paid' })}>Mark Paid</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleHoldOrder(order._id)}>Hold Order</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => updateStatus(order._id, 'Ready for Delivery')}>Ready for Delivery</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => updateStatus(order._id, 'Released for Delivery')}>Release for Delivery</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => updateStatus(order._id, 'Delivered')}>Mark Delivered</DropdownMenuItem>
                             </DropdownMenuGroup>
                             <DropdownMenuSeparator />
                             <DropdownMenuGroup>
-                              <DropdownMenuItem className="text-destructive" onClick={() => handleCancelOrder(order._id)}>{t("orders.cancel_order")}</DropdownMenuItem>
-                              <DropdownMenuItem className="text-destructive font-bold" onClick={() => deleteOrder(order._id)}>{t("orders.delete_order")}</DropdownMenuItem>
+                              <DropdownMenuItem className="text-destructive" onClick={() => handleCancelOrder(order._id)}>Cancel Order</DropdownMenuItem>
+                              <DropdownMenuItem className="text-destructive font-bold" onClick={() => deleteOrder(order._id)}>Delete Order</DropdownMenuItem>
                             </DropdownMenuGroup>
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -1274,246 +1440,252 @@ function OrdersContent() {
           </Table>
         </div>
 
-        {/* Mobile View */}
-        <div className="block md:hidden divide-y">
+        {/* Mobile Cards View */}
+        <div className="block md:hidden p-2 space-y-2.5">
           {filteredOrders.length === 0 ? (
-            <div className="p-8 text-center text-muted-foreground text-xs">
-              {t("orders.no_orders_found")}
+            <div className="h-24 flex items-center justify-center text-center text-muted-foreground text-xs">
+              No orders found.
             </div>
           ) : (
-            filteredOrders.map((order) => (
-               <div
-                 key={order._id}
-                 className={`p-4 sm:p-5 transition-colors ${selectedIds.includes(order._id) ? 'bg-muted/50' : 'bg-background'
-                   }`}
-               >
-                 {/* Header: Checkbox, Order ID, Status, and Actions dropdown */}
-                 <div className="flex items-center justify-between mb-3">
-                   <div className="flex items-center gap-2">
-                     <Checkbox
-                       checked={selectedIds.includes(order._id)}
-                       onCheckedChange={() => toggleSelect(order._id)}
-                       id={`check-${order._id}`}
-                       className="h-5 w-5"
-                     />
-                     <button
-                       type="button"
-                       className="cursor-pointer hover:opacity-80 transition-opacity text-left"
-                       onClick={() => openDetails(order._id)}
-                     >
-                       <span className={`text-sm md:text-xs font-bold hover:underline ${order.isDuplicate ? 'text-red-500 font-extrabold' : order.isRepeat ? 'text-yellow-600 font-extrabold' : 'text-primary'}`}>
-                         #{order._id.slice(-8).toUpperCase()}
-                       </span>
-                     </button>
-                     {order.isDuplicate ? (
-                       <Badge className="bg-red-500 text-white hover:bg-red-600 border-none text-[10px] px-1.5 py-0.5 h-4.5">{t("orders.duplicate")}</Badge>
-                     ) : order.isRepeat ? (
-                       <Badge className="bg-yellow-500 text-black hover:bg-yellow-600 border-none text-[10px] px-1.5 py-0.5 h-4.5">{t("orders.repeat")}</Badge>
-                     ) : null}
-                   </div>
-                   <div className="flex items-center gap-1.5">
-                     {getStatusBadge(order.status)}
-                   </div>
-                 </div>
+            filteredOrders.map((order) => {
+              const phone = order.shippingAddress?.phone;
+              return (
+                <div
+                  key={order._id}
+                  className={`bg-card border border-border/90 rounded-xl p-3 text-xs space-y-2 shadow-xs transition-colors ${
+                    selectedIds.includes(order._id) ?"border-primary bg-primary/5" :""
+                  }`}
+                >
+                  {/* Card Header */}
+                  <div className="flex items-center justify-between gap-2 border-b pb-2">
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        checked={selectedIds.includes(order._id)}
+                        onCheckedChange={() => toggleSelect(order._id)}
+                      />
+                      <button
+                        type="button"
+                        className="font-bold text-xs text-primary hover:underline"
+                        onClick={() => openDetails(order._id)}
+                      >
+                        #{order.shortId || order._id.slice(-8).toUpperCase()}
+                      </button>
+                      {order.isDuplicate && (
+                        <Badge className="bg-red-500 text-white text-[9px] px-1 py-0 h-4">Dup</Badge>
+                      )}
+                      {order.isRepeat && (
+                        <Badge className="bg-yellow-500 text-black text-[9px] px-1 py-0 h-4">Repeat</Badge>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {getStatusBadge(order.status)}
+                    </div>
+                  </div>
 
-                 {/* Details */}
-                 <div className="space-y-2.5 text-sm md:text-xs">
-                   {/* Name and Price */}
-                   <div className="flex flex-col gap-1">
-                     <div className="font-semibold text-slate-900 dark:text-white text-base md:text-sm flex items-center justify-between">
-                       <span>{order.shippingAddress?.fullName || order.user?.name || t("orders.guest_user")}</span>
-                       <span className="font-bold text-slate-900 dark:text-white text-lg md:text-base">৳{Math.round(order.totalAmount ?? 0)}</span>
-                     </div>
+                  {/* Customer Info */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-foreground text-xs">
+                        {order.shippingAddress?.fullName || order.user?.name || 'Guest User'}
+                      </span>
+                      <span className="font-bold text-sm text-primary">
+                        ৳{Math.round(order.totalAmount ?? 0).toLocaleString()}
+                      </span>
+                    </div>
 
-                     {/* Contact details */}
-                     <div className="flex items-center flex-wrap gap-2 mt-0.5">
-                       <span
-                         onClick={() => order.shippingAddress?.phone && setSearchTerm(order.shippingAddress.phone)}
-                         className="text-muted-foreground hover:text-primary cursor-pointer hover:underline font-medium text-sm md:text-[11px]"
-                       >
-                         {order.shippingAddress?.phone || t("orders.no_phone")}
-                       </span>
-                       {order.shippingAddress?.phone && (
-                         <div className="flex items-center gap-1.5">
-                           <a
-                             href={getWhatsAppLink(order.shippingAddress.phone)}
-                             target="_blank"
-                             rel="noopener noreferrer"
-                             className="text-green-600 p-1 hover:bg-slate-50 dark:hover:bg-zinc-800 rounded"
-                             title="Chat on WhatsApp"
-                           >
-                             <WhatsAppIcon className="h-4.5 w-4.5" />
-                           </a>
-                           <button
-                             type="button"
-                             onClick={async () => {
-                               try {
-                                 await navigator.clipboard.writeText(order.shippingAddress.phone);
-                                 toast.success('Phone number copied!');
-                               } catch (err) {
-                                 toast.error('Failed to copy phone number.');
-                               }
-                             }}
-                             className="text-muted-foreground p-1 hover:bg-slate-50 dark:hover:bg-zinc-800 rounded"
-                             title="Copy Phone"
-                           >
-                             <Copy className="h-4 w-4" />
-                           </button>
-                         </div>
-                       )}
-                       {order.shippingAddress?.phone && (
-                         <FraudCheckBadge phone={order.shippingAddress.phone} />
-                       )}
-                     </div>
-                     {order.user?.email && (
-                       <span className="text-muted-foreground text-xs md:text-[10px] truncate max-w-[200px]">{order.user.email}</span>
-                     )}
-                     <span className="text-xs md:text-[9px] text-muted-foreground uppercase mt-0.5">
-                       {order.createdAt ? format(new Date(order.createdAt), 'MMM dd, yyyy p') : 'N/A'}
-                     </span>
-                   </div>
+                    {phone && (
+                      <div className="flex items-center justify-between text-[11px]">
+                        <div className="flex items-center gap-2">
+                          <a
+                            href={`tel:${phone}`}
+                            className="text-primary font-medium hover:underline flex items-center gap-1"
+                          >
+                            {phone}
+                          </a>
+                          <a
+                            href={`https://wa.me/${phone.replace(/[^0-9]/g, '').startsWith('88') ? phone.replace(/[^0-9]/g, '') : '88' + (phone.replace(/[^0-9]/g, '').startsWith('0') ? phone.replace(/[^0-9]/g, '').slice(1) : phone.replace(/[^0-9]/g, ''))}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-green-600 p-0.5"
+                          >
+                            <WhatsAppIcon className="h-3.5 w-3.5" />
+                          </a>
+                        </div>
+                        <span className="text-[10px] text-muted-foreground">
+                          {order.createdAt ? format(new Date(order.createdAt), 'dd MMM, p') : ''}
+                        </span>
+                      </div>
+                    )}
+                  </div>
 
-                   {/* Payment Details */}
-                   <div className="flex flex-wrap items-center gap-2 py-0.5">
-                     <Badge
-                       variant="outline"
-                       className={`text-xs md:text-[9px] ${order.paymentStatus === 'Paid' ? 'bg-green-100 text-green-700 border-none font-bold' : 'bg-yellow-100 text-yellow-700 border-none font-bold'}`}
-                     >
-                       {order.paymentStatus}
-                     </Badge>
-                     {(order.isCreditOrder || order.paymentMethod === 'Credit') && (
-                       <div className={`flex flex-row items-center gap-1 px-2 py-0.5 rounded border ${order.paymentStatus === 'Paid' ? 'bg-green-500/10 dark:bg-green-500/20 border-green-500/20' : 'bg-red-500/10 dark:bg-red-500/20 border-red-500/20'}`}>
-                         <span className={`font-extrabold text-xs md:text-[9px] uppercase tracking-wider ${order.paymentStatus === 'Paid' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                           {order.paymentStatus === 'Paid' ? t("orders.credit_paid") : t("orders.credit_due")}
-                         </span>
-                         {order.expectedPaymentDate && (
-                           <span className={`text-xs md:text-[9px] font-semibold border-l pl-1.5 ml-0.5 ${order.paymentStatus === 'Paid' ? 'text-green-700 dark:text-green-300 border-green-500/30' : 'text-red-700 dark:text-red-300 border-red-500/30'}`}>
-                             {t("orders.due_date")} {format(new Date(order.expectedPaymentDate), 'MMM dd, yyyy')}
-                           </span>
-                         )}
-                       </div>
-                     )}
-                     {order.paymentMethod === 'Manual' && order.manualPaymentDetails && (
-                       <span className="text-xs md:text-[9px] text-muted-foreground font-mono bg-slate-50 dark:bg-zinc-900 px-2 py-0.5 rounded border">
-                         {order.manualPaymentDetails.methodName}
-                         {order.manualPaymentDetails.senderNumber ? ` (${order.manualPaymentDetails.senderNumber})` : ''}
-                       </span>
-                     )}
-                   </div>
+                  {/* Items List */}
+                  <div className="flex flex-col gap-1 pt-1 border-t border-dashed">
+                    {order.items?.map((item: any, idx: number) => {
+                      const uploader = item.uploadedBy || item.product?.uploadedBy;
+                      const uploaderName = typeof uploader === 'object' && uploader?.storeName ? uploader.storeName : null;
+                      const productObj = typeof item.product === 'object' && item.product ? item.product : null;
+                      const productSlugOrId = item.slug || productObj?.slug || productObj?._id || (typeof item.product === 'string' ? item.product : null);
+                      const itemHref = productSlugOrId
+                        ? `/product/${encodeURIComponent(String(productSlugOrId))}`
+                        : `/shop?search=${encodeURIComponent(item.name || '')}`;
+                      return (
+                        <Link
+                          key={idx}
+                          href={itemHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="group inline-block w-full"
+                          title={`View product: ${item.name}`}
+                        >
+                          <Badge variant="outline" className="text-[11px] px-2 py-0.5 font-normal whitespace-normal break-words inline-block text-left h-auto leading-tight w-full cursor-pointer hover:border-primary/60 hover:bg-primary/5 transition-colors">
+                            <span className="font-semibold text-primary mr-1">{item.quantity}×</span>
+                            <span className="group-hover:text-primary group-hover:underline transition-colors">{item.name}</span>
+                            {(item.color || item.size) && (
+                              <span className="text-muted-foreground ml-1">
+                                ({[item.color, item.size].filter(Boolean).join('/')})
+                              </span>
+                            )}
+                            {uploaderName && (
+                              <span className="ml-1 text-[9px] bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 px-1 py-0.2 rounded font-bold">
+                                🏷️ {uploaderName}
+                              </span>
+                            )}
+                          </Badge>
+                        </Link>
+                      );
+                    })}
+                  </div>
 
-                   {/* Items list */}
-                   <div className="flex flex-wrap gap-1.5 pt-0.5">
-                     {order.items?.map((item: any, idx: number) => (
-                       <Badge key={idx} variant="outline" className="text-xs md:text-[8px] px-2 py-0.5 font-normal truncate max-w-[240px]">
-                         {item.quantity}× {item.name}
-                         {(item.color || item.size) && (
-                           <span className="text-muted-foreground ml-0.5">
-                             ({[item.color, item.size].filter(Boolean).join('/')})
-                           </span>
-                         )}
-                       </Badge>
-                     ))}
-                   </div>
+                  {order.customerNote && (
+                    <div className="text-[10px] bg-sky-50 dark:bg-sky-950/20 text-sky-800 dark:text-sky-300 px-1.5 py-0.5 rounded border border-sky-200/50 font-medium whitespace-pre-line">
+                      💬 Customer: {order.customerNote}
+                    </div>
+                  )}
+                  {(order.resellerId || order.storefrontResellerId) ? (
+                    <div className="flex items-center justify-between gap-1 text-[11px] bg-indigo-50 dark:bg-indigo-950/30 px-2.5 py-1.5 rounded-md border border-indigo-200/60 dark:border-indigo-800">
+                      {(() => {
+                        const resObj = (typeof order.resellerId === 'object' && order.resellerId?.storeName) 
+                          ? order.resellerId 
+                          : (typeof order.storefrontResellerId === 'object' && order.storefrontResellerId?.storeName) 
+                            ? order.storefrontResellerId 
+                            : null;
+                        const storeName = resObj?.storeName || (typeof order.resellerId === 'string' ? 'Reseller Store' : 'Reseller Store');
+                        const domain = resObj?.customDomain || resObj?.subdomain;
+                        return (
+                          <span className="font-bold text-indigo-700 dark:text-indigo-300 truncate">
+                            🏪 Seller: {storeName}
+                            {domain && (
+                              <span className="text-[9px] text-indigo-500 font-normal ml-1">({domain})</span>
+                            )}
+                          </span>
+                        );
+                      })()}
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="font-bold text-green-700 dark:text-green-400">
+                          Comm: ৳{Math.round(order.resellerCommission || 0)}
+                        </span>
+                        {order.commissionStatus === 'cleared' ? (
+                          <Badge variant="outline" className="bg-emerald-100 text-emerald-800 border-emerald-300 text-[8px] px-1 py-0 font-semibold h-4">
+                            Paid
+                          </Badge>
+                        ) : order.commissionStatus === 'cancelled' ? (
+                          <Badge variant="outline" className="bg-red-100 text-red-800 border-red-300 text-[8px] px-1 py-0 font-semibold h-4">
+                            Cancelled
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-300 text-[8px] px-1 py-0 font-semibold h-4">
+                            Pending
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center text-[10px] text-slate-500 bg-slate-100 dark:bg-zinc-800 px-2 py-0.5 rounded border border-slate-200 dark:border-zinc-700 w-fit">
+                      🏢 Mother Shop
+                    </div>
+                  )}
+                  {order.internalNote && (
+                    <div className="text-[11px] bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200 p-1.5 rounded-md border border-amber-300 dark:border-amber-800 font-medium whitespace-pre-line">
+                      <span className="font-bold text-amber-700 dark:text-amber-300">🔒 Reseller / Internal Note:</span> {order.internalNote}
+                    </div>
+                  )}
+                  {order.systemNote && (
+                    <div className="text-[9px] bg-muted/60 text-muted-foreground px-1.5 py-0.5 rounded border border-border font-mono truncate">
+                      ⚙️ {order.systemNote}
+                    </div>
+                  )}
 
-                   {order.internalNote && (
-                     <div className="text-xs md:text-[9px] bg-yellow-50 dark:bg-yellow-950/20 text-amber-800 dark:text-amber-300 px-2 py-1 rounded border border-yellow-200/50 font-medium whitespace-pre-line">
-                       {t("orders.note")} {order.internalNote}
-                     </div>
-                   )}
+                  {/* Card Bottom Actions */}
+                  <div className="flex items-center justify-between pt-2 border-t gap-1">
+                    <div className="flex items-center gap-1">
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] px-1.5 py-0.2 ${
+                          order.paymentStatus === 'Paid'
+                            ? 'bg-green-100 text-green-700 border-none font-bold'
+                            : 'bg-yellow-100 text-yellow-700 border-none font-bold'
+                        }`}
+                      >
+                        {order.paymentStatus}
+                      </Badge>
+                      {order.shippingDetails?.consignmentId && (
+                        <Badge variant="secondary" className="text-[9px] px-1 py-0 bg-blue-100 text-blue-700">
+                          Couriered
+                        </Badge>
+                      )}
+                    </div>
 
-                   {/* Footer actions */}
-                   <div className="flex items-center justify-between pt-2.5 border-t mt-2">
-                     <div className="flex items-center gap-1.5">
-                       {order.paymentMethod === 'Manual' && order.paymentStatus === 'Pending' && order.status !== 'Cancelled' && (
-                         <>
-                           <Button
-                             variant="outline"
-                             size="sm"
-                             className="h-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 text-xs px-3 py-1"
-                             onClick={() => {
-                               Swal.fire({
-                                 title: 'Approve Payment?',
-                                 text: `Are you sure you want to approve manual payment for order #${order._id.slice(-8).toUpperCase()}? This will mark the order as Confirmed & Paid.`,
-                                 icon: 'question',
-                                 showCancelButton: true,
-                                 confirmButtonColor: '#00D1B2',
-                                 confirmButtonText: 'Yes, Approve!'
-                               }).then((result) => {
-                                 if (result.isConfirmed) {
-                                   updateStatus(order._id, 'Confirmed', { paymentStatus: 'Paid' });
-                                 }
-                               });
-                             }}
-                           >
-                             {t("orders.approve")}
-                           </Button>
-                           <Button
-                             variant="outline"
-                             size="sm"
-                             className="h-8 text-destructive hover:text-red-700 hover:bg-red-50 text-xs px-3 py-1"
-                             onClick={() => handleCancelOrder(order._id)}
-                           >
-                             {t("orders.cancel")}
-                           </Button>
-                         </>
-                       )}
-                     </div>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2 text-xs text-primary"
+                        onClick={() => openDetails(order._id)}
+                      >
+                        <Eye className="h-3.5 w-3.5 mr-1" /> View
+                      </Button>
 
-                     <div className="flex items-center gap-1.5 ml-auto">
-                       <Button variant="outline" size="sm" className="h-8 text-primary text-xs px-3 py-1 flex items-center gap-1" onClick={() => openDetails(order._id)}>
-                         <Eye className="h-3.5 w-3.5" /> {t("orders.view")}
-                       </Button>
-
-                       <DropdownMenu>
-                         <DropdownMenuTrigger asChild>
-                           <Button variant="outline" size="sm" className="h-8 w-8 p-0">
-                             <MoreHorizontal className="h-4 w-4" />
-                           </Button>
-                         </DropdownMenuTrigger>
-                         <DropdownMenuContent align="end">
-                           <DropdownMenuGroup>
-                             <DropdownMenuLabel>{t("orders.actions")}</DropdownMenuLabel>
-                             <DropdownMenuItem onClick={() => handleCopyLink(order._id)}>
-                               <Share2 className="mr-2 h-4 w-4 text-indigo-600" /> {t("orders.copy_link")}
-                             </DropdownMenuItem>
-                             <DropdownMenuItem onClick={() => handleDownloadInvoice(order)}>
-                               <FileText className="mr-2 h-4 w-4 text-primary" /> {t("orders.download_invoice")}
-                             </DropdownMenuItem>
-                             <DropdownMenuItem onClick={() => handlePrint([order._id])}>
-                               <Printer className="mr-2 h-4 w-4 text-primary" /> {t("orders.print_invoice")}
-                             </DropdownMenuItem>
-                             <DropdownMenuItem onClick={() => handlePrintStickers([order._id])}>
-                               <Printer className="mr-2 h-4 w-4 text-primary" /> {t("orders.print_sticker_invoice")}
-                             </DropdownMenuItem>
-                             <DropdownMenuItem onClick={() => handleSendToSteadfast([order._id])} disabled={!!order.shippingDetails?.consignmentId}>
-                               <Truck className="mr-2 h-4 w-4 text-orange-500" /> {t("orders.send_to_steadfast")}
-                             </DropdownMenuItem>
-                           </DropdownMenuGroup>
-                           <DropdownMenuSeparator />
-                           <DropdownMenuGroup>
-                             <DropdownMenuLabel>{t("orders.change_status")}</DropdownMenuLabel>
-                             <DropdownMenuItem onClick={() => updateStatus(order._id, 'Confirmed')}>{t("orders.confirm")}</DropdownMenuItem>
-                             <DropdownMenuItem onClick={() => updateStatus(order._id, 'Paid', { paymentStatus: 'Paid' })}>{t("orders.mark_paid")}</DropdownMenuItem>
-                             <DropdownMenuItem onClick={() => updateStatus(order._id, 'Ready for Delivery')}>{t("orders.ready_for_delivery")}</DropdownMenuItem>
-                             <DropdownMenuItem onClick={() => updateStatus(order._id, 'Released for Delivery')}>{t("orders.release_for_delivery")}</DropdownMenuItem>
-                             <DropdownMenuItem onClick={() => updateStatus(order._id, 'Delivered')}>{t("orders.mark_delivered")}</DropdownMenuItem>
-                           </DropdownMenuGroup>
-                           <DropdownMenuSeparator />
-                           <DropdownMenuGroup>
-                             <DropdownMenuItem className="text-destructive" onClick={() => handleCancelOrder(order._id)}>{t("orders.cancel_order")}</DropdownMenuItem>
-                             <DropdownMenuItem className="text-destructive font-bold" onClick={() => deleteOrder(order._id)}>{t("orders.delete_order")}</DropdownMenuItem>
-                           </DropdownMenuGroup>
-                         </DropdownMenuContent>
-                       </DropdownMenu>
-                     </div>
-                   </div>
-                 </div>
-               </div>
-             ))
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-7 w-7">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuGroup>
+                            <DropdownMenuItem onClick={() => handleDownloadInvoice(order)}>
+                              <FileText className="mr-2 h-4 w-4 text-primary" /> Invoice PDF
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handlePrint([order._id])}>
+                              <Printer className="mr-2 h-4 w-4 text-primary" /> Print
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => handleSendToSteadfast([order._id])}
+                              disabled={!!order.shippingDetails?.consignmentId}
+                            >
+                              <Truck className="mr-2 h-4 w-4 text-orange-500" /> Send Steadfast
+                            </DropdownMenuItem>
+                          </DropdownMenuGroup>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuGroup>
+                            <DropdownMenuItem onClick={() => updateStatus(order._id, 'Confirmed')}>Confirm</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => updateStatus(order._id, 'Paid', { paymentStatus: 'Paid' })}>Mark Paid</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleHoldOrder(order._id)}>Hold Order</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => updateStatus(order._id, 'Delivered')}>Mark Delivered</DropdownMenuItem>
+                            <DropdownMenuItem className="text-destructive" onClick={() => handleCancelOrder(order._id)}>Cancel</DropdownMenuItem>
+                          </DropdownMenuGroup>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
           )}
         </div>
+
         {totalPages > 1 && (
-          <div className="py-6 border-t bg-white px-6">
+          <div className="py-4 border-t bg-card px-3 sm:px-6 flex justify-center">
             <Pagination
               currentPage={currentPage}
               totalPages={totalPages}
@@ -1535,18 +1707,18 @@ function OrdersContent() {
         onOpenChange={setIsDetailsOpen}
         onUpdate={fetchOrders}
       />
-
       <ManualOrderDialog
         open={isManualOrderOpen}
         onOpenChange={setIsManualOrderOpen}
-        onCreated={fetchOrders}
+        onCreated={() => fetchOrders()}
       />
+
 
       {bulkActionLoading && (
         <div className="fixed inset-0 z-50 bg-black/20 backdrop-blur-sm flex items-center justify-center">
           <div className="bg-white p-6 rounded-xl shadow-xl flex flex-col items-center gap-4">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <p className="font-bold">{t("orders.processing_bulk")}</p>
+            <p className="font-bold">Processing bulk action...</p>
           </div>
         </div>
       )}
@@ -1556,7 +1728,11 @@ function OrdersContent() {
 
 export default function OrdersPage() {
   return (
-    <Suspense fallback={<AdminTableSkeleton rowCount={7} columnCount={6} titleWidth="w-56" showStats={true} />}>
+    <Suspense fallback={
+      <div className="flex h-[300px] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    }>
       <OrdersContent />
     </Suspense>
   );

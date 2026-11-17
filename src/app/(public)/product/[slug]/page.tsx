@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { Metadata } from 'next';
 import { headers } from 'next/headers';
-import { generateProductSchema, generateBreadcrumbSchema } from '@/lib/seo';
+import { generateProductSchema, generateBreadcrumbSchema, resolveRequestHost, getProductMeta } from '@/lib/seo';
 import { ProductDetailsSelector } from '@/components/templates/ServerRegistry';
 import { ProductCard } from '@/components/storefront/ProductCard';
 import { ViewTracker } from '@/components/common/ViewTracker';
@@ -29,46 +29,37 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 
   const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
   const headersList = await headers();
-  const hostname = headersList.get('host') || 'localhost';
-  const baseUrl = `${protocol}://${hostname}`;
+  const host = resolveRequestHost(headersList);
+  const baseUrl = `${protocol}://${host}`;
+  const canonicalUrl = `${baseUrl}/product/${slug}`;
 
-  // Strip HTML tags and JSON structure for a clean meta description
-  const cleanDescription = (product.description ?? '')
-    .replace(/<[^>]*>?/gm, '') // Remove HTML tags
-    .replace(/\{"type":"doc"[\s\S]*\}/g, (match: string) => {
-        try {
-            const parsed = JSON.parse(match);
-            const getText = (node: any): string => {
-                if (node.text) return node.text;
-                if (node.content) return node.content.map(getText).join(' ');
-                return '';
-            };
-            return getText(parsed);
-        } catch (e) {
-            return match;
-        }
-    })
-    .slice(0, 160);
+  const { safeTitle, safeDescription } = getProductMeta({
+    name: product.name,
+    metaTitle: product.metaTitle,
+    metaDescription: product.metaDescription,
+  });
 
-  const safeDescription = cleanDescription;
   const mainImage = product.images?.[0] ? [{ url: product.images[0] }] : [];
   const twitterImage = product.images?.[0] ? [product.images[0]] : [];
   const siteName = settings?.brandName || 'Online Shop';
 
   return {
-    title: product.name,
+    title: safeTitle,
     description: safeDescription,
+    alternates: {
+      canonical: canonicalUrl,
+    },
     openGraph: {
-      title: product.name,
+      title: safeTitle,
       description: safeDescription,
       images: mainImage,
       type: 'website',
-      url: `${baseUrl}/product/${slug}`,
+      url: canonicalUrl,
       siteName: siteName,
     },
     twitter: {
       card: 'summary_large_image',
-      title: product.name,
+      title: safeTitle,
       description: safeDescription,
       images: twitterImage,
     }
@@ -85,6 +76,31 @@ export default async function ProductDetailsPage({ params }: { params: Promise<{
   ]);
 
   if (!product) {
+    // If product is not in mother catalog, check if it is a reseller product and redirect to the reseller store!
+    try {
+      const conn = await (await import('@/lib/db')).default();
+      const ProductModel = (await import('@/models/Product')).default;
+      const decodedSlug = decodeURIComponent(slug);
+      const isObjId = /^[0-9a-fA-F]{24}$/.test(decodedSlug);
+      const fallbackFilter = isObjId
+        ? { $or: [{ slug: decodedSlug }, { slug }, { _id: decodedSlug }] }
+        : { $or: [{ slug: decodedSlug }, { slug }] };
+      const resellerProduct = await ProductModel.findOne(fallbackFilter)
+        .populate('uploadedBy', 'subdomain customDomain')
+        .lean() as any;
+
+      if (resellerProduct && resellerProduct.uploadedBy && (resellerProduct.uploadedBy.customDomain || resellerProduct.uploadedBy.subdomain)) {
+        const { redirect } = await import('next/navigation');
+        const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'trishnaelectronics.com';
+        const storeDomain = resellerProduct.uploadedBy.customDomain?.replace(/^https?:\/\//, '').replace(/\/+$/, '')
+          || `${resellerProduct.uploadedBy.subdomain}.${rootDomain}`;
+        const previewQuery = resellerProduct.isApprovedByAdmin ? '' : '?preview=true';
+        redirect(`https://${storeDomain}/product/${resellerProduct.slug || slug}${previewQuery}`);
+      }
+    } catch (e: any) {
+      if (e?.digest?.startsWith('NEXT_REDIRECT')) throw e;
+    }
+
     notFound();
   }
 
@@ -94,14 +110,36 @@ export default async function ProductDetailsPage({ params }: { params: Promise<{
   try {
     const conn = await (await import('@/lib/db')).default();
     const ProductModel = (await import('@/models/Product')).default;
-    const relatedProducts = await ProductModel.find({
-      _id: { $ne: product._id },
-      isPublished: true,
-      $or: [
-        { categories: { $in: (product.categories ?? []).map((category: { _id: string }) => category._id) } },
-        { tags: { $in: product.tags || [] } },
-      ],
-    })
+    const { MOTHER_SHOP_PRODUCT_FILTER } = await import('@/models/Product');
+
+    const categoryIds = (product.categories ?? [])
+      .map((category: any) => category?._id || category)
+      .filter(Boolean);
+    const tags = Array.isArray(product.tags) ? product.tags.filter(Boolean) : [];
+
+    const andConditions: any[] = [
+      { _id: { $ne: product._id } },
+      { isPublished: true },
+      MOTHER_SHOP_PRODUCT_FILTER,
+    ];
+
+    const orConditions: any[] = [];
+    if (categoryIds.length > 0) {
+      orConditions.push({ categories: { $in: categoryIds } });
+    }
+    if (tags.length > 0) {
+      orConditions.push({ tags: { $in: tags } });
+    }
+
+    if (orConditions.length > 0) {
+      andConditions.push({ $or: orConditions });
+    }
+
+    const relatedProducts = await ProductModel.find(
+      orConditions.length > 0
+        ? { $and: andConditions }
+        : { _id: { $ne: product._id }, isPublished: true, ...MOTHER_SHOP_PRODUCT_FILTER }
+    )
       .populate('categories')
       .sort({ createdAt: -1 })
       .limit(4)
